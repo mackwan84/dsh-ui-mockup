@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises'
-import { resolve } from 'node:path'
+import { resolve, sep } from 'node:path'
 import { credentialRef, type CredentialRef } from '@deepseek-ai/dsh-credentials'
 import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
 import type { Context } from '@deepseek-ai/cordis'
@@ -67,6 +67,16 @@ export const Config: z<Config> = z.object({
 })
 
 type JsonObject = Record<string, unknown>
+
+/** 解析参考图绝对路径并校验不逃逸出工作目录：reference 是模型可控输入，防止越界读取后外发。 */
+function resolveReferencePath(reference: string, cwd?: string): string {
+  const root = resolve(cwd ?? '.')
+  const absolute = resolve(root, reference)
+  if (absolute !== root && !absolute.startsWith(root + sep)) {
+    throw new ImageProviderError('INVALID_PARAMETER', `参考图路径 ${reference} 逃逸出工作目录 ${root}`)
+  }
+  return absolute
+}
 
 /** 识别错误响应中的限流错误码。 */
 function isRateLimitCode(code: unknown): code is string {
@@ -137,7 +147,7 @@ export default class DashscopeImageProvider extends ImageGenerationService {
     if (isQwen) {
       const content: JsonObject[] = []
       if (spec.reference !== undefined && spec.reference !== '') {
-        const bytes = await readFile(resolve(spec.cwd ?? '.', spec.reference))
+        const bytes = await readFile(resolveReferencePath(spec.reference, spec.cwd))
         content.push({ image: `data:image/png;base64,${bytes.toString('base64')}` })
       }
       content.push({ text: spec.prompt })
@@ -192,12 +202,13 @@ export default class DashscopeImageProvider extends ImageGenerationService {
     if (typeof last.data.code === 'string' && last.data.code !== '') {
       throw new ImageProviderError('INVALID_PARAMETER', String(last.data.message ?? last.data.code))
     }
-    const output = last.data.output as JsonObject | undefined
-    if (output !== undefined && typeof output.task_id === 'string') {
+    // 网关可能返回 "output": null（JSON null），与 undefined 一并防御，避免 null.task_id 抛裸 TypeError。
+    const output = last.data.output as JsonObject | null | undefined
+    if (output != null && typeof output.task_id === 'string') {
       return { taskId: output.task_id }
     }
-    const syncUrls = extractImageUrls(output)
-    if (syncUrls.length > 0) return { taskId: '', syncOutput: output }
+    const syncUrls = output != null ? extractImageUrls(output) : []
+    if (syncUrls.length > 0 && output != null) return { taskId: '', syncOutput: output }
     throw new ImageProviderError('BAD_RESPONSE', '创建任务响应缺少 task_id 与图片结果')
   }
 
@@ -211,6 +222,17 @@ export default class DashscopeImageProvider extends ImageGenerationService {
         signal,
       })
       const data = (await res.json().catch(() => ({}))) as JsonObject
+      const code = typeof data.code === 'string' && data.code !== '' ? data.code : undefined
+      // 携带错误码的响应（鉴权失效/任务不存在/参数非法等）是确定性失败：
+      // 立即终止，而不是空转轮询到超时把真实根因掩盖成 TIMEOUT。
+      if (code !== undefined) {
+        throw new ImageProviderError('TASK_FAILED', `轮询任务 ${taskId} 失败: HTTP ${res.status} (${code}): ${String(data.message ?? code)}`)
+      }
+      // 无错误码的 4xx（除 429）同样是确定性失败（如网关 HTML 403 页）。
+      if (res.status >= 400 && res.status < 500 && res.status !== 429) {
+        throw new ImageProviderError('HTTP_ERROR', `轮询任务 ${taskId} 失败: HTTP ${res.status}: ${String(data.message ?? '无响应体')}`)
+      }
+      // 5xx/429 视为瞬态网关错误：任务仍在服务端运行，继续轮询直到时限。
       const output = (data.output ?? {}) as JsonObject
       const status = output.task_status
       if (status === 'SUCCEEDED') return output

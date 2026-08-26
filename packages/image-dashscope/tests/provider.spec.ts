@@ -127,6 +127,35 @@ describe('generate · qwen-image', () => {
       await rm(dir, { recursive: true, force: true })
     }
   })
+
+  it('rejects a reference path escaping the working directory before any request', async () => {
+    mockFetch(() => {
+      throw new Error('unexpected fetch: path validation must precede any request')
+    })
+    await expect(provider().generate({ ...wireframeSpec, reference: '../../etc/passwd', cwd: '/tmp/workspace' }))
+      .rejects.toMatchObject({ code: 'INVALID_PARAMETER' })
+  })
+
+  it('clamps n into 1..4 and resolves multiple image urls', async () => {
+    const calls = mockFetch([
+      () => new Response(JSON.stringify({ output: { task_id: 't', task_status: 'PENDING' } }), { status: 200 }),
+      () => new Response(JSON.stringify({
+        output: {
+          task_status: 'SUCCEEDED',
+          choices: [{ message: { role: 'assistant', content: [{ image: 'https://oss/1.png' }, { image: 'https://oss/2.png' }] } }],
+        },
+      }), { status: 200 }),
+      () => new Response(JSON.stringify({ output: { task_id: 't', task_status: 'PENDING' } }), { status: 200 }),
+      () => new Response(JSON.stringify({ output: { task_status: 'SUCCEEDED', results: [{ url: 'https://oss/r.png' }] } }), { status: 200 }),
+    ])
+    const multi = await provider().generate({ ...wireframeSpec, n: 9 })
+    await provider().generate({ ...wireframeSpec, n: 0 })
+    const first = JSON.parse(String(calls[0]!.init.body)) as { parameters: { n: number } }
+    const second = JSON.parse(String(calls[2]!.init.body)) as { parameters: { n: number } }
+    expect(first.parameters.n).toBe(4)
+    expect(second.parameters.n).toBe(1)
+    expect(multi.images).toHaveLength(2)
+  })
 })
 
 describe('generate · wanx fallback', () => {
@@ -198,6 +227,36 @@ describe('resilience', () => {
     const expectation = expect(promise).rejects.toMatchObject({ code: 'TIMEOUT' })
     await vi.advanceTimersByTimeAsync(5_000)
     await expectation
+  })
+
+  it('fails fast on a poll response carrying an error code instead of idling to timeout', async () => {
+    const calls = mockFetch([
+      () => new Response(JSON.stringify({ output: { task_id: 't', task_status: 'PENDING' } }), { status: 200 }),
+      () => new Response(JSON.stringify({ code: 'InvalidApiKey', message: 'Invalid API-key provided.' }), { status: 401 }),
+    ])
+    await expect(provider({ pollTimeoutMs: 600_000 }).generate(wireframeSpec)).rejects.toMatchObject({ code: 'TASK_FAILED' })
+    expect(calls).toHaveLength(2)
+  })
+
+  it('keeps polling through transient 5xx gateway errors', async () => {
+    vi.useFakeTimers()
+    const calls = mockFetch([
+      () => new Response(JSON.stringify({ output: { task_id: 't', task_status: 'PENDING' } }), { status: 200 }),
+      () => new Response('bad gateway', { status: 502 }),
+      () => new Response(JSON.stringify({ output: { task_status: 'SUCCEEDED', results: [{ url: 'https://oss/r.png' }] } }), { status: 200 }),
+    ])
+    const promise = provider().generate(wireframeSpec)
+    await vi.advanceTimersByTimeAsync(5_000)
+    const result = await promise
+    expect(result.images).toEqual([{ url: 'https://oss/r.png' }])
+    expect(calls).toHaveLength(3)
+  })
+
+  it('rejects BAD_RESPONSE when the creation output is JSON null', async () => {
+    mockFetch([
+      () => new Response(JSON.stringify({ output: null }), { status: 200 }),
+    ])
+    await expect(provider().generate(wireframeSpec)).rejects.toMatchObject({ code: 'BAD_RESPONSE' })
   })
 
   it('fails with MISSING_CREDENTIAL when no seam and no ambient key', async () => {

@@ -28,4 +28,5 @@
 ## Known Limitations
 
 - `edit`（参考图编辑/掩码局部重绘）为 `NOT_IMPLEMENTED`，M4 提供；
-- 参考图模式仅支持 qwen-image 系列模型。
+- 参考图模式仅支持 qwen-image 系列模型；
+- `reference` 路径会被限制在 `cwd`（缺省为进程工作目录）之内，逃逸路径直接以 `INVALID_PARAMETER` 拒绝。
