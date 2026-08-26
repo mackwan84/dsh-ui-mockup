@@ -8,7 +8,7 @@
     "build": "pnpm -r run build",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "pack": "rm -rf dist && mkdir -p dist && cd packages/image && pnpm pack --pack-destination ../../dist && cd ../image-dashscope && pnpm pack --pack-destination ../../dist && cd ../tool-ui-mockup && pnpm pack --pack-destination ../../dist && cd ../../bundle/ui-mockup && pnpm pack --pack-destination ../../dist"
+    "pack:all": "rm -rf dist && mkdir -p dist && cd packages/image && pnpm pack --pack-destination ../../dist && cd ../image-dashscope && pnpm pack --pack-destination ../../dist && cd ../tool-ui-mockup && pnpm pack --pack-destination ../../dist && cd ../../bundle/ui-mockup && pnpm pack --pack-destination ../../dist"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
