@@ -1,0 +1,26 @@
+{
+  "name": "@mackwan84/dsh-ui-mockup-bundle",
+  "version": "0.1.0-rc.0",
+  "description": "dsh-ui-mockup 安装层：把百炼图像 Provider 与 ui_mockup 工具挂载进 dsh profile 的 bundle patch",
+  "type": "module",
+  "exports": {
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "cordis.patch.yml"
+  ],
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "dependencies": {
+    "@mackwan84/dsh-image-dashscope": "workspace:^",
+    "@mackwan84/dsh-tool-ui-mockup": "workspace:^"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  }
+}

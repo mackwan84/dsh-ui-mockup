@@ -1,0 +1,12 @@
+# dsh-ui-mockup bundle: 图像生成服务与 ui_mockup 工具。
+# 该 patch 应用在 profile 自身的 cordis.patch.yml 之前；行 id 可被用户
+# 的后续 patch 覆盖（例如改默认模型）。
+#
+# 注意：patch 会整体替换目标行的 config，因此每个行 restates 它拥有的全部键。
+
+- insert:
+    - id: image-dashscope
+      name: '@mackwan84/dsh-image-dashscope'
+
+    - id: tool-ui-mockup
+      name: '@mackwan84/dsh-tool-ui-mockup'
