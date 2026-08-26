@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "declaration": false,
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "@mackwan84/dsh-image": ["./packages/image/src/index.ts"],
+      "@mackwan84/dsh-image-dashscope": ["./packages/image-dashscope/src/index.ts"],
+      "@mackwan84/dsh-tool-ui-mockup": ["./packages/tool-ui-mockup/src/index.ts"]
+    }
+  },
+  "include": ["packages/*/src", "tests", "scripts", "vitest.config.ts"]
+}

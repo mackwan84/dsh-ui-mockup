@@ -7,7 +7,7 @@
   "scripts": {
     "build": "pnpm -r run build",
     "test": "vitest run",
-    "typecheck": "pnpm -r exec tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
     "pack": "rm -rf dist && mkdir -p dist && cd packages/image && pnpm pack --pack-destination ../../dist && cd ../image-dashscope && pnpm pack --pack-destination ../../dist && cd ../tool-ui-mockup && pnpm pack --pack-destination ../../dist && cd ../../bundle/ui-mockup && pnpm pack --pack-destination ../../dist"
   },
   "devDependencies": {
