@@ -10,16 +10,16 @@
 
 ## 配置（cordis.yml `config` 块）
 
-| 键 | 默认 | 说明 |
-| --- | --- | --- |
-| `apiKey` | `DASHSCOPE_API_KEY` | 凭据引用（环境变量名） |
-| `baseUrl` | `https://dashscope.aliyuncs.com` | 网关（国内） |
-| `wireframeModel` | `qwen-image-3.0` | 线框图模型 |
-| `highFidelityModel` | `qwen-image-3.0-pro` | 高保真模型 |
-| `pollTimeoutMs` | 600000 | 轮询总时限 |
-| `pollIntervalMs` | 5000 | 轮询间隔 |
-| `rateLimitRetries` | 2 | 限流重试次数 |
-| `rateLimitBackoffMs` | 25000 | 限流退避间隔 |
+| 键                   | 默认                             | 说明                   |
+| -------------------- | -------------------------------- | ---------------------- |
+| `apiKey`             | `DASHSCOPE_API_KEY`              | 凭据引用（环境变量名） |
+| `baseUrl`            | `https://dashscope.aliyuncs.com` | 网关（国内）           |
+| `wireframeModel`     | `qwen-image-3.0`                 | 线框图模型             |
+| `highFidelityModel`  | `qwen-image-3.0-pro`             | 高保真模型             |
+| `pollTimeoutMs`      | 600000                           | 轮询总时限             |
+| `pollIntervalMs`     | 5000                             | 轮询间隔               |
+| `rateLimitRetries`   | 2                                | 限流重试次数           |
+| `rateLimitBackoffMs` | 25000                            | 限流退避间隔           |
 
 ## Model Experience
 

@@ -22,6 +22,7 @@ export function buildPrompt(args: PromptArgs, hasReference: boolean): string {
   if (args.fidelity === 'wireframe') {
     return `黑白线框图(wireframe)UI 草图, 类似 Balsamiq 手绘风格。只用灰白色块、细边框与简单占位图形表示元素, 无配色、无阴影、无渐变、无照片。每个区块内用清晰的中文小字标注用途, 例如"导航栏"、"搜索框"、"商品卡片"、"按钮"。完整展示页面布局、信息层级与主要交互入口。${base}`
   }
-  const style = args.style !== undefined && args.style.trim() !== '' ? args.style.trim() : '极简浅色, 现代简洁'
+  const style =
+    args.style !== undefined && args.style.trim() !== '' ? args.style.trim() : '极简浅色, 现代简洁'
   return `高保真 UI 界面设计稿, 设计精细, 整体采用${style}的风格。所有中文文案必须准确、清晰、无乱码、排版专业。配色统一、字体层级分明、组件状态完整、间距合理。${base}`
 }

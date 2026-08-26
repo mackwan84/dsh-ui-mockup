@@ -9,9 +9,18 @@ function workspaceSource(rel: string): string {
 export default defineConfig({
   resolve: {
     alias: [
-      { find: /^@mackwan84\/dsh-image$/, replacement: workspaceSource('./packages/image/src/index.ts') },
-      { find: /^@mackwan84\/dsh-image-dashscope$/, replacement: workspaceSource('./packages/image-dashscope/src/index.ts') },
-      { find: /^@mackwan84\/dsh-tool-ui-mockup$/, replacement: workspaceSource('./packages/tool-ui-mockup/src/index.ts') },
+      {
+        find: /^@mackwan84\/dsh-image$/,
+        replacement: workspaceSource('./packages/image/src/index.ts'),
+      },
+      {
+        find: /^@mackwan84\/dsh-image-dashscope$/,
+        replacement: workspaceSource('./packages/image-dashscope/src/index.ts'),
+      },
+      {
+        find: /^@mackwan84\/dsh-tool-ui-mockup$/,
+        replacement: workspaceSource('./packages/tool-ui-mockup/src/index.ts'),
+      },
     ],
   },
   test: {
