@@ -7,7 +7,11 @@ import Include from '@deepseek-ai/cordis-plugin-include'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import { ImageGenerationService } from '@mackwan84/dsh-image'
 import DashscopeImageProvider from '@mackwan84/dsh-image-dashscope'
-import { apply as uiMockupApply, inject as uiMockupInject, name as uiMockupName } from '@mackwan84/dsh-tool-ui-mockup'
+import {
+  apply as uiMockupApply,
+  inject as uiMockupInject,
+  name as uiMockupName,
+} from '@mackwan84/dsh-tool-ui-mockup'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 /** 凭据桩：从进程环境按引用名读取。 */
@@ -90,25 +94,28 @@ interface Booted {
 
 async function bootComposition(dir: string): Promise<Booted> {
   const configPath = join(dir, 'cordis.yml')
-  await writeFile(configPath, [
-    "- id: credentials",
-    "  name: 'test-credentials'",
-    '- id: tools',
-    "  name: 'test-tools'",
-    '- id: sandbox-policy',
-    "  name: 'test-sandbox-policy'",
-    '  config:',
-    `    workspaceRoot: ${JSON.stringify(dir)}`,
-    '- id: attachments',
-    "  name: 'test-attachments'",
-    '- id: system-prompt',
-    "  name: 'test-system-prompt'",
-    '- id: image-dashscope',
-    "  name: '@mackwan84/dsh-image-dashscope'",
-    '- id: tool-ui-mockup',
-    "  name: '@mackwan84/dsh-tool-ui-mockup'",
-    '',
-  ].join('\n'))
+  await writeFile(
+    configPath,
+    [
+      '- id: credentials',
+      "  name: 'test-credentials'",
+      '- id: tools',
+      "  name: 'test-tools'",
+      '- id: sandbox-policy',
+      "  name: 'test-sandbox-policy'",
+      '  config:',
+      `    workspaceRoot: ${JSON.stringify(dir)}`,
+      '- id: attachments',
+      "  name: 'test-attachments'",
+      '- id: system-prompt',
+      "  name: 'test-system-prompt'",
+      '- id: image-dashscope',
+      "  name: '@mackwan84/dsh-image-dashscope'",
+      '- id: tool-ui-mockup',
+      "  name: '@mackwan84/dsh-tool-ui-mockup'",
+      '',
+    ].join('\n'),
+  )
 
   const modules = new Map<string, unknown>([
     ['test-credentials', CredentialsStub],
@@ -117,7 +124,10 @@ async function bootComposition(dir: string): Promise<Booted> {
     ['test-attachments', AttachmentsStub],
     ['test-system-prompt', SystemPromptStub],
     ['@mackwan84/dsh-image-dashscope', DashscopeImageProvider],
-    ['@mackwan84/dsh-tool-ui-mockup', { name: uiMockupName, inject: uiMockupInject, apply: uiMockupApply }],
+    [
+      '@mackwan84/dsh-tool-ui-mockup',
+      { name: uiMockupName, inject: uiMockupInject, apply: uiMockupApply },
+    ],
   ])
 
   const ctx = new Context()
@@ -131,7 +141,10 @@ async function bootComposition(dir: string): Promise<Booted> {
       return hit
     },
   } as unknown as NonNullable<typeof ctx.loader.internal>
-  await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(configPath).href } })
+  await ctx.loader.create({
+    name: 'cordis:include',
+    config: { path: pathToFileURL(configPath).href },
+  })
   await ctx.loader.await()
   return {
     ctx,
@@ -156,8 +169,10 @@ describe('ui-mockup real dynamic composition', () => {
     try {
       const booted = await bootComposition(dir)
       expect(booted.ctx.get('image')).toBeInstanceOf(ImageGenerationService)
-      expect(booted.tools.registered.map(definition => definition.name)).toContain('ui_mockup')
-      expect(booted.systemPrompt.sections.map(section => section.name)).toContain('ui-mockup-usage')
+      expect(booted.tools.registered.map((definition) => definition.name)).toContain('ui_mockup')
+      expect(booted.systemPrompt.sections.map((section) => section.name)).toContain(
+        'ui-mockup-usage',
+      )
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
@@ -170,16 +185,30 @@ describe('ui-mockup real dynamic composition', () => {
       const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00])
       vi.stubGlobal('fetch', async (url: string) => {
         if (url.includes('image-generation/generation')) {
-          return new Response(JSON.stringify({ output: { task_id: 'task-composition', task_status: 'PENDING' } }), { status: 200 })
+          return new Response(
+            JSON.stringify({ output: { task_id: 'task-composition', task_status: 'PENDING' } }),
+            { status: 200 },
+          )
         }
         if (url.includes('/api/v1/tasks/task-composition')) {
-          return new Response(JSON.stringify({
-            output: {
-              task_id: 'task-composition',
-              task_status: 'SUCCEEDED',
-              choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: [{ image: 'https://oss.example/mock.png', type: 'image' }] } }],
-            },
-          }), { status: 200 })
+          return new Response(
+            JSON.stringify({
+              output: {
+                task_id: 'task-composition',
+                task_status: 'SUCCEEDED',
+                choices: [
+                  {
+                    finish_reason: 'stop',
+                    message: {
+                      role: 'assistant',
+                      content: [{ image: 'https://oss.example/mock.png', type: 'image' }],
+                    },
+                  },
+                ],
+              },
+            }),
+            { status: 200 },
+          )
         }
         if (url.includes('oss.example')) {
           return new Response(pngBytes, { status: 200, headers: { 'content-type': 'image/png' } })
@@ -187,8 +216,11 @@ describe('ui-mockup real dynamic composition', () => {
         throw new Error(`unexpected fetch: ${url}`)
       })
 
-      const definition = booted.tools.registered.find(item => item.name === 'ui_mockup')!
-      const execute = definition.execute as (args: Record<string, unknown>, exec: { signal: AbortSignal }) => Promise<Record<string, unknown>>
+      const definition = booted.tools.registered.find((item) => item.name === 'ui_mockup')!
+      const execute = definition.execute as (
+        args: Record<string, unknown>,
+        exec: { signal: AbortSignal },
+      ) => Promise<Record<string, unknown>>
       const value = await execute(
         { description: '在线书店主页线框图', fidelity: 'wireframe', platform: 'web' },
         { signal: new AbortController().signal },
@@ -224,25 +256,46 @@ describe('ui-mockup real dynamic composition', () => {
       let createBody = ''
       vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
         if (url.includes('image-generation/generation')) {
-          createBody = String(init?.body ?? '')
-          return new Response(JSON.stringify({ output: { task_id: 'task-ref', task_status: 'PENDING' } }), { status: 200 })
+          createBody = typeof init?.body === 'string' ? init.body : ''
+          return new Response(
+            JSON.stringify({ output: { task_id: 'task-ref', task_status: 'PENDING' } }),
+            { status: 200 },
+          )
         }
         if (url.includes('/api/v1/tasks/task-ref')) {
-          return new Response(JSON.stringify({
-            output: { task_id: 'task-ref', task_status: 'SUCCEEDED', results: [{ url: 'https://oss.example/mock.png' }] },
-          }), { status: 200 })
+          return new Response(
+            JSON.stringify({
+              output: {
+                task_id: 'task-ref',
+                task_status: 'SUCCEEDED',
+                results: [{ url: 'https://oss.example/mock.png' }],
+              },
+            }),
+            { status: 200 },
+          )
         }
         if (url.includes('oss.example')) {
           // 故意返回 octet-stream: 媒体类型应由魔数嗅探纠正为 png
-          return new Response(Buffer.concat([pngSignature, Buffer.from([0x00])]), { status: 200, headers: { 'content-type': 'application/octet-stream' } })
+          return new Response(Buffer.concat([pngSignature, Buffer.from([0x00])]), {
+            status: 200,
+            headers: { 'content-type': 'application/octet-stream' },
+          })
         }
         throw new Error(`unexpected fetch: ${url}`)
       })
 
-      const definition = booted.tools.registered.find(item => item.name === 'ui_mockup')!
-      const execute = definition.execute as (args: Record<string, unknown>, exec: { signal: AbortSignal }) => Promise<Record<string, unknown>>
+      const definition = booted.tools.registered.find((item) => item.name === 'ui_mockup')!
+      const execute = definition.execute as (
+        args: Record<string, unknown>,
+        exec: { signal: AbortSignal },
+      ) => Promise<Record<string, unknown>>
       const value = await execute(
-        { description: '图书详情页', fidelity: 'high-fidelity', platform: 'web', reference: 'assets/base.png' },
+        {
+          description: '图书详情页',
+          fidelity: 'high-fidelity',
+          platform: 'web',
+          reference: 'assets/base.png',
+        },
         { signal: new AbortController().signal },
       )
 
@@ -263,10 +316,18 @@ describe('ui-mockup real dynamic composition', () => {
       vi.stubGlobal('fetch', async () => {
         throw new Error('unexpected fetch: escaping reference must be rejected before any request')
       })
-      const definition = booted.tools.registered.find(item => item.name === 'ui_mockup')!
-      const execute = definition.execute as (args: Record<string, unknown>, exec: { signal: AbortSignal }) => Promise<Record<string, unknown>>
+      const definition = booted.tools.registered.find((item) => item.name === 'ui_mockup')!
+      const execute = definition.execute as (
+        args: Record<string, unknown>,
+        exec: { signal: AbortSignal },
+      ) => Promise<Record<string, unknown>>
       const value = await execute(
-        { description: '任意页面', fidelity: 'wireframe', platform: 'web', reference: '../../etc/passwd' },
+        {
+          description: '任意页面',
+          fidelity: 'wireframe',
+          platform: 'web',
+          reference: '../../etc/passwd',
+        },
         { signal: new AbortController().signal },
       )
       expect(value.ok).toBe(false)
