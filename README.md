@@ -39,6 +39,19 @@ dsh plugin --profile web add /path/to/dsh-ui-mockup/bundle/ui-mockup
 
 见 [docs/implementation-plan.md](docs/implementation-plan.md)（架构、里程碑 M1–M4、依赖策略、关键 API 事实）。
 
+常用命令：
+
+```sh
+pnpm test          # 单元 + 组合测试（无需先构建）
+pnpm typecheck     # 全仓 TypeScript 检查（根 tsconfig 统一入口）
+pnpm lint          # ESLint（js/ts 推荐 + 类型感知规则）
+pnpm lint:fix      # ESLint 自动修复
+pnpm format        # Prettier 全仓格式化
+pnpm format:check  # Prettier 格式检查
+pnpm build         # 构建三个包的 lib/
+pnpm run pack:all  # 打包 4 个 tarball 到 dist/
+```
+
 ## License
 
 详见 [LICENSE](LICENSE)。

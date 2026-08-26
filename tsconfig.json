@@ -11,5 +11,5 @@
       "@mackwan84/dsh-tool-ui-mockup": ["./packages/tool-ui-mockup/src/index.ts"]
     }
   },
-  "include": ["packages/*/src", "tests", "scripts", "vitest.config.ts"]
+  "include": ["packages/*/src", "packages/*/tests", "tests", "scripts", "vitest.config.ts"]
 }
