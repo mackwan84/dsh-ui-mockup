@@ -85,11 +85,40 @@ class SystemPromptStub extends Service {
   }
 }
 
+/** webServer 桩：记录注册的路由并暴露给断言。 */
+class WebServerStub extends Service {
+  readonly routes: Array<{
+    kind: string
+    path: string
+    handler: (req: { url?: string }, res: RouteResponse) => void | Promise<void>
+  }> = []
+
+  constructor(ctx: Context) {
+    super(ctx, 'webServer')
+  }
+
+  register(route: {
+    kind: string
+    path: string
+    handler: (req: { url?: string }, res: RouteResponse) => void | Promise<void>
+  }) {
+    this.routes.push(route)
+    return () => {}
+  }
+}
+
+/** 路由响应桩：记录 writeHead/end 调用与写入字节。 */
+interface RouteResponse {
+  writeHead(status: number, headers?: Record<string, unknown>): void
+  end(body?: Buffer): void
+}
+
 interface Booted {
   ctx: Context
   tools: ToolsStub
   attachments: AttachmentsStub
   systemPrompt: SystemPromptStub
+  webServer: WebServerStub
 }
 
 async function bootComposition(dir: string): Promise<Booted> {
@@ -109,6 +138,8 @@ async function bootComposition(dir: string): Promise<Booted> {
       "  name: 'test-attachments'",
       '- id: system-prompt',
       "  name: 'test-system-prompt'",
+      '- id: webserver',
+      "  name: 'test-webserver'",
       '- id: image-dashscope',
       "  name: '@mackwan84/dsh-image-dashscope'",
       '- id: tool-ui-mockup',
@@ -123,6 +154,7 @@ async function bootComposition(dir: string): Promise<Booted> {
     ['test-sandbox-policy', SandboxPolicyStub],
     ['test-attachments', AttachmentsStub],
     ['test-system-prompt', SystemPromptStub],
+    ['test-webserver', WebServerStub],
     ['@mackwan84/dsh-image-dashscope', DashscopeImageProvider],
     [
       '@mackwan84/dsh-tool-ui-mockup',
@@ -151,6 +183,7 @@ async function bootComposition(dir: string): Promise<Booted> {
     tools: ctx.get('tools') as unknown as ToolsStub,
     attachments: ctx.get('attachments') as unknown as AttachmentsStub,
     systemPrompt: ctx.get('systemPrompt') as unknown as SystemPromptStub,
+    webServer: ctx.get('webServer') as unknown as WebServerStub,
   }
 }
 
@@ -336,4 +369,49 @@ describe('ui-mockup real dynamic composition', () => {
       await rm(dir, { recursive: true, force: true })
     }
   })
+
+  it('registers the image route and serves design/images/ without escaping', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+    try {
+      const booted = await bootComposition(dir)
+      const route = booted.webServer.routes.find(
+        (item) => item.kind === 'prefix' && item.path === '/ui-mockup/images',
+      )
+      expect(route).toBeDefined()
+
+      const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00])
+      await mkdir(join(dir, 'design/images'), { recursive: true })
+      await writeFile(join(dir, 'design/images/mockup-a.png'), png)
+
+      // 正常命中：返回 200 与图片字节
+      const ok = await dispatchRoute(route!.handler, '/ui-mockup/images/mockup-a.png')
+      expect(ok.status).toBe(200)
+      expect(ok.body).toEqual(png)
+
+      // 路径逃逸：拒绝
+      const escaped = await dispatchRoute(route!.handler, '/ui-mockup/images/../../secret.png')
+      expect(escaped.status).toBe(400)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
 })
+
+/** 以记录式响应桩调用一次路由 handler。 */
+async function dispatchRoute(
+  handler: (req: { url?: string }, res: RouteResponse) => void | Promise<void>,
+  url: string,
+): Promise<{ status: number; body?: Buffer }> {
+  let status = 0
+  let body: Buffer | undefined
+  const res: RouteResponse = {
+    writeHead(next: number) {
+      status = next
+    },
+    end(chunk?: Buffer) {
+      body = chunk
+    },
+  }
+  await handler({ url }, res)
+  return { status, body }
+}

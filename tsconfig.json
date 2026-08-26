@@ -4,6 +4,8 @@
     "noEmit": true,
     "declaration": false,
     "types": ["node"],
+    "jsx": "react-jsx",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "baseUrl": ".",
     "paths": {
       "@mackwan84/dsh-image": ["./packages/image/src/index.ts"],
@@ -11,5 +13,12 @@
       "@mackwan84/dsh-tool-ui-mockup": ["./packages/tool-ui-mockup/src/index.ts"]
     }
   },
-  "include": ["packages/*/src", "packages/*/tests", "tests", "scripts", "vitest.config.ts"]
+  "include": [
+    "packages/*/src",
+    "packages/*/tests",
+    "packages/*/tsdown.config.ts",
+    "tests",
+    "scripts",
+    "vitest.config.ts"
+  ]
 }

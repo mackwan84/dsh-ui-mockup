@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
-import { appendFile, mkdir, writeFile } from 'node:fs/promises'
-import { resolve } from 'node:path'
+import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { basename, resolve, sep } from 'node:path'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import { ImageProviderError, type ImageGenerateSpec } from '@mackwan84/dsh-image'
 import { buildPrompt } from './prompt.js'
@@ -68,6 +69,15 @@ interface AttachmentsFace {
 /** sandboxPolicy 服务的结构面（本包只读工作区根目录）。 */
 interface SandboxPolicyFace {
   workspaceRoot: string
+}
+
+/** webServer 服务的结构面（本包只注册图片前缀路由）。 */
+interface WebServerFace {
+  register(route: {
+    kind: 'exact' | 'prefix'
+    path: string
+    handler: (req: IncomingMessage, res: ServerResponse) => void | Promise<void>
+  }): () => void
 }
 
 interface ImageEntry {
@@ -144,6 +154,14 @@ function extensionFor(mediaType: string): string {
       : mediaType === 'image/gif'
         ? 'gif'
         : 'png'
+}
+
+/** 按生成图文件名扩展名推断 HTTP 媒体类型（图片路由响应头）。 */
+function mediaTypeForExtension(name: string): string {
+  if (name.endsWith('.jpg') || name.endsWith('.jpeg')) return 'image/jpeg'
+  if (name.endsWith('.webp')) return 'image/webp'
+  if (name.endsWith('.gif')) return 'image/gif'
+  return 'image/png'
 }
 
 export function apply(ctx: Context) {
@@ -429,6 +447,57 @@ export function apply(ctx: Context) {
 
   const systemPrompt = ctx.get('systemPrompt') as SystemPromptFace
   ctx.effect(() => systemPrompt.section(USAGE_SECTION))
+
+  // 图片路由：服务工作区 design/images/ 目录，供客户端卡片 <img> 内嵌展示。
+  // webServer 是 host-plane 服务，consumer 行通过 ctx.get 可选读取；读不到时
+  // 图片内嵌降级为附件/文件名展示，不影响卡片与反馈按钮。
+  const webServer = ctx.get('webServer') as WebServerFace | undefined
+  if (webServer !== undefined) {
+    ctx.effect(() =>
+      webServer.register({
+        kind: 'prefix',
+        path: '/ui-mockup/images',
+        async handler(req, res) {
+          const rawPath = new URL(req.url ?? '/', 'http://x').pathname
+          const prefix = '/ui-mockup/images/'
+          if (!rawPath.startsWith(prefix)) {
+            res.writeHead(400)
+            res.end()
+            return
+          }
+          const name = decodeURIComponent(rawPath.slice(prefix.length))
+          // 只接受纯文件名（无路径分隔符），防路径逃逸；生成文件名恒为 mockup-*.ext
+          const fileName = basename(name)
+          if (fileName === '' || fileName !== name || fileName === '.' || fileName === '..') {
+            res.writeHead(400)
+            res.end()
+            return
+          }
+          const policy = ctx.get('sandboxPolicy') as SandboxPolicyFace | undefined
+          const root = resolve(policy?.workspaceRoot ?? '.')
+          const filePath = resolve(root, 'design/images', fileName)
+          // 防逃逸：拼接结果必须仍在工作区 design/images 之内
+          if (!filePath.startsWith(root + sep)) {
+            res.writeHead(400)
+            res.end()
+            return
+          }
+          try {
+            const buffer = await readFile(filePath)
+            res.writeHead(200, {
+              'Content-Type': mediaTypeForExtension(fileName),
+              'Content-Length': buffer.byteLength,
+              'Cache-Control': 'no-store',
+            })
+            res.end(buffer)
+          } catch {
+            res.writeHead(404)
+            res.end()
+          }
+        },
+      }),
+    )
+  }
 }
 
 /** image 服务的结构面（兼容 @mackwan84/dsh-image 的抽象契约）。 */
