@@ -37,7 +37,8 @@ dsh plugin --profile web add /path/to/dsh-ui-mockup/bundle/ui-mockup
 
 ## 开发
 
-见 [docs/implementation-plan.md](docs/implementation-plan.md)（架构、里程碑 M1–M4、依赖策略、关键 API 事实）。
+- [docs/product-guide.md](docs/product-guide.md) — 产品文档（是什么 / 怎么用 / FAQ，含 mermaid 流程图与时序图）
+- [docs/implementation-plan.md](docs/implementation-plan.md) — 实施计划（架构、里程碑 M1–M4、依赖策略、关键 API 事实）
 
 常用命令：
 
