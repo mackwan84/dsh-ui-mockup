@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -208,6 +208,69 @@ describe('ui-mockup real dynamic composition', () => {
       const history = await readFile(join(dir, 'design/history.jsonl'), 'utf8')
       expect(history).toContain('"model":"qwen-image-3.0"')
       expect(history).toContain('"status":"generated"')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('resolves reference against the workspace root and sniffs the real media type', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+    try {
+      // 参考图放在工作区内; 测试进程 CWD 是仓库根, 若 reference 相对进程 CWD 解析则必然 ENOENT
+      await mkdir(join(dir, 'assets'), { recursive: true })
+      const pngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+      await writeFile(join(dir, 'assets/base.png'), pngSignature)
+      const booted = await bootComposition(dir)
+      let createBody = ''
+      vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+        if (url.includes('image-generation/generation')) {
+          createBody = String(init?.body ?? '')
+          return new Response(JSON.stringify({ output: { task_id: 'task-ref', task_status: 'PENDING' } }), { status: 200 })
+        }
+        if (url.includes('/api/v1/tasks/task-ref')) {
+          return new Response(JSON.stringify({
+            output: { task_id: 'task-ref', task_status: 'SUCCEEDED', results: [{ url: 'https://oss.example/mock.png' }] },
+          }), { status: 200 })
+        }
+        if (url.includes('oss.example')) {
+          // 故意返回 octet-stream: 媒体类型应由魔数嗅探纠正为 png
+          return new Response(Buffer.concat([pngSignature, Buffer.from([0x00])]), { status: 200, headers: { 'content-type': 'application/octet-stream' } })
+        }
+        throw new Error(`unexpected fetch: ${url}`)
+      })
+
+      const definition = booted.tools.registered.find(item => item.name === 'ui_mockup')!
+      const execute = definition.execute as (args: Record<string, unknown>, exec: { signal: AbortSignal }) => Promise<Record<string, unknown>>
+      const value = await execute(
+        { description: '图书详情页', fidelity: 'high-fidelity', platform: 'web', reference: 'assets/base.png' },
+        { signal: new AbortController().signal },
+      )
+
+      expect(value.ok).toBe(true)
+      expect(createBody).toContain('data:image/png;base64,')
+      const images = value.images as Array<{ mediaType: string; path: string }>
+      expect(images[0]!.mediaType).toBe('image/png')
+      expect(images[0]!.path.endsWith('.png')).toBe(true)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects a reference path escaping the workspace root', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+    try {
+      const booted = await bootComposition(dir)
+      vi.stubGlobal('fetch', async () => {
+        throw new Error('unexpected fetch: escaping reference must be rejected before any request')
+      })
+      const definition = booted.tools.registered.find(item => item.name === 'ui_mockup')!
+      const execute = definition.execute as (args: Record<string, unknown>, exec: { signal: AbortSignal }) => Promise<Record<string, unknown>>
+      const value = await execute(
+        { description: '任意页面', fidelity: 'wireframe', platform: 'web', reference: '../../etc/passwd' },
+        { signal: new AbortController().signal },
+      )
+      expect(value.ok).toBe(false)
+      expect(value.message).toContain('INVALID_PARAMETER')
     } finally {
       await rm(dir, { recursive: true, force: true })
     }

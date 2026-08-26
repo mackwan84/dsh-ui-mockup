@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
@@ -108,6 +109,20 @@ const USAGE_SECTION = {
   ].join('\n'),
 }
 
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+
+/** 按魔数嗅探图片真实类型：OSS 签名 URL 常以 application/octet-stream 返回生成图，content-type 不可信。 */
+function detectMediaType(buffer: Buffer): string | undefined {
+  if (buffer.length >= 8 && buffer.subarray(0, 8).equals(PNG_SIGNATURE)) return 'image/png'
+  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return 'image/jpeg'
+  if (buffer.length >= 12 && buffer.subarray(0, 4).toString('latin1') === 'RIFF' && buffer.subarray(8, 12).toString('latin1') === 'WEBP') return 'image/webp'
+  if (buffer.length >= 6) {
+    const head = buffer.subarray(0, 6).toString('latin1')
+    if (head === 'GIF87a' || head === 'GIF89a') return 'image/gif'
+  }
+  return undefined
+}
+
 /** 把 HTTP 媒体类型归一化为图片附件允许的媒体类型，未知时回退 PNG。 */
 function toMediaType(contentType: string | null): string {
   if (contentType === null) return 'image/png'
@@ -169,6 +184,8 @@ export function apply(ctx: Context) {
           const result = value as MockupValue
           if (result.images !== undefined) {
             for (const image of result.images) {
+              // 未入附件（超限/无附件服务）的条目没有可解析的引用，跳过图片块，路径已在文本中给出
+              if (image.attachmentId === '') continue
               blocks.push({
                 type: 'image',
                 attachment: {
@@ -197,6 +214,10 @@ export function apply(ctx: Context) {
           }
           const platform = args.platform === 'mobile' ? 'mobile' : 'web'
           const reference = typeof args.reference === 'string' && args.reference.trim() !== '' ? args.reference.trim() : undefined
+          const sandboxPolicy = ctx.get('sandboxPolicy') as SandboxPolicyFace | undefined
+          const workspaceRoot = sandboxPolicy !== undefined && typeof sandboxPolicy.workspaceRoot === 'string'
+            ? sandboxPolicy.workspaceRoot
+            : '.'
           const spec: ImageGenerateSpec = {
             prompt: buildPrompt(
               { description: args.description, fidelity, platform, style: typeof args.style === 'string' ? args.style : undefined },
@@ -209,6 +230,8 @@ export function apply(ctx: Context) {
             n: typeof args.count === 'number' ? args.count : undefined,
             model: typeof args.model === 'string' ? args.model : undefined,
             reference,
+            // 参考图必须相对会话工作区根解析: 宿主进程 CWD 不保证与工作区一致
+            cwd: workspaceRoot,
           }
 
           const service = ctx.get('image') as ImageGenerationServiceFace | undefined
@@ -218,47 +241,64 @@ export function apply(ctx: Context) {
           const generated = await service.generate(spec, exec.signal)
 
           const attachments = ctx.get('attachments') as AttachmentsFace | undefined
-          const sandboxPolicy = ctx.get('sandboxPolicy') as SandboxPolicyFace | undefined
-          const workspaceRoot = sandboxPolicy !== undefined && typeof sandboxPolicy.workspaceRoot === 'string'
-            ? sandboxPolicy.workspaceRoot
-            : '.'
+          const maxImageBytes = attachments?.imageLimits?.maxImageBytes
           const stamp = Date.now()
+          const runId = randomUUID().slice(0, 8)
           const images: ImageEntry[] = []
+          const failures: string[] = []
+          let oversize = 0
           for (let i = 0; i < generated.images.length; i++) {
             const item = generated.images[i]!
-            const res = await fetch(item.url, { signal: exec.signal })
-            if (!res.ok) return { ok: false, message: `下载生成图失败: HTTP ${res.status}` }
-            const mediaType = toMediaType(res.headers.get('content-type'))
-            const fileName = `mockup-${stamp}-${i + 1}.${extensionFor(mediaType)}`
-            const buffer = Buffer.from(await res.arrayBuffer())
-            const dir = resolve(workspaceRoot, 'design/images')
-            await mkdir(dir, { recursive: true })
-            await writeFile(resolve(dir, fileName), buffer)
-            const relPath = `design/images/${fileName}`
-            let entry: ImageEntry
-            if (attachments !== undefined) {
-              const ref = await attachments.saveImage({ data: new Uint8Array(buffer), mediaType, name: fileName })
-              entry = {
-                path: relPath,
-                name: ref.name ?? fileName,
-                width: ref.width,
-                height: ref.height,
-                attachmentId: ref.attachmentId,
-                mediaType: ref.mediaType,
-                bytes: ref.bytes,
+            try {
+              const res = await fetch(item.url, { signal: exec.signal })
+              if (!res.ok) {
+                failures.push(`第 ${i + 1} 张: HTTP ${res.status}`)
+                continue
               }
-            } else {
-              entry = {
-                path: relPath,
-                name: fileName,
-                width: 0,
-                height: 0,
-                attachmentId: '',
-                mediaType,
-                bytes: buffer.byteLength,
+              const buffer = Buffer.from(await res.arrayBuffer())
+              const mediaType = detectMediaType(buffer) ?? toMediaType(res.headers.get('content-type'))
+              // 文件名带随机段: 工具标记为可并发, 同毫秒完成的两次调用不应互相覆盖
+              const fileName = `mockup-${stamp}-${runId}-${i + 1}.${extensionFor(mediaType)}`
+              const dir = resolve(workspaceRoot, 'design/images')
+              await mkdir(dir, { recursive: true })
+              await writeFile(resolve(dir, fileName), buffer)
+              const relPath = `design/images/${fileName}`
+              let entry: ImageEntry
+              if (attachments !== undefined && maxImageBytes !== undefined && buffer.byteLength > maxImageBytes) {
+                // 超过会话附件上限: 图片仍落盘工作区, 但不进附件, 避免拖垮会话上下文
+                oversize += 1
+                entry = { path: relPath, name: fileName, width: 0, height: 0, attachmentId: '', mediaType, bytes: buffer.byteLength }
+              } else if (attachments !== undefined) {
+                const ref = await attachments.saveImage({ data: new Uint8Array(buffer), mediaType, name: fileName })
+                entry = {
+                  path: relPath,
+                  name: ref.name ?? fileName,
+                  width: ref.width,
+                  height: ref.height,
+                  attachmentId: ref.attachmentId,
+                  mediaType: ref.mediaType,
+                  bytes: ref.bytes,
+                }
+              } else {
+                entry = {
+                  path: relPath,
+                  name: fileName,
+                  width: 0,
+                  height: 0,
+                  attachmentId: '',
+                  mediaType,
+                  bytes: buffer.byteLength,
+                }
               }
+              images.push(entry)
+            } catch (error) {
+              // 中途取消如实上抛; 单张下载失败不丢弃其余已消耗配额的图片
+              if (exec.signal.aborted) throw error
+              failures.push(`第 ${i + 1} 张: ${error instanceof Error ? error.message : String(error)}`)
             }
-            images.push(entry)
+          }
+          if (images.length === 0) {
+            return { ok: false, message: `生成成功但全部图片下载失败: ${failures.join('; ')}` }
           }
 
           // 生成历史元数据：设置面板历史页的数据来源（M3 消费）。
@@ -277,11 +317,14 @@ export function apply(ctx: Context) {
 
           const label = fidelity === 'wireframe' ? '线框图' : '高保真设计稿'
           const paths = images.map(image => image.path).join(', ')
-          return {
-            ok: true,
-            message: `已用模型 ${generated.model} 生成 ${images.length} 张${label}。图片已保存到 ${paths}, 请在对话中查看并反馈; 需要修改时直接描述要改的地方。确认无误后我会将设计提炼为 design/spec.md 作为实现规格。`,
-            images,
+          let message = `已用模型 ${generated.model} 生成 ${images.length} 张${label}。图片已保存到 ${paths}, 请在对话中查看并反馈; 需要修改时直接描述要改的地方。确认无误后我会将设计提炼为 design/spec.md 作为实现规格。`
+          if (failures.length > 0) {
+            message += ` 注意: 有 ${failures.length} 张下载失败(${failures.join('; ')}), 其余图片已保留。`
           }
+          if (oversize > 0) {
+            message += ` 其中 ${oversize} 张超过会话附件大小上限, 仅保存到工作区, 未在对话中展示。`
+          }
+          return { ok: true, message, images }
         } catch (error) {
           if (error instanceof ImageProviderError) {
             return { ok: false, message: `生成失败 [${error.code}]: ${error.message}` }

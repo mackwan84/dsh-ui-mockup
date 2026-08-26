@@ -4,8 +4,9 @@
 写入 `design/history.jsonl` 生成历史，并注入提示词规则引导"确认后写 `design/spec.md`、未确认不写实现代码"。
 
 - 模型分层：wireframe → `qwen-image-3.0`，high-fidelity → `qwen-image-3.0-pro`（可 `model` 覆盖）；
-- 参考图模式：`reference` 指向已确认页面，图生图保持全站风格一致；
-- 结果通过 attachments 存为会话图片附件（工具结果以图片块呈现）；
+- 参考图模式：`reference` 指向已确认页面（相对工作区根解析，限制在工作区目录内），图生图保持全站风格一致；
+- 生成图落盘 `design/images/`（文件名含时间戳与随机段，并发不覆盖），下载失败的单张不阻断其余图片；
+- 结果通过 attachments 存为会话图片附件（超过 `imageLimits.maxImageBytes` 的仅落盘不入附件）；
 - 接口限流/轮询/凭据由 Provider 处理。
 
 ## Model Experience
