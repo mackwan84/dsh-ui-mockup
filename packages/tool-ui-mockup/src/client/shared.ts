@@ -28,13 +28,16 @@ export type RpcResultLike<T> =
 /**
  * 把 RPC 结果折叠成「值或抛错」：错误信息面向用户可读，
  * 错误码保留在消息前缀便于排障。
+ * 注意：宿主信封校验要求 payload 必填（clientRequestSchema 的 payload 为
+ * z.unknown() 非可选），JSON.stringify 会丢弃值为 undefined 的字段，因此
+ * 无参端点（overview / test-connection）也必须发送一个 {}。
  */
 export async function callPanel<T>(
   connection: ConnectionFace,
   endpoint: string,
-  payload?: Record<string, unknown>,
+  payload: Record<string, unknown> = {},
 ): Promise<T> {
-  const result = await connection.rpc.call('/ui-mockup', endpoint, payload)
+  const result = await connection.rpc.call('/ui-mockup', endpoint, payload ?? {})
   if (!result.ok) throw new Error(`[${result.error.code}] ${result.error.message}`)
   return result.value as T
 }

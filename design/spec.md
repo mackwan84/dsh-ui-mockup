@@ -41,14 +41,14 @@
 
 单列表单，自上而下：
 
-| 控件 | 类型 | 初始值 | 说明 |
-| --- | --- | --- | --- |
-| 保真度偏好 | 单选 ×2 | 线框图 | wireframe / high-fidelity |
-| 目标平台 | 单选 ×2 | Web | web / mobile |
-| 一次生成数量 | 方块单选 ×4 (1–4) | 2 | 越界值禁止提交 |
-| 输出目录 | 文本框 + 「打开目录」按钮 | `design/images/` | 相对会话工作区根解析 |
-| 轮询超时 | 数字输入（分钟） | 10 | 下限 1 分钟 |
-| 限流退避策略 | 只读灰字 | 25 秒 × 2 次（自动） | 写死策略不开放编辑 |
+| 控件         | 类型                      | 初始值               | 说明                      |
+| ------------ | ------------------------- | -------------------- | ------------------------- |
+| 保真度偏好   | 单选 ×2                   | 线框图               | wireframe / high-fidelity |
+| 目标平台     | 单选 ×2                   | Web                  | web / mobile              |
+| 一次生成数量 | 方块单选 ×4 (1–4)         | 2                    | 越界值禁止提交            |
+| 输出目录     | 文本框 + 「打开目录」按钮 | `design/images/`     | 相对会话工作区根解析      |
+| 轮询超时     | 数字输入（分钟）          | 10                   | 下限 1 分钟               |
+| 限流退避策略 | 只读灰字                  | 25 秒 × 2 次（自动） | 写死策略不开放编辑        |
 
 表单底部：「恢复默认」次级按钮（左）/「保存」主按钮加粗描边（右）。保存成功给出行内成功提示。
 
@@ -74,16 +74,16 @@
 
 ## 4. 数据与接口契约（Client→Host JSON 方法）
 
-| 方法 | 入参 | 出参 |
-| --- | --- | --- |
-| `ui-mockup:overview` | — | provider id/名称、凭据是否就绪、锚点摘要（无则 null） |
-| `ui-mockup:settings:get` | — | 全部偏好字段 + 各字段元信息 |
-| `ui-mockup:settings:set` | 偏好字段子集 | 校验后的全量偏好；非法字段返回明确错误码 |
-| `ui-mockup:history:list` | `{ query?: string }` | 历史条目数组（time/description/files/model/size/isAnchor）+ 可用图片 URL |
-| `ui-mockup:history:clear` | — | 空；同时解除锚点 |
-| `ui-mockup:anchor:set` | `{ index }` / `{ file }` | 当前锚点文件名；目标不存在返回错误 |
-| `ui-mockup:anchor:unset` | — | 空 |
-| `ui-mockup:test-connection` | — | `{ ok, detail }`（凭据解析 + 提供方可达性） |
+| 方法                        | 入参                     | 出参                                                                     |
+| --------------------------- | ------------------------ | ------------------------------------------------------------------------ |
+| `ui-mockup:overview`        | —                        | provider id/名称、凭据是否就绪、锚点摘要（无则 null）                    |
+| `ui-mockup:settings:get`    | —                        | 全部偏好字段 + 各字段元信息                                              |
+| `ui-mockup:settings:set`    | 偏好字段子集             | 校验后的全量偏好；非法字段返回明确错误码                                 |
+| `ui-mockup:history:list`    | `{ query?: string }`     | 历史条目数组（time/description/files/model/size/isAnchor）+ 可用图片 URL |
+| `ui-mockup:history:clear`   | —                        | 空；同时解除锚点                                                         |
+| `ui-mockup:anchor:set`      | `{ index }` / `{ file }` | 当前锚点文件名；目标不存在返回错误                                       |
+| `ui-mockup:anchor:unset`    | —                        | 空                                                                       |
+| `ui-mockup:test-connection` | —                        | `{ ok, detail }`（凭据解析 + 提供方可达性）                              |
 
 错误约定：与提供方 resolver 一致的可判定错误码，不做隐式默认值兜底。
 
