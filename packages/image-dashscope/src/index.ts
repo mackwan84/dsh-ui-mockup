@@ -205,7 +205,9 @@ export default class DashscopeImageProvider extends ImageGenerationService {
       apiKey,
       signal,
     )
-    const output = created.syncOutput ?? (await this.waitForTask(created.taskId, apiKey, signal))
+    const output =
+      created.syncOutput ??
+      (await this.waitForTask(created.taskId, apiKey, signal, spec.pollTimeoutMs))
     const urls = extractImageUrls(output)
     if (urls.length === 0) {
       throw new ImageProviderError('BAD_RESPONSE', '任务成功但响应中没有图片 URL')
@@ -264,8 +266,14 @@ export default class DashscopeImageProvider extends ImageGenerationService {
     taskId: string,
     apiKey: string,
     signal?: AbortSignal,
+    pollTimeoutMs?: number,
   ): Promise<JsonObject> {
-    const deadline = Date.now() + this.config.pollTimeoutMs
+    // 单次调用可覆盖配置默认（M3 偏好页的「轮询超时」经 spec 传入），非法值回退配置
+    const timeoutMs =
+      typeof pollTimeoutMs === 'number' && pollTimeoutMs > 0
+        ? pollTimeoutMs
+        : this.config.pollTimeoutMs
+    const deadline = Date.now() + timeoutMs
     for (;;) {
       const res = await fetch(`${this.config.baseUrl}/api/v1/tasks/${taskId}`, {
         headers: { Authorization: `Bearer ${apiKey}` },
@@ -297,10 +305,7 @@ export default class DashscopeImageProvider extends ImageGenerationService {
         throw new ImageProviderError('TASK_FAILED', textOf(output.message ?? output.code ?? status))
       }
       if (Date.now() >= deadline) {
-        throw new ImageProviderError(
-          'TIMEOUT',
-          `任务 ${taskId} 超过 ${this.config.pollTimeoutMs}ms 未完成`,
-        )
+        throw new ImageProviderError('TIMEOUT', `任务 ${taskId} 超过 ${timeoutMs}ms 未完成`)
       }
       await delay(this.config.pollIntervalMs, signal)
     }

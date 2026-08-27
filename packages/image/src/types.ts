@@ -22,6 +22,8 @@ export interface ImageGenerateSpec {
   readonly model?: string
   /** 参考图路径（相对 cwd），图生图模式保持风格一致；缺省为纯文生图。 */
   readonly reference?: string
+  /** 本次任务的轮询总时限（毫秒）；缺省由实现按自身配置决定。 */
+  readonly pollTimeoutMs?: number
   /** 解析 reference 的工作目录。 */
   readonly cwd?: string
 }

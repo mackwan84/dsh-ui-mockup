@@ -481,5 +481,48 @@ describe('edit', () => {
   })
 })
 
+describe('polling timeout override (M3)', () => {
+  const pendingTask = async () =>
+    new Response(JSON.stringify({ output: { task_id: 'task-timeout', task_status: 'PENDING' } }), {
+      status: 200,
+    })
+
+  it('honors spec.pollTimeoutMs over the configured default', async () => {
+    vi.useFakeTimers()
+    mockFetch(async (url) => {
+      if (String(url).includes('image-generation/generation')) return pendingTask()
+      return pendingTask()
+    })
+    const promise = provider({ pollTimeoutMs: 600_000 }).generate({
+      ...wireframeSpec,
+      pollTimeoutMs: 1_000,
+    })
+    // 先挂上 rejects 断言（提前建立 rejection 处理器），再一次性推过
+    // deadline 与首个轮询间隔(5s)，避免先进时间后挂断言产生未处理拒绝
+    const assertion = expect(promise).rejects.toMatchObject({ code: 'TIMEOUT' })
+    await vi.advanceTimersByTimeAsync(6_000)
+    await assertion
+  })
+
+  it('falls back to the configured default for an invalid override', async () => {
+    vi.useFakeTimers()
+    mockFetch(async (url) => {
+      if (String(url).includes('image-generation/generation')) return pendingTask()
+      return pendingTask()
+    })
+    const promise = provider({ pollTimeoutMs: 30_000 }).generate({
+      ...wireframeSpec,
+      pollTimeoutMs: -5,
+    })
+    const assertion = expect(promise).rejects.toMatchObject({ code: 'TIMEOUT' })
+    // 配置默认 30s 生效：推进 24s（覆盖间隔整倍数）仍未超时
+    await vi.advanceTimersByTimeAsync(24_000)
+    expect(promise).toBeInstanceOf(Promise)
+    // 再推进越过 30s deadline 及当前睡眠
+    await vi.advanceTimersByTimeAsync(12_000)
+    await assertion
+  })
+})
+
 // Keep ImageProviderError referenced (typed import) for coverage of the error path.
 void ImageProviderError
