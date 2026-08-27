@@ -233,6 +233,16 @@ const HIGH_FIDELITY_MODEL_HINTS = [
   'wan2.7-image-pro',
 ]
 
+/**
+ * 参考图（I2I）模式是 qwen-image 系端点的能力边界：wan 系模型 + 风格锚点
+ * 组合会被 Provider 以 INVALID_PARAMETER 明确拒绝。当前默认模型命中时提示。
+ */
+function nonQwenModel(...models: Array<string | undefined>): string | undefined {
+  return models.find(
+    (model) => model !== undefined && model !== '' && !model.startsWith('qwen-image'),
+  )
+}
+
 function ProviderPage({ t, prefs, connection }: PanelProps) {
   const snap = prefs.getSnapshot()
   usePrefSync(prefs)
@@ -483,6 +493,9 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
         <div style={{ fontSize: 11, opacity: 0.7 }}>
           {`${t('panel.models.wireframe')}: ${WIREFRAME_MODEL_HINTS.filter(Boolean).join(', ')} · ${t('panel.models.highFidelity')}: ${HIGH_FIDELITY_MODEL_HINTS.filter(Boolean).join(', ')}`}
         </div>
+        {nonQwenModel(snap.value?.wireframeModel, snap.value?.highFidelityModel) !== undefined && (
+          <Notice>{t('panel.models.nonQwenWarning')}</Notice>
+        )}
       </Card>
     </div>
   )
