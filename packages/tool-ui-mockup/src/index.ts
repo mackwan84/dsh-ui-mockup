@@ -861,23 +861,22 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
               return rpcOk({})
             }
             case 'test-connection': {
+              // 只回机器可判的 reason + 原始 detail；用户可见文案由客户端按语言渲染
               const ready = await isCredentialReady(ctx)
               if (!ready) {
-                return rpcOk({
-                  ok: false,
-                  detail: '未找到 DASHSCOPE_API_KEY：请在凭据服务存储，或在该进程环境导出。',
-                })
+                return rpcOk({ ok: false, reason: 'missing-key' })
               }
               try {
                 const res = await fetch('https://dashscope.aliyuncs.com', {
                   signal: AbortSignal.timeout(8_000),
                 })
                 // 网关对裸 GET 的状态码不重要：有 HTTP 应答即网络与 DNS 可达
-                return rpcOk({ ok: true, detail: `凭据已配置，网关可达（HTTP ${res.status}）。` })
+                return rpcOk({ ok: true, detail: `HTTP ${res.status}` })
               } catch (error) {
                 return rpcOk({
                   ok: false,
-                  detail: `网关不可达: ${error instanceof Error ? error.message : String(error)}`,
+                  reason: 'gateway',
+                  detail: error instanceof Error ? error.message : String(error),
                 })
               }
             }

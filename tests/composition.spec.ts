@@ -609,6 +609,26 @@ describe('ui-mockup real dynamic composition', () => {
     }
   })
 
+  it('reports missing credentials with a machine reason from test-connection', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+    try {
+      vi.stubEnv('DASHSCOPE_API_KEY', '')
+      const booted = await bootComposition(dir)
+      const overview = valueOf<{ credentialReady: boolean }>(
+        await booted.connection.call('/ui-mockup', 'overview'),
+      )
+      expect(overview.credentialReady).toBe(false)
+      // 缺密钥时必须短路返回 missing-key, 不得发起真实网络请求
+      const tested = valueOf<{ ok: boolean; reason?: string }>(
+        await booted.connection.call('/ui-mockup', 'test-connection'),
+      )
+      expect(tested.ok).toBe(false)
+      expect(tested.reason).toBe('missing-key')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   it('serves overview/history/anchor/clear endpoints with trust boundary on cwd', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
     try {

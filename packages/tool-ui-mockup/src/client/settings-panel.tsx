@@ -212,19 +212,52 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
   const [testResult, setTestResult] = useState<string | null>(null)
   const [testing, setTesting] = useState(false)
   const [writeError, setWriteError] = useState('')
+  // 凭据就绪状态：随概览端点一起取（provider 卡小字与凭据卡状态行共用）
+  const [credentialReady, setCredentialReady] = useState<boolean | undefined>()
+  useEffect(() => {
+    let alive = true
+    callPanel<{ credentialReady: boolean }>(connection, 'overview')
+      .then((value) => {
+        if (alive) setCredentialReady(value.credentialReady)
+      })
+      .catch(() => {
+        if (alive) setCredentialReady(undefined)
+      })
+    return () => {
+      alive = false
+    }
+  }, [connection])
 
   const runTest = async () => {
     setTesting(true)
     setTestResult(null)
     try {
-      const result = await callPanel<{ ok: boolean; detail: string }>(connection, 'test-connection')
-      setTestResult(result.detail)
+      // 宿主只回机器可判的 reason + 原始 detail，用户可见文案由本端按语言渲染
+      const result = await callPanel<{
+        ok: boolean
+        reason?: string
+        detail?: string
+      }>(connection, 'test-connection')
+      setTestResult(
+        result.ok
+          ? t('panel.test.ok', { detail: result.detail ?? '' })
+          : result.reason === 'missing-key'
+            ? t('panel.test.missingKey')
+            : t('panel.test.gatewayFail', { detail: result.detail ?? '' }),
+      )
     } catch (err) {
       setTestResult(err instanceof Error ? err.message : String(err))
     } finally {
       setTesting(false)
     }
   }
+
+  const credentialLine =
+    credentialReady === undefined
+      ? t('panel.credential.checking')
+      : credentialReady
+        ? t('panel.credential.ready')
+        : t('panel.credential.missing')
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -246,9 +279,9 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
           >
             <input type="radio" name="ui-mockup-provider" checked readOnly />{' '}
             <strong>{t('panel.provider.dashscopeName')}</strong>
-            <div style={{ fontSize: 11, opacity: 0.75 }}>
-              <StatusDot ok={snap.value !== undefined} />
-              {t('panel.credential.source')}
+            <div style={{ fontSize: 11, opacity: 0.75, display: 'flex', alignItems: 'center' }}>
+              <StatusDot ok={credentialReady === true} />
+              {credentialLine}
             </div>
           </label>
           <label
@@ -269,14 +302,43 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
       </Card>
 
       <Card>
-        <strong>{t('panel.credential.title')}</strong>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <span style={{ opacity: 0.8 }}>{t('panel.credential.source')}</span>
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: 8,
+          }}
+        >
+          <strong>{t('panel.credential.title')}</strong>
           <button type="button" onClick={() => void runTest()} disabled={testing}>
             {testing ? t('panel.testing') : t('panel.testConnection')}
           </button>
         </div>
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          <StatusDot ok={credentialReady === true} />
+          {credentialLine}
+        </div>
         {testResult !== null && <div style={{ opacity: 0.85 }}>{testResult}</div>}
+        <div
+          style={{
+            fontSize: 12,
+            opacity: 0.85,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 4,
+            marginTop: 4,
+          }}
+        >
+          <span style={{ fontWeight: 600 }}>{t('panel.credential.howTitle')}</span>
+          <ol style={{ margin: 0, paddingLeft: 18, lineHeight: 1.7 }}>
+            <li>{t('panel.credential.way1')}</li>
+            <li>{t('panel.credential.way2')}</li>
+            <li>{t('panel.credential.way3')}</li>
+            <li>{t('panel.credential.way4')}</li>
+          </ol>
+        </div>
       </Card>
 
       <Card>

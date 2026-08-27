@@ -28,8 +28,14 @@ dsh plugin --profile web add /path/to/dsh-ui-mockup/bundle/ui-mockup
 
 ## 配置
 
-- `.env`：`DASHSCOPE_API_KEY=sk-xxx`（阿里云百炼 API Key）；
-- 或使用设置面板填写/测试连接。
+凭据 `DASHSCOPE_API_KEY`（阿里云百炼 API Key）按以下优先级读取，**任选其一即可**：
+
+1. 进程环境变量：启动 DSH 前 `export DASHSCOPE_API_KEY=sk-xxx`（CI / 容器同理）；
+2. DSH 密钥存储：`~/.dsh/.credentials.yaml`（在 DSH 设置 · 模型页写入，优先生效于 .env）；
+3. 项目 `.env`：在启动目录（通常是项目根）的 `.env` 中写 `DASHSCOPE_API_KEY=sk-xxx`；
+4. DSH 主目录 `.env`：`~/.dsh/.env`。
+
+配置后可在 **设置 · UI 草图 · 提供方与模型** 页查看凭据状态并点「测试连接」验证。
 
 ## 使用
 
