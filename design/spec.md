@@ -43,7 +43,15 @@
      遮蔽说明（写入不会生效），provider 拒绝写入时透传原因；
    - 「测试连接」按钮，结果以行内文字反馈（成功 / 缺密钥 / 网关不可达）；
    - 下方保留四种配置方式清单（按读取优先级排序，任选其一）；
-3. 「模型分层默认」表格两行：线框图 → `qwen-image-3.0`、高保真 → `qwen-image-3.0-pro`，每行右端下拉可改；
+3. 「模型分层默认」表格两行：线框图 → `qwen-image-3.0`、高保真 → `qwen-image-3.0-pro`，
+   每行右端**原生下拉**（与「默认尺寸」同款 selectStyle），**只能选预设模型**：
+   - 线框图：`跟随提供方默认` / `qwen-image-3.0` / `qwen-image-2.0` / `wan2.7-image`；
+   - 高保真：`跟随提供方默认` / `qwen-image-3.0-pro` / `qwen-image-2.0-pro` / `wan2.7-image-pro`；
+   - **清单维护入口**（新增模型改这里，下拉自动带上）：
+     `packages/tool-ui-mockup/src/client/settings-panel.tsx` 顶部的
+     `WIREFRAME_MODEL_HINTS` / `HIGH_FIDELITY_MODEL_HINTS` 两个数组；
+     第一项 `''` 表示「跟随提供方默认」，**不得删除或移位**；
+     预设之外的模型用工具 `model` 参数显式覆盖（面板不可输入自定义）；
 4. 「默认尺寸」一行下拉。
 
 ### 2.3 生成偏好
