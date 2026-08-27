@@ -59,7 +59,7 @@ dsh plugin --profile web add github:mackwan84/dsh-ui-mockup#main   # 需 prepare
 | ------ | ---------------------------------------------------------------------- | --------------------------------------------------------- |
 | M1     | 骨架 + image Service + 百炼 Provider + Host 工具                       | `dsh plugin add` 本地装进 web profile，会话里能生成一张图 |
 | M2     | 客户端卡片（tool.call.toolview）+ 图片路由（webServer）+ i18n 双语字典 | 卡片渲染、语言切换实时生效                                |
-| M3     | 设置面板 4 页 + `design/history.jsonl` 历史 + 风格锚点联动             | 按已确认线框实现，面板功能闭环                            |
+| M3 ✅  | 设置面板 4 页 + `design/history.jsonl` 历史 + 风格锚点联动             | 按已确认线框实现（design/spec.md），面板功能闭环           |
 | M4     | 火山 Provider + I2I / 掩码编辑模式                                     | 双提供方切换可用                                          |
 
 每里程碑交付：单元测试、真实组合测试（Loader 真 cordis.yml）、README、invariant、打包发布检查。
