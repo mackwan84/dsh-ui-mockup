@@ -189,6 +189,8 @@ function Card({ title, children }: { title?: string; children: ReactNode }) {
 /**
  * 字段行：横排（label 左 96px，控件右）。为对齐原生 `.field + .field { border-top }`
  * 的表单节奏，相邻字段行之间画 1px 分隔线；卡片内首行由调用方传 `first` 免除。
+ * 内容区统一 min-height 34（控件基准高）并垂直居中，使 radio / 输入框 / 纯文字行
+ * 各行等高、底边齐平，分隔线间距一致。
  */
 function FieldRow({
   label,
@@ -206,6 +208,7 @@ function FieldRow({
         alignItems: 'center',
         gap: 10,
         flexWrap: 'wrap',
+        minHeight: 34,
         paddingTop: 10,
         ...(first ? {} : { borderTop: `1px solid ${tokens.border}` }),
       }}
