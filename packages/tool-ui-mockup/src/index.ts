@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
+import { realpathSync } from 'node:fs'
 import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises'
-import { basename, resolve, sep } from 'node:path'
+import { basename, resolve } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import { ImageProviderError, type ImageGenerateSpec } from '@mackwan84/dsh-image'
@@ -92,6 +93,11 @@ interface WebServerFace {
   }): () => void
 }
 
+/** sessions 服务的结构面（路由 cwd 白名单只读已知会话的 cwd）。 */
+interface SessionsFace {
+  list(): Array<{ header: { cwd?: string } }>
+}
+
 interface ImageEntry {
   path: string
   name: string
@@ -176,8 +182,43 @@ function mediaTypeForExtension(name: string): string {
   return 'image/png'
 }
 
+/**
+ * canonical 化工作区根：realpath 解析符号链接（与宿主 sandboxPolicy 的
+ * resolveWorkspaceRoot 同语义），路径暂不可达时回退词法 resolve。
+ * 会话 cwd 含符号链接时（如 macOS /tmp → /private/tmp），落盘根与路由
+ * 读取根必须经过同一规范化，否则卡片按原始 cwd 请求会 404。
+ */
+function canonicalRoot(path: string): string {
+  try {
+    return realpathSync.native(path)
+  } catch {
+    return resolve(path)
+  }
+}
+
+/**
+ * 路由 cwd 的信任源全集：本插件登记过的工作区根、宿主已知会话的 cwd、
+ * 宿主进程级 fallback。webServer 是进程级端口，本机任意网页都能发起请求，
+ * 未经验证的 cwd 等于开放任意目录的 design/images 读取。
+ */
+function allowedRoots(ctx: Context, known: ReadonlySet<string>): Set<string> {
+  const roots = new Set(known)
+  const sessions = ctx.get('sessions') as SessionsFace | undefined
+  if (sessions !== undefined) {
+    for (const session of sessions.list()) {
+      const cwd = session.header.cwd
+      if (cwd !== undefined && cwd !== '') roots.add(canonicalRoot(cwd))
+    }
+  }
+  const policy = ctx.get('sandboxPolicy') as SandboxPolicyFace | undefined
+  if (policy !== undefined) roots.add(canonicalRoot(policy.workspaceRoot))
+  return roots
+}
+
 export function apply(ctx: Context) {
   const tools = ctx.get('tools') as ToolsFace
+  // 本插件进程内已生成过图片的工作区根（canonical）：图片路由 cwd 白名单的信任源之一
+  const knownRoots = new Set<string>()
   ctx.effect(() =>
     tools.register({
       name: 'ui_mockup',
@@ -299,11 +340,14 @@ export function apply(ctx: Context) {
           const sandboxPolicy = ctx.get('sandboxPolicy') as SandboxPolicyFace | undefined
           const session = exec.agent?.session
           // 会话工作区优先（sandboxPolicy.resolve 会取 session.header.cwd），
-          // 退化为会话 cwd、进程级 fallback，避免图片落到宿主进程 CWD
-          const workspaceRoot =
+          // 退化为会话 cwd、进程级 fallback，避免图片落到宿主进程 CWD。
+          // 统一 canonical 化：sandboxPolicy 返回值本身已 canonical，但 fallback
+          // 分支的 header.cwd 未规范化；同时与路由白名单的比对口径保持一致。
+          const workspaceRoot = canonicalRoot(
             sandboxPolicy?.resolve(session === undefined ? {} : { session })?.workspaceRoot ??
-            session?.header.cwd ??
-            '.'
+              session?.header.cwd ??
+              '.',
+          )
           const spec: ImageGenerateSpec = {
             prompt: buildPrompt(
               {
@@ -414,6 +458,8 @@ export function apply(ctx: Context) {
           if (images.length === 0) {
             return { ok: false, message: `生成成功但全部图片下载失败: ${failures.join('; ')}` }
           }
+          // 登记本工作区根：此后该会话的卡片可凭 cwd 经图片路由回看生成图
+          knownRoots.add(workspaceRoot)
 
           // 生成历史元数据：设置面板历史页的数据来源（M3 消费）。
           void appendFile(
@@ -469,7 +515,10 @@ export function apply(ctx: Context) {
   // 而漏注册。改用 ctx.inject 等 webServer 就绪后再注册，不阻塞工具注册。
   ctx.inject(['webServer'], (scope) => {
     const webServer = scope.get('webServer') as WebServerFace
-    ctx.effect(() =>
+    // effect 挂在 scope 而非外层 ctx：inject 回调在 webServer 服务变化时会
+    // unload 并 re-run，路由注册必须随本次回调的子 fiber 一起销毁，
+    // 否则 disposer 悬空、注册随重载次数累积。
+    scope.effect(() =>
       webServer.register({
         kind: 'prefix',
         path: '/ui-mockup/images',
@@ -490,22 +539,26 @@ export function apply(ctx: Context) {
             res.end()
             return
           }
-          // 会话工作区由卡片经 query 传入（webServer 是进程级服务，无会话上下文）；
-          // 缺省回退到 sandboxPolicy 的进程级 fallback。
+          // 会话工作区由卡片经 query 传入（webServer 是进程级服务，无会话上下文）。
+          // cwd 是客户端可控输入，必须命中信任源（execute 登记的根 / 已知会话 cwd /
+          // 宿主进程级 fallback），否则本机任意网页可借 ?cwd= 探测任意目录。
           const cwdParam = url.searchParams.get('cwd')
-          const policy = ctx.get('sandboxPolicy') as SandboxPolicyFace | undefined
-          const root = resolve(
-            cwdParam !== null && cwdParam !== '' ? cwdParam : (policy?.workspaceRoot ?? '.'),
-          )
-          const filePath = resolve(root, 'design/images', fileName)
-          // 防逃逸：拼接结果必须仍在工作区 design/images 之内
-          if (!filePath.startsWith(root + sep)) {
-            res.writeHead(400)
-            res.end()
-            return
+          let root: string
+          if (cwdParam !== null && cwdParam !== '') {
+            const requested = canonicalRoot(cwdParam)
+            if (!allowedRoots(ctx, knownRoots).has(requested)) {
+              res.writeHead(400)
+              res.end()
+              return
+            }
+            root = requested
+          } else {
+            // 无 cwd：回退宿主进程级 fallback（sandboxPolicy 配置根，可信）
+            const policy = ctx.get('sandboxPolicy') as SandboxPolicyFace | undefined
+            root = canonicalRoot(policy?.workspaceRoot ?? '.')
           }
           try {
-            const buffer = await readFile(filePath)
+            const buffer = await readFile(resolve(root, 'design/images', fileName))
             res.writeHead(200, {
               'Content-Type': mediaTypeForExtension(fileName),
               'Content-Length': buffer.byteLength,

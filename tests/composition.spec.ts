@@ -387,18 +387,64 @@ describe('ui-mockup real dynamic composition', () => {
       await mkdir(join(dir, 'design/images'), { recursive: true })
       await writeFile(join(dir, 'design/images/mockup-a.png'), png)
 
-      // 正常命中：返回 200 与图片字节
+      // 正常命中：返回 200 与图片字节，Content-Type 与扩展名一致
       const ok = await dispatchRoute(route!.handler, '/ui-mockup/images/mockup-a.png')
       expect(ok.status).toBe(200)
       expect(ok.body).toEqual(png)
+      expect(ok.headers?.['Content-Type']).toBe('image/png')
 
-      // 路径逃逸：拒绝
+      // 路径逃逸（URL 规范化后脱离前缀）：拒绝
       const escaped = await dispatchRoute(route!.handler, '/ui-mockup/images/../../secret.png')
       expect(escaped.status).toBe(400)
 
-      // cwd query：按会话工作区读取（跨会话隔离，卡片传入其 session cwd）
+      // 路径逃逸（%2e%2e%2f 编码，绕过 URL 规范化、命中 basename 检查）：拒绝
+      const encoded = await dispatchRoute(route!.handler, '/ui-mockup/images/%2e%2e%2fsecret.png')
+      expect(encoded.status).toBe(400)
+
+      // 未知 cwd（不在信任源内）：拒绝，防本机网页借 ?cwd= 探测任意目录
+      const unknownDir = await mkdtemp(join(tmpdir(), 'dsh-uimock-unknown-'))
+      const probed = await dispatchRoute(
+        route!.handler,
+        `/ui-mockup/images/mockup-a.png?cwd=${encodeURIComponent(unknownDir)}`,
+      )
+      expect(probed.status).toBe(400)
+      await rm(unknownDir, { recursive: true, force: true })
+
+      // cwd 信任路径：先在 otherDir 会话真实执行一次生成（登记其工作区根），
+      // 此后卡片凭 cwd 可回读该工作区的生成图
       const otherDir = await mkdtemp(join(tmpdir(), 'dsh-uimock-other-'))
-      await mkdir(join(otherDir, 'design/images'), { recursive: true })
+      vi.stubGlobal('fetch', async (url: string) => {
+        if (url.includes('image-generation/generation')) {
+          return new Response(
+            JSON.stringify({ output: { task_id: 'task-route', task_status: 'PENDING' } }),
+            { status: 200 },
+          )
+        }
+        if (url.includes('/api/v1/tasks/task-route')) {
+          return new Response(
+            JSON.stringify({
+              output: { task_status: 'SUCCEEDED', results: [{ url: 'https://oss.example/m.png' }] },
+            }),
+            { status: 200 },
+          )
+        }
+        if (url.includes('oss.example')) {
+          return new Response(png, { status: 200, headers: { 'content-type': 'image/png' } })
+        }
+        throw new Error(`unexpected fetch: ${url}`)
+      })
+      const definition = booted.tools.registered.find((item) => item.name === 'ui_mockup')!
+      const execute = definition.execute as (
+        args: Record<string, unknown>,
+        exec: { signal: AbortSignal; agent?: { session: { header: { cwd?: string } } } },
+      ) => Promise<Record<string, unknown>>
+      const value = await execute(
+        { description: '另一会话的页面', fidelity: 'wireframe', platform: 'web' },
+        { signal: new AbortController().signal, agent: { session: { header: { cwd: otherDir } } } },
+      )
+      expect(value.ok).toBe(true)
+      vi.unstubAllGlobals()
+
       await writeFile(join(otherDir, 'design/images/mockup-b.png'), png)
       const byCwd = await dispatchRoute(
         route!.handler,
@@ -417,17 +463,19 @@ describe('ui-mockup real dynamic composition', () => {
 async function dispatchRoute(
   handler: (req: { url?: string }, res: RouteResponse) => void | Promise<void>,
   url: string,
-): Promise<{ status: number; body?: Buffer }> {
+): Promise<{ status: number; body?: Buffer; headers?: Record<string, unknown> }> {
   let status = 0
   let body: Buffer | undefined
+  let headers: Record<string, unknown> | undefined
   const res: RouteResponse = {
-    writeHead(next: number) {
+    writeHead(next: number, written?: Record<string, unknown>) {
       status = next
+      headers = written
     },
     end(chunk?: Buffer) {
       body = chunk
     },
   }
   await handler({ url }, res)
-  return { status, body }
+  return { status, body, headers }
 }
