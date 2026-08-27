@@ -462,6 +462,7 @@ export function apply(ctx: Context) {
           knownRoots.add(workspaceRoot)
 
           // 生成历史元数据：设置面板历史页的数据来源（M3 消费）。
+          // 写失败不阻断结果返回，但留 debug 日志：历史页缺记录时可据此排查。
           void appendFile(
             resolve(workspaceRoot, 'design/history.jsonl'),
             `${JSON.stringify({
@@ -473,7 +474,13 @@ export function apply(ctx: Context) {
               platform,
               status: 'generated',
             })}\n`,
-          ).catch(() => {})
+          ).catch((error: unknown) => {
+            ctx
+              .logger('ui-mockup')
+              .debug(
+                `history.jsonl 写入失败: ${error instanceof Error ? error.message : String(error)}`,
+              )
+          })
 
           const label = fidelity === 'wireframe' ? '线框图' : '高保真设计稿'
           const paths = images.map((image) => image.path).join(', ')
@@ -499,6 +506,12 @@ export function apply(ctx: Context) {
       isConcurrencySafe() {
         return true
       },
+      /**
+       * 双通道展示的 host 半区投影：keyed toolview（client/index.ts）接管 web 渲染，
+       * 本 presentResult 产生的 resultView 会随会话日志持久化，供无 toolview
+       * 能力的 UI（terminal/精简客户端）在 live 与 replay 路径回退渲染，
+       * 删除它会让这些客户端退化为纯文本卡片 —— 两者是分工而非冗余。
+       */
       presentResult(_args, result): unknown {
         const images = result.content.filter((block) => block.type === 'image')
         return { card: 'generic', title: 'UI 草图', content: images }

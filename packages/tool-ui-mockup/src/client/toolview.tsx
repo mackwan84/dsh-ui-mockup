@@ -41,6 +41,7 @@ function buildFeedbackMessage(
 export function UiMockupToolview({ block, inputActions, openFile, cwd, t }: Props) {
   const [showFeedback, setShowFeedback] = useState(false)
   const [opinion, setOpinion] = useState('')
+  const [selected, setSelected] = useState('')
 
   if (!('kind' in block)) {
     return (
@@ -107,18 +108,20 @@ export function UiMockupToolview({ block, inputActions, openFile, cwd, t }: Prop
         </button>
         {images.length > 1 && (
           <select
+            value={selected}
             onChange={(event) => {
-              const index = Number(event.target.value)
-              if (Number.isInteger(index)) {
-                const name =
-                  (images[index]!.attachment as ImageRef).name ?? `mockup-${index + 1}.png`
-                send(buildFeedbackMessage(t, name, index))
-              }
+              const raw = event.target.value
+              // placeholder（空值）不可触发；Number('') === 0 会误发"选用第 1 版"
+              if (raw === '') return
+              const index = Number(raw)
+              setSelected('')
+              const name =
+                (images[index]!.attachment as ImageRef).name ?? `mockup-${index + 1}.png`
+              send(buildFeedbackMessage(t, name, index))
             }}
-            defaultValue=""
           >
             <option value="" disabled>
-              {t('card.select', { n: '' })}
+              {t('card.selectPlaceholder')}
             </option>
             {images.map((image, index) => (
               <option key={index} value={index}>

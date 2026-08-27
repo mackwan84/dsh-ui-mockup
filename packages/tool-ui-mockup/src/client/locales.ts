@@ -4,11 +4,10 @@ export const NS = 'ui-mockup'
 
 /** 简体中文 UI 文案。 */
 export const zh = {
-  'card.title': '界面草图',
   'card.generating': '生成中…',
-  'card.failed': '生成失败',
   'card.confirm': '确认采用这版',
   'card.select': '选用第 {n} 版',
+  'card.selectPlaceholder': '选用某一版…',
   'card.openOriginal': '打开原图',
   'card.feedback': '提交修改意见',
   'card.feedbackPlaceholder': '描述要修改的地方…',
@@ -31,11 +30,10 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 
 /** English UI copy. */
 export const en = {
-  'card.title': 'UI Mockup',
   'card.generating': 'Generating…',
-  'card.failed': 'Generation failed',
   'card.confirm': 'Confirm this version',
   'card.select': 'Use version {n}',
+  'card.selectPlaceholder': 'Pick a version…',
   'card.openOriginal': 'Open original',
   'card.feedback': 'Submit feedback',
   'card.feedbackPlaceholder': 'Describe what to change…',
