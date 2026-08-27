@@ -449,10 +449,11 @@ export function apply(ctx: Context) {
   ctx.effect(() => systemPrompt.section(USAGE_SECTION))
 
   // 图片路由：服务工作区 design/images/ 目录，供客户端卡片 <img> 内嵌展示。
-  // webServer 是 host-plane 服务，consumer 行通过 ctx.get 可选读取；读不到时
-  // 图片内嵌降级为附件/文件名展示，不影响卡片与反馈按钮。
-  const webServer = ctx.get('webServer') as WebServerFace | undefined
-  if (webServer !== undefined) {
+  // webServer 是 host-plane 服务，其就绪晚于 tools/systemPrompt（webServer 等待
+  // webStartup 提供）。若用 ctx.get 在 apply 时读取，会因未就绪返回 undefined
+  // 而漏注册。改用 ctx.inject 等 webServer 就绪后再注册，不阻塞工具注册。
+  ctx.inject(['webServer'], (scope) => {
+    const webServer = scope.get('webServer') as WebServerFace
     ctx.effect(() =>
       webServer.register({
         kind: 'prefix',
@@ -497,7 +498,7 @@ export function apply(ctx: Context) {
         },
       }),
     )
-  }
+  })
 }
 
 /** image 服务的结构面（兼容 @mackwan84/dsh-image 的抽象契约）。 */
