@@ -27,6 +27,8 @@ export default defineConfig({
   format: ['cjs'],
   platform: 'browser',
   target: 'es2024',
+  // 类型声明由 tsc -p tsconfig.client.json --emitDeclarationOnly 单独产出
+  // (tsdown 的 dts 与本配置的自定义 outputOptions 组合下不产出 .d.ts)
   dts: false,
   sourcemap: true,
   clean: false,

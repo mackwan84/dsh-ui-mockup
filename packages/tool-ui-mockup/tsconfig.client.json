@@ -5,8 +5,8 @@
     "outDir": "lib",
     "jsx": "react-jsx",
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
-    "types": ["node"]
+    "types": ["node"],
+    "emitDeclarationOnly": true
   },
-  "include": ["src"],
-  "exclude": ["src/client"]
+  "include": ["src"]
 }
