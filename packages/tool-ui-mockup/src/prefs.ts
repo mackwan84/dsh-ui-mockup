@@ -134,7 +134,7 @@ export function filterHistory(entries: HistoryEntry[], query: string | undefined
 }
 
 /** 历史分页默认每页条数（宿主与客户端共用同一常量）。 */
-export const HISTORY_PAGE_SIZE = 8
+export const HISTORY_PAGE_SIZE = 5
 
 /** 钳制每页条数到 [1, 50]，防异常/恶意值；非有限数回退默认。 */
 export function clampPageSize(value: unknown): number {

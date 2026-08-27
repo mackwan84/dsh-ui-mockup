@@ -69,7 +69,7 @@ export interface PrefScope<T> {
  * 历史分页每页条数——与宿主 prefs.ts 的 HISTORY_PAGE_SIZE 必须保持一致
  * （两端各持一份纯常量，避免客户端 import 宿主模块带入 schemastery 等依赖）。
  */
-export const HISTORY_PAGE_SIZE = 8
+export const HISTORY_PAGE_SIZE = 5
 
 /** 锚点在过滤后列表中的索引 → 所在页码（1-based）；无锚点(-1)返回 null。 */
 export function anchorPageOf(anchorIndex: number, pageSize: number): number | null {

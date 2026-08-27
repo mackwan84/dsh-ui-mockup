@@ -98,9 +98,9 @@ describe('filterHistory', () => {
 
 describe('history pagination helpers', () => {
   it('clamps page size into [1,50] with a sane default', () => {
-    expect(HISTORY_PAGE_SIZE).toBe(8)
-    expect(clampPageSize(undefined)).toBe(8)
-    expect(clampPageSize(Number.NaN)).toBe(8)
+    expect(HISTORY_PAGE_SIZE).toBe(5)
+    expect(clampPageSize(undefined)).toBe(5)
+    expect(clampPageSize(Number.NaN)).toBe(5)
     expect(clampPageSize(0)).toBe(1)
     expect(clampPageSize(99)).toBe(50)
     expect(clampPageSize(20)).toBe(20)

@@ -1002,7 +1002,7 @@ describe('ui-mockup real dynamic composition', () => {
       const nanSize = valueOf<{ pageSize: number }>(
         await call('history/list', { cwd: dir, page: 1, pageSize: Number.NaN }),
       )
-      expect(nanSize.pageSize).toBe(8)
+      expect(nanSize.pageSize).toBe(5)
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
