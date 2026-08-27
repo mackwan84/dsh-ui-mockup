@@ -35,7 +35,9 @@ dsh plugin --profile web add /path/to/dsh-ui-mockup/bundle/ui-mockup
 3. 项目 `.env`：在启动目录（通常是项目根）的 `.env` 中写 `DASHSCOPE_API_KEY=sk-xxx`；
 4. DSH 主目录 `.env`：`~/.dsh/.env`。
 
-配置后可在 **设置 · UI 草图 · 提供方与模型** 页查看凭据状态并点「测试连接」验证。
+也可以**不碰任何文件**：直接在 **设置 · UI 草图 · 提供方与模型** 页的凭据卡里填入
+新的 `DASHSCOPE_API_KEY`（写入即覆盖、永不回显，落到方式 2 的密钥存储；该页同时
+显示当前生效来源，进程环境变量存在时写入会被拒绝并提示原因），并可点「测试连接」验证。
 
 ## 使用
 

@@ -110,9 +110,28 @@ interface SessionsFace {
   list(): Array<{ header: { cwd?: string } }>
 }
 
-/** 凭据 seam 的结构面（概览与测试连接只读 resolve，不依赖完整类型）。 */
+/**
+ * 凭据 seam 的结构面（对齐 CredentialProvider 的四操作抽象）：
+ * resolve 取值、describe 给 UI 的安全视图（永不回值）、set/unset 落
+ * provider 自管存储（~/.dsh/.credentials.yaml）。只读层（进程环境变量）
+ * 遮蔽时 set/unset 由 provider 拒绝，本包原样透传错误。
+ */
 interface CredentialsFace {
   resolve(ref: ReturnType<typeof credentialRef>): Promise<{ value: string } | undefined>
+  describe(ref: ReturnType<typeof credentialRef>): Promise<{
+    configured: boolean
+    source?: string
+    writable: boolean
+  }>
+  set(ref: ReturnType<typeof credentialRef>, value: string): Promise<void>
+  unset(ref: ReturnType<typeof credentialRef>): Promise<void>
+}
+
+/** 面板用的凭据状态：只有 configured/source/writable 三个事实，永不携带值。 */
+interface CredentialStatus {
+  configured: boolean
+  source?: string
+  writable: boolean
 }
 
 /**
@@ -288,19 +307,26 @@ async function readHistory(workspaceRoot: string): Promise<HistoryEntry[]> {
 }
 
 /**
- * 凭据是否就绪：credentials seam → 启动环境（.env/进程环境），与 Provider 的
- * 解析顺序一致；只探测存在性，密钥值不出本函数。
+ * 面板用的凭据状态：credentials 服务在场时走 describe（拿到来源层与可写性），
+ * 缺席时退化为启动环境探测（configured + 来源 ambient + 不可写）。
+ * 返回值永不携带密钥本身。
  */
-async function isCredentialReady(ctx: Context): Promise<boolean> {
+async function credentialStatus(ctx: Context): Promise<CredentialStatus> {
   const ref = credentialRef('DASHSCOPE_API_KEY')
   const credentials = ctx.get('credentials') as CredentialsFace | undefined
   if (credentials !== undefined) {
-    const hit = await credentials.resolve(ref).catch(() => undefined)
-    if (hit !== undefined && hit.value.length > 0) return true
+    const info = await credentials.describe(ref).catch(() => undefined)
+    if (info !== undefined) {
+      return { configured: info.configured, source: info.source, writable: info.writable }
+    }
   }
   // 与 Provider 相同的启动环境回退（.env / 进程环境），保证面板口径与实际生成一致
   const ambient = launchEnvironmentOf(ctx).get(ref)
-  return ambient !== undefined && ambient.value.length > 0
+  return {
+    configured: ambient !== undefined && ambient.value.length > 0,
+    source: 'ambient',
+    writable: false,
+  }
 }
 
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
@@ -810,9 +836,48 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
               if (!rootOrError.ok) return rootOrError.error
               return rpcOk({
                 provider: 'dashscope',
-                credentialReady: await isCredentialReady(ctx),
+                credential: await credentialStatus(ctx),
                 anchor: await readAnchor(rootOrError.root),
               })
+            }
+            case 'credential/set': {
+              const credentials = ctx.get('credentials') as CredentialsFace | undefined
+              if (credentials === undefined) {
+                return rpcError(
+                  'NOT_AVAILABLE',
+                  '凭据服务不可用：当前部署没有可写密钥存储，请改用环境变量或 .env。',
+                )
+              }
+              const value = typeof body.value === 'string' ? body.value.trim() : ''
+              if (value === '') {
+                return rpcError('INVALID_PARAMETER', '密钥不能为空；如需删除请用清除操作。')
+              }
+              try {
+                await credentials.set(credentialRef('DASHSCOPE_API_KEY'), value)
+              } catch (error) {
+                // provider 在只读层（如进程环境变量）遮蔽时会拒绝写入，原样透传原因
+                return rpcError(
+                  'CREDENTIAL_WRITE_FAILED',
+                  error instanceof Error ? error.message : String(error),
+                )
+              }
+              // 写入成功后回安全视图（仅 configured/source/writable，永不回值）
+              return rpcOk({ credential: await credentialStatus(ctx) })
+            }
+            case 'credential/unset': {
+              const credentials = ctx.get('credentials') as CredentialsFace | undefined
+              if (credentials === undefined) {
+                return rpcError('NOT_AVAILABLE', '凭据服务不可用，无存储可清除。')
+              }
+              try {
+                await credentials.unset(credentialRef('DASHSCOPE_API_KEY'))
+              } catch (error) {
+                return rpcError(
+                  'CREDENTIAL_WRITE_FAILED',
+                  error instanceof Error ? error.message : String(error),
+                )
+              }
+              return rpcOk({ credential: await credentialStatus(ctx) })
             }
             case 'history/list': {
               const rootOrError = trustedRoot(ctx, knownRoots, cwd)
@@ -862,8 +927,8 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
             }
             case 'test-connection': {
               // 只回机器可判的 reason + 原始 detail；用户可见文案由客户端按语言渲染
-              const ready = await isCredentialReady(ctx)
-              if (!ready) {
+              const status = await credentialStatus(ctx)
+              if (!status.configured) {
                 return rpcOk({ ok: false, reason: 'missing-key' })
               }
               try {

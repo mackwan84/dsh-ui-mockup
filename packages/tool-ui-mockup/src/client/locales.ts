@@ -55,10 +55,24 @@ export const zh = {
   'panel.credential.howTitle': '配置方式（按读取优先级排序, 任选其一即可）:',
   'panel.credential.way1':
     '进程环境变量: 启动 DSH 前执行 export DASHSCOPE_API_KEY=sk-xxx（CI/容器同理）',
-  'panel.credential.way2': 'DSH 密钥存储: ~/.dsh/.credentials.yaml（在 DSH 设置 · 模型页写入）',
+  'panel.credential.way2':
+    'DSH 密钥存储: ~/.dsh/.credentials.yaml（可在本页下方直接写入，或在 DSH 设置 · 模型页写入）',
   'panel.credential.way3':
     '项目 .env: 在启动目录（通常是项目根）的 .env 文件中写 DASHSCOPE_API_KEY=sk-xxx',
   'panel.credential.way4': 'DSH 主目录 .env: ~/.dsh/.env 中写 DASHSCOPE_API_KEY=sk-xxx',
+  'panel.credential.readyWithSource': '凭据已配置 · 来源: {source}',
+  'panel.credential.source.env': '进程环境变量',
+  'panel.credential.source.file': 'DSH 密钥存储（~/.dsh/.credentials.yaml）',
+  'panel.credential.source.project-env': '项目 .env',
+  'panel.credential.source.user-env': '~/.dsh/.env',
+  'panel.credential.source.ambient': '启动环境',
+  'panel.credential.writePlaceholder': '输入新的 DASHSCOPE_API_KEY（写入即覆盖，不会回显）',
+  'panel.credential.save': '保存（覆盖）',
+  'panel.credential.clear': '清除已存密钥',
+  'panel.credential.savedNotice': '已写入 DSH 密钥存储 ✓',
+  'panel.credential.clearedNotice': '已清除 DSH 密钥存储中的 DASHSCOPE_API_KEY ✓',
+  'panel.credential.notWritable':
+    '当前密钥由更高优先级的来源（{source}）提供，面板写入不会生效；如需在面板管理，请先移除该来源中的同名变量。',
   'panel.test.ok': '凭据可用, 网关可达({detail})。',
   'panel.test.missingKey': '未找到 DASHSCOPE_API_KEY——请按上方「配置方式」任选其一配置后重试。',
   'panel.test.gatewayFail': '网关不可达: {detail}',
@@ -165,6 +179,20 @@ export const en = {
   'panel.credential.way3':
     'Project .env: add DASHSCOPE_API_KEY=sk-xxx to the .env in the launch directory (usually the project root)',
   'panel.credential.way4': 'DSH home .env: add DASHSCOPE_API_KEY=sk-xxx to ~/.dsh/.env',
+  'panel.credential.readyWithSource': 'API key configured · source: {source}',
+  'panel.credential.source.env': 'process environment',
+  'panel.credential.source.file': 'DSH credential store (~/.dsh/.credentials.yaml)',
+  'panel.credential.source.project-env': 'project .env',
+  'panel.credential.source.user-env': '~/.dsh/.env',
+  'panel.credential.source.ambient': 'launch environment',
+  'panel.credential.writePlaceholder':
+    'Enter a new DASHSCOPE_API_KEY (overwrites, never echoed back)',
+  'panel.credential.save': 'Save (overwrite)',
+  'panel.credential.clear': 'Clear stored key',
+  'panel.credential.savedNotice': 'Written to the DSH credential store ✓',
+  'panel.credential.clearedNotice': 'DASHSCOPE_API_KEY removed from the DSH credential store ✓',
+  'panel.credential.notWritable':
+    'The key is currently supplied by a higher-priority source ({source}); panel writes would not take effect. Remove that variable first to manage it here.',
   'panel.test.ok': 'Credential works, gateway reachable ({detail}).',
   'panel.test.missingKey':
     'DASHSCOPE_API_KEY not found — configure it via any option above, then retry.',

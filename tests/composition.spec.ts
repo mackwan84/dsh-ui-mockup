@@ -14,15 +14,48 @@ import {
 } from '@mackwan84/dsh-tool-ui-mockup'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-/** 凭据桩：从进程环境按引用名读取。 */
+/**
+ * 凭据桩：从进程环境按引用名读取；describe/set/unset 模拟本地 provider 的
+ * 分层语义——进程环境视为只读遮蔽层（在场则 writable=false 且写入拒绝），
+ * 存储层为可写的内存 Map。
+ */
 class CredentialsStub extends Service {
+  readonly stored = new Map<string, string>()
+
   constructor(ctx: Context) {
     super(ctx, 'credentials')
   }
 
   async resolve(ref: string) {
-    const value = process.env[ref]
-    return value !== undefined && value !== '' ? { value } : undefined
+    const fromEnv = process.env[ref]
+    if (fromEnv !== undefined && fromEnv !== '') return { value: fromEnv }
+    const hit = this.stored.get(ref)
+    return hit !== undefined && hit !== '' ? { value: hit } : undefined
+  }
+
+  async describe(ref: string) {
+    const fromEnv = process.env[ref]
+    if (fromEnv !== undefined && fromEnv !== '') {
+      return { configured: true, source: 'env', writable: false }
+    }
+    const hit = this.stored.get(ref)
+    return hit !== undefined && hit !== ''
+      ? { configured: true, source: 'file', writable: true }
+      : { configured: false, writable: true }
+  }
+
+  async set(ref: string, value: string) {
+    if (process.env[ref] !== undefined && process.env[ref] !== '') {
+      throw new Error(`reference ${ref} is shadowed by a read-only source`)
+    }
+    this.stored.set(ref, value)
+  }
+
+  async unset(ref: string) {
+    if (process.env[ref] !== undefined && process.env[ref] !== '') {
+      throw new Error(`reference ${ref} is shadowed by a read-only source`)
+    }
+    this.stored.delete(ref)
   }
 }
 
@@ -614,16 +647,65 @@ describe('ui-mockup real dynamic composition', () => {
     try {
       vi.stubEnv('DASHSCOPE_API_KEY', '')
       const booted = await bootComposition(dir)
-      const overview = valueOf<{ credentialReady: boolean }>(
+      const overview = valueOf<{ credential: { configured: boolean } }>(
         await booted.connection.call('/ui-mockup', 'overview'),
       )
-      expect(overview.credentialReady).toBe(false)
+      expect(overview.credential.configured).toBe(false)
       // 缺密钥时必须短路返回 missing-key, 不得发起真实网络请求
       const tested = valueOf<{ ok: boolean; reason?: string }>(
         await booted.connection.call('/ui-mockup', 'test-connection'),
       )
       expect(tested.ok).toBe(false)
       expect(tested.reason).toBe('missing-key')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('stores and clears the key via credential endpoints, reflecting source layers', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+    try {
+      vi.stubEnv('DASHSCOPE_API_KEY', '')
+      const booted = await bootComposition(dir)
+      const call = (endpoint: string, payload?: unknown) =>
+        booted.connection.call('/ui-mockup', endpoint, payload)
+
+      // 环境层缺席 → 存储可写；写入即覆盖且响应只含三个状态事实（永不回值）
+      const stored = valueOf<{
+        credential: { configured: boolean; source?: string; writable: boolean }
+      }>(await call('credential/set', { value: 'sk-panel-written' }))
+      expect(stored.credential).toEqual({ configured: true, source: 'file', writable: true })
+      expect(JSON.stringify(stored)).not.toContain('sk-panel-written')
+      const creds = booted.ctx.get('credentials') as unknown as CredentialsStub
+      expect(creds.stored.get('DASHSCOPE_API_KEY')).toBe('sk-panel-written')
+
+      // 概览立即反映存储层来源
+      const overview = valueOf<{ credential: { configured: boolean; source?: string } }>(
+        await call('overview'),
+      )
+      expect(overview.credential).toMatchObject({ configured: true, source: 'file' })
+
+      // 空值拒绝
+      const empty = await call('credential/set', { value: '   ' })
+      expect(empty.ok).toBe(false)
+      if (!empty.ok) expect(empty.error.code).toBe('INVALID_PARAMETER')
+
+      // 清除 → 回到未配置
+      const cleared = valueOf<{ credential: { configured: boolean } }>(
+        await call('credential/unset'),
+      )
+      expect(cleared.credential.configured).toBe(false)
+      expect(creds.stored.has('DASHSCOPE_API_KEY')).toBe(false)
+
+      // 环境层遮蔽时：describe 报 writable=false, 写入被拒绝并透传原因
+      vi.stubEnv('DASHSCOPE_API_KEY', 'sk-from-env')
+      const shadowed = valueOf<{
+        credential: { configured: boolean; source?: string; writable: boolean }
+      }>(await call('overview'))
+      expect(shadowed.credential).toEqual({ configured: true, source: 'env', writable: false })
+      const rejected = await call('credential/set', { value: 'sk-new' })
+      expect(rejected.ok).toBe(false)
+      if (!rejected.ok) expect(rejected.error.code).toBe('CREDENTIAL_WRITE_FAILED')
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
@@ -666,11 +748,13 @@ describe('ui-mockup real dynamic composition', () => {
         booted.connection.call('/ui-mockup', endpoint, payload)
 
       // 概览：凭据来自环境 stub，无锚点
-      const overviewValue = valueOf<{ provider: string; credentialReady: boolean; anchor: null }>(
-        await call('overview'),
-      )
+      const overviewValue = valueOf<{
+        provider: string
+        credential: { configured: boolean }
+        anchor: null
+      }>(await call('overview'))
       expect(overviewValue.provider).toBe('dashscope')
-      expect(overviewValue.credentialReady).toBe(true)
+      expect(overviewValue.credential.configured).toBe(true)
       expect(overviewValue.anchor).toBeNull()
 
       // 历史：默认全部、按 query 过滤、anchored 初始为 false

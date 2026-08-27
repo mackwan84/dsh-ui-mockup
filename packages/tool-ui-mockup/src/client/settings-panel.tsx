@@ -13,7 +13,7 @@ import {
   type ConnectionFace,
   type PrefScope,
 } from './shared.js'
-import type { NS } from './locales.js'
+import type { NS, UiMockupKey } from './locales.js'
 
 /** 偏好形状的客户端本地副本（不引入宿主 prefs 模块，避免把 schemastery 打进浏览器包）。 */
 export interface PanelPrefs {
@@ -143,9 +143,16 @@ const QUICK_STEPS = [
   { icon: '🔒', title: 'panel.overview.step3Title', body: 'panel.overview.step3Body' },
 ] as const
 
+/** 面板用的凭据状态（与宿主 CredentialStatus 同构）：只有三个事实，永不携带值。 */
+export interface PanelCredential {
+  configured: boolean
+  source?: string
+  writable: boolean
+}
+
 interface OverviewData {
   provider: string
-  credentialReady: boolean
+  credential: PanelCredential
   anchor: string | null
 }
 
@@ -189,10 +196,10 @@ function OverviewPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
         ))}
       </Card>
       <div style={{ display: 'flex', alignItems: 'center', opacity: 0.85 }}>
-        <StatusDot ok={data.credentialReady} />
+        <StatusDot ok={data.credential.configured} />
         {t('panel.overview.statusLine', {
           provider: t('panel.provider.dashscopeName'),
-          credential: data.credentialReady
+          credential: data.credential.configured
             ? t('panel.credential.ready')
             : t('panel.credential.missing'),
         })}
@@ -203,6 +210,21 @@ function OverviewPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
 
 /* ---------------- 提供方与模型 ---------------- */
 
+/** 来源层 id → 词条键（显式映射，规避模板字面量推断不进字典联合）。 */
+const SOURCE_LABELS: Record<string, UiMockupKey> = {
+  env: 'panel.credential.source.env',
+  file: 'panel.credential.source.file',
+  'project-env': 'panel.credential.source.project-env',
+  'user-env': 'panel.credential.source.user-env',
+  ambient: 'panel.credential.source.ambient',
+}
+
+function sourceLabelText(t: PanelProps['t'], source: string | undefined): string | undefined {
+  if (source === undefined) return undefined
+  const key = SOURCE_LABELS[source]
+  return key === undefined ? source : t(key)
+}
+
 const WIREFRAME_MODEL_HINTS = ['', 'qwen-image-3.0', 'wan2.2-t2i-plus']
 const HIGH_FIDELITY_MODEL_HINTS = ['', 'qwen-image-3.0-pro']
 
@@ -212,21 +234,49 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
   const [testResult, setTestResult] = useState<string | null>(null)
   const [testing, setTesting] = useState(false)
   const [writeError, setWriteError] = useState('')
-  // 凭据就绪状态：随概览端点一起取（provider 卡小字与凭据卡状态行共用）
-  const [credentialReady, setCredentialReady] = useState<boolean | undefined>()
-  useEffect(() => {
-    let alive = true
-    callPanel<{ credentialReady: boolean }>(connection, 'overview')
-      .then((value) => {
-        if (alive) setCredentialReady(value.credentialReady)
-      })
-      .catch(() => {
-        if (alive) setCredentialReady(undefined)
-      })
-    return () => {
-      alive = false
+  // 凭据状态（configured/source/writable，永不含值）：写入/清除后刷新
+  const [credential, setCredential] = useState<PanelCredential | undefined>()
+  const [keyDraft, setKeyDraft] = useState('')
+  const [keyBusy, setKeyBusy] = useState(false)
+  const [keyNotice, setKeyNotice] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
+
+  const refreshCredential = useCallback(async (): Promise<PanelCredential | undefined> => {
+    try {
+      const value = await callPanel<{ credential: PanelCredential }>(connection, 'overview')
+      setCredential(value.credential)
+      return value.credential
+    } catch {
+      setCredential(undefined)
+      return undefined
     }
   }, [connection])
+
+  useEffect(() => {
+    void refreshCredential()
+  }, [refreshCredential])
+
+  /** 写入（覆盖）或清除存储中的密钥；成功后清空草稿并刷新状态。 */
+  const applyKey = async (endpoint: 'credential/set' | 'credential/unset') => {
+    setKeyBusy(true)
+    setKeyNotice(null)
+    try {
+      const payload = endpoint === 'credential/set' ? { value: keyDraft } : {}
+      const result = await callPanel<{ credential: PanelCredential }>(connection, endpoint, payload)
+      setCredential(result.credential)
+      setKeyDraft('')
+      setKeyNotice({
+        kind: 'ok',
+        text:
+          endpoint === 'credential/set'
+            ? t('panel.credential.savedNotice')
+            : t('panel.credential.clearedNotice'),
+      })
+    } catch (err) {
+      setKeyNotice({ kind: 'error', text: err instanceof Error ? err.message : String(err) })
+    } finally {
+      setKeyBusy(false)
+    }
+  }
 
   const runTest = async () => {
     setTesting(true)
@@ -252,11 +302,15 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
     }
   }
 
+  const sourceLabel = sourceLabelText(t, credential?.source)
+
   const credentialLine =
-    credentialReady === undefined
+    credential === undefined
       ? t('panel.credential.checking')
-      : credentialReady
-        ? t('panel.credential.ready')
+      : credential.configured
+        ? sourceLabel === undefined
+          ? t('panel.credential.ready')
+          : t('panel.credential.readyWithSource', { source: sourceLabel })
         : t('panel.credential.missing')
 
   return (
@@ -280,7 +334,7 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
             <input type="radio" name="ui-mockup-provider" checked readOnly />{' '}
             <strong>{t('panel.provider.dashscopeName')}</strong>
             <div style={{ fontSize: 11, opacity: 0.75, display: 'flex', alignItems: 'center' }}>
-              <StatusDot ok={credentialReady === true} />
+              <StatusDot ok={credential?.configured === true} />
               {credentialLine}
             </div>
           </label>
@@ -317,10 +371,56 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
           </button>
         </div>
         <div style={{ display: 'flex', alignItems: 'center' }}>
-          <StatusDot ok={credentialReady === true} />
+          <StatusDot ok={credential?.configured === true} />
           {credentialLine}
         </div>
         {testResult !== null && <div style={{ opacity: 0.85 }}>{testResult}</div>}
+        {/* 写入即覆盖、永不回显：草稿只在本地 state，回显的永远只有三个状态事实 */}
+        {credential?.writable === true ? (
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <input
+              type="password"
+              style={{ flex: '1 1 220px' }}
+              value={keyDraft}
+              autoComplete="off"
+              placeholder={t('panel.credential.writePlaceholder')}
+              onChange={(event) => setKeyDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && keyDraft.trim() !== '') void applyKey('credential/set')
+              }}
+            />
+            <button
+              type="button"
+              disabled={keyBusy || keyDraft.trim() === ''}
+              onClick={() => void applyKey('credential/set')}
+            >
+              {t('panel.credential.save')}
+            </button>
+            {credential.configured && (
+              <button
+                type="button"
+                disabled={keyBusy}
+                onClick={() => void applyKey('credential/unset')}
+              >
+                {t('panel.credential.clear')}
+              </button>
+            )}
+          </div>
+        ) : credential !== undefined && credential.configured ? (
+          <Notice>{t('panel.credential.notWritable', { source: sourceLabel ?? '' })}</Notice>
+        ) : null}
+        {keyNotice !== null && (
+          <div
+            style={{
+              color:
+                keyNotice.kind === 'error'
+                  ? 'var(--dsw-danger, #d0453c)'
+                  : 'var(--dsw-success, #2e9e5b)',
+            }}
+          >
+            {keyNotice.text}
+          </div>
+        )}
         <div
           style={{
             fontSize: 12,
