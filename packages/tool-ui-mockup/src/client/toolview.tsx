@@ -44,6 +44,8 @@ export function UiMockupToolview({ block, inputActions, openFile, cwd, t, anchor
   const [showFeedback, setShowFeedback] = useState(false)
   const [opinion, setOpinion] = useState('')
   const [selected, setSelected] = useState('')
+  // 多图设锚下拉的受控值（选完即复位，与「选用某一版」同款交互）
+  const [anchorPicked, setAnchorPicked] = useState('')
   // 本卡已设为锚点的图名集合（点击即时反馈；权威状态在历史页/概览页）
   const [anchoredNames, setAnchoredNames] = useState<ReadonlySet<string>>(new Set())
   const [anchorError, setAnchorError] = useState('')
@@ -102,7 +104,7 @@ export function UiMockupToolview({ block, inputActions, openFile, cwd, t, anchor
           const name = ref.name ?? `mockup-${index + 1}.png`
           const anchored = anchoredNames.has(name)
           return (
-            <figure key={`${name}:${index}`} style={{ margin: 0, position: 'relative' }}>
+            <figure key={`${name}:${index}`} style={{ margin: 0 }}>
               <img
                 src={imageUrl(name, cwd)}
                 alt={name}
@@ -116,32 +118,6 @@ export function UiMockupToolview({ block, inputActions, openFile, cwd, t, anchor
                   background: 'var(--dsw-alias-bg-layer-3)',
                 }}
               />
-              {/* 每张图独立设锚入口：点哪张、哪张成为风格基准 */}
-              {anchor !== undefined && (
-                <button
-                  type="button"
-                  title={anchored ? t('card.anchored') : t('card.setAnchor')}
-                  onClick={() => void setAnchor(name)}
-                  disabled={anchored}
-                  style={{
-                    position: 'absolute',
-                    top: 6,
-                    right: 6,
-                    border: '1px solid var(--dsw-alias-border-l2)',
-                    borderRadius: 6,
-                    background: anchored
-                      ? 'var(--dsw-alias-brand-primary)'
-                      : 'var(--dsw-alias-bg-layer-2, rgba(127,127,127,0.18))',
-                    color: 'var(--dsw-alias-label-primary)',
-                    fontSize: 12,
-                    lineHeight: '16px',
-                    padding: '2px 6px',
-                    cursor: anchored ? 'default' : 'pointer',
-                  }}
-                >
-                  🚩{anchored ? '' : ''}
-                </button>
-              )}
               <figcaption
                 style={{
                   fontSize: 12,
@@ -204,6 +180,52 @@ export function UiMockupToolview({ block, inputActions, openFile, cwd, t, anchor
             ))}
           </select>
         )}
+        {/* 设锚入口：单图直接按钮；多图下拉选版本（与「选用某一版」同款胶囊） */}
+        {anchor !== undefined &&
+          (images.length === 1 ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              title={t('card.setAnchor')}
+              onClick={() => void setAnchor(images[0]!.attachment.name ?? 'mockup-1.png')}
+            >
+              {t('card.setAnchorButton')}
+            </Button>
+          ) : (
+            <select
+              value={anchorPicked}
+              onChange={(event) => {
+                const raw = event.target.value
+                // placeholder（空值）不可触发；Number('') === 0 会误设第 1 版
+                if (raw === '') return
+                const index = Number(raw)
+                setAnchorPicked('')
+                const name =
+                  (images[index]!.attachment as ImageRef).name ?? `mockup-${index + 1}.png`
+                void setAnchor(name)
+              }}
+              title={t('card.setAnchor')}
+              style={{
+                height: 28,
+                padding: '0 8px',
+                border: '1px solid var(--dsw-alias-border-l2)',
+                borderRadius: 999,
+                background: 'var(--dsw-alias-bg-layer-3)',
+                font: 'inherit',
+                fontSize: 13,
+                color: 'var(--dsw-alias-label-primary)',
+              }}
+            >
+              <option value="" disabled>
+                {t('card.setAnchorSelect')}
+              </option>
+              {images.map((image, index) => (
+                <option key={index} value={index}>
+                  {t('card.setAnchorOption', { n: index + 1 })}
+                </option>
+              ))}
+            </select>
+          ))}
         <Button
           variant="ghost"
           size="sm"

@@ -18,6 +18,9 @@ export const zh = {
   'card.selectMessage': '选用第 {n} 版（文件：{name}）',
   'card.feedbackMessage': '{opinion}（基于文件：{name}，请按此意见重新生成）',
   'card.setAnchor': '设为风格锚点：此后未显式传参考图的生成将自动引用这张图保持风格一致',
+  'card.setAnchorButton': '设为锚点',
+  'card.setAnchorSelect': '设为锚点某一版…',
+  'card.setAnchorOption': '第 {n} 版',
   'card.anchored': '风格锚点',
 
   // 设置面板：通用
@@ -143,6 +146,9 @@ export const en = {
   'card.feedbackMessage': '{opinion} (based on file: {name}, regenerate accordingly)',
   'card.setAnchor':
     'Set as style anchor: subsequent generations without an explicit reference will reuse this image for consistent style',
+  'card.setAnchorButton': 'Set as anchor',
+  'card.setAnchorSelect': 'Set a version as anchor…',
+  'card.setAnchorOption': 'Version {n}',
   'card.anchored': 'Style anchor',
 
   'panel.nav': 'UI Mockups',
