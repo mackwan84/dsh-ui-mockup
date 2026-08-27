@@ -310,7 +310,8 @@ function storeDirFor(workspaceRoot: string): string {
   } catch {
     canonical = resolve(workspaceRoot)
   }
-  return join(home, 'mockups', `-${canonical.split(/[\\/]+/).join('-')}-`)
+  const withTrailing = canonical.endsWith('/') ? canonical : `${canonical}/`
+  return join(home, 'mockups', `-${withTrailing.split(/[\\/]+/).join('-')}-`)
 }
 
 beforeEach(() => {

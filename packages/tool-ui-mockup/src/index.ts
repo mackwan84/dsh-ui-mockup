@@ -249,11 +249,14 @@ interface MockupStore {
 }
 
 /**
- * 工作区根 → slug：与 DSH sessions 目录同款转义（路径分隔符 `-` + 首尾包 `-`），
- * 例 /Users/l/x → --Users-l-x--。集中存放、按工作区隔离，与宿主数据组织方式一致。
+ * 工作区根 → slug：与 DSH sessions 目录同款转义——先补尾分隔符再做
+ * 分隔符→`-` 替换并首尾包 `-`，例 /Users/l/x → --Users-l-x--
+ * （首尾各两个 `-`：首来自前导空段+包裹，尾来自补的尾分隔符+包裹，
+ * 与 ~/.dsh/sessions 的实测目录名一致）。
  */
 function workspaceSlug(workspaceRoot: string): string {
-  return `-${workspaceRoot.split(/[\\/]+/).join('-')}-`
+  const withTrailing = workspaceRoot.endsWith('/') ? workspaceRoot : `${workspaceRoot}/`
+  return `-${withTrailing.split(/[\\/]+/).join('-')}-`
 }
 
 /** $DSH_HOME：与 DSH 宿主一致的环境变量优先，默认 ~/.dsh。 */
