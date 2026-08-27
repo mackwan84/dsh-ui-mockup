@@ -20,8 +20,9 @@ interface ImageRef {
 }
 
 /** 图片文件名 → webServer 路由 URL（host 半区 /ui-mockup/images 服务 design/images/）。 */
-function imageUrl(name: string): string {
-  return `/ui-mockup/images/${encodeURIComponent(name)}`
+function imageUrl(name: string, cwd?: string): string {
+  const base = `/ui-mockup/images/${encodeURIComponent(name)}`
+  return cwd !== undefined && cwd !== '' ? `${base}?cwd=${encodeURIComponent(cwd)}` : base
 }
 
 /** 反馈按钮发送给 agent 的消息正文（中文固定，模型可见文本不随 UI 语言切换）。 */
@@ -37,7 +38,7 @@ function buildFeedbackMessage(
   return t('card.selectMessage', { n: index + 1, name })
 }
 
-export function UiMockupToolview({ block, inputActions, openFile, t }: Props) {
+export function UiMockupToolview({ block, inputActions, openFile, cwd, t }: Props) {
   const [showFeedback, setShowFeedback] = useState(false)
   const [opinion, setOpinion] = useState('')
 
@@ -73,7 +74,7 @@ export function UiMockupToolview({ block, inputActions, openFile, t }: Props) {
           return (
             <figure key={`${name}:${index}`} style={{ margin: 0 }}>
               <img
-                src={imageUrl(name)}
+                src={imageUrl(name, cwd)}
                 alt={name}
                 loading="lazy"
                 style={{

@@ -28,7 +28,7 @@ interface ToolDefinition {
     schema: Record<string, unknown>
     render(args: unknown, value: unknown): ContentBlock[]
   }
-  execute(args: Record<string, unknown>, exec: { signal: AbortSignal }): Promise<MockupValue>
+  execute(args: Record<string, unknown>, exec: ToolExecFace): Promise<MockupValue>
   timeoutMs?: number
   isConcurrencySafe?(): boolean
   presentResult?(args: unknown, result: { content: readonly ContentBlock[] }): unknown
@@ -66,9 +66,21 @@ interface AttachmentsFace {
   }>
 }
 
-/** sandboxPolicy 服务的结构面（本包只读工作区根目录）。 */
+/** 工具执行上下文的结构面（本包只读取消信号与会话）。 */
+interface ToolExecFace {
+  signal: AbortSignal
+  agent?: { session: SessionFace }
+}
+
+/** 会话的结构面（本包只读工作区根目录 cwd）。 */
+interface SessionFace {
+  header: { cwd?: string }
+}
+
+/** sandboxPolicy 服务的结构面（按会话解析工作区根目录）。 */
 interface SandboxPolicyFace {
   workspaceRoot: string
+  resolve(request?: { session?: SessionFace }): { workspaceRoot: string }
 }
 
 /** webServer 服务的结构面（本包只注册图片前缀路由）。 */
@@ -285,10 +297,13 @@ export function apply(ctx: Context) {
               ? args.reference.trim()
               : undefined
           const sandboxPolicy = ctx.get('sandboxPolicy') as SandboxPolicyFace | undefined
+          const session = exec.agent?.session
+          // 会话工作区优先（sandboxPolicy.resolve 会取 session.header.cwd），
+          // 退化为会话 cwd、进程级 fallback，避免图片落到宿主进程 CWD
           const workspaceRoot =
-            sandboxPolicy !== undefined && typeof sandboxPolicy.workspaceRoot === 'string'
-              ? sandboxPolicy.workspaceRoot
-              : '.'
+            sandboxPolicy?.resolve(session === undefined ? {} : { session })?.workspaceRoot ??
+            session?.header.cwd ??
+            '.'
           const spec: ImageGenerateSpec = {
             prompt: buildPrompt(
               {
@@ -459,7 +474,8 @@ export function apply(ctx: Context) {
         kind: 'prefix',
         path: '/ui-mockup/images',
         async handler(req, res) {
-          const rawPath = new URL(req.url ?? '/', 'http://x').pathname
+          const url = new URL(req.url ?? '/', 'http://x')
+          const rawPath = url.pathname
           const prefix = '/ui-mockup/images/'
           if (!rawPath.startsWith(prefix)) {
             res.writeHead(400)
@@ -474,8 +490,13 @@ export function apply(ctx: Context) {
             res.end()
             return
           }
+          // 会话工作区由卡片经 query 传入（webServer 是进程级服务，无会话上下文）；
+          // 缺省回退到 sandboxPolicy 的进程级 fallback。
+          const cwdParam = url.searchParams.get('cwd')
           const policy = ctx.get('sandboxPolicy') as SandboxPolicyFace | undefined
-          const root = resolve(policy?.workspaceRoot ?? '.')
+          const root = resolve(
+            cwdParam !== null && cwdParam !== '' ? cwdParam : (policy?.workspaceRoot ?? '.'),
+          )
           const filePath = resolve(root, 'design/images', fileName)
           // 防逃逸：拼接结果必须仍在工作区 design/images 之内
           if (!filePath.startsWith(root + sep)) {

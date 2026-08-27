@@ -48,6 +48,10 @@ class SandboxPolicyStub extends Service {
   }
 
   readonly workspaceRoot: string
+
+  resolve(request?: { session?: { header: { cwd?: string } } }) {
+    return { workspaceRoot: request?.session?.header.cwd ?? this.workspaceRoot }
+  }
 }
 
 /** 附件桩：记录保存调用并返回占位引用。 */
@@ -252,11 +256,11 @@ describe('ui-mockup real dynamic composition', () => {
       const definition = booted.tools.registered.find((item) => item.name === 'ui_mockup')!
       const execute = definition.execute as (
         args: Record<string, unknown>,
-        exec: { signal: AbortSignal },
+        exec: { signal: AbortSignal; agent?: { session: { header: { cwd?: string } } } },
       ) => Promise<Record<string, unknown>>
       const value = await execute(
         { description: '在线书店主页线框图', fidelity: 'wireframe', platform: 'web' },
-        { signal: new AbortController().signal },
+        { signal: new AbortController().signal, agent: { session: { header: { cwd: dir } } } },
       )
 
       expect(value.ok).toBe(true)
@@ -320,7 +324,7 @@ describe('ui-mockup real dynamic composition', () => {
       const definition = booted.tools.registered.find((item) => item.name === 'ui_mockup')!
       const execute = definition.execute as (
         args: Record<string, unknown>,
-        exec: { signal: AbortSignal },
+        exec: { signal: AbortSignal; agent?: { session: { header: { cwd?: string } } } },
       ) => Promise<Record<string, unknown>>
       const value = await execute(
         {
@@ -329,7 +333,7 @@ describe('ui-mockup real dynamic composition', () => {
           platform: 'web',
           reference: 'assets/base.png',
         },
-        { signal: new AbortController().signal },
+        { signal: new AbortController().signal, agent: { session: { header: { cwd: dir } } } },
       )
 
       expect(value.ok).toBe(true)
@@ -352,7 +356,7 @@ describe('ui-mockup real dynamic composition', () => {
       const definition = booted.tools.registered.find((item) => item.name === 'ui_mockup')!
       const execute = definition.execute as (
         args: Record<string, unknown>,
-        exec: { signal: AbortSignal },
+        exec: { signal: AbortSignal; agent?: { session: { header: { cwd?: string } } } },
       ) => Promise<Record<string, unknown>>
       const value = await execute(
         {
@@ -361,7 +365,7 @@ describe('ui-mockup real dynamic composition', () => {
           platform: 'web',
           reference: '../../etc/passwd',
         },
-        { signal: new AbortController().signal },
+        { signal: new AbortController().signal, agent: { session: { header: { cwd: dir } } } },
       )
       expect(value.ok).toBe(false)
       expect(value.message).toContain('INVALID_PARAMETER')
@@ -391,6 +395,18 @@ describe('ui-mockup real dynamic composition', () => {
       // 路径逃逸：拒绝
       const escaped = await dispatchRoute(route!.handler, '/ui-mockup/images/../../secret.png')
       expect(escaped.status).toBe(400)
+
+      // cwd query：按会话工作区读取（跨会话隔离，卡片传入其 session cwd）
+      const otherDir = await mkdtemp(join(tmpdir(), 'dsh-uimock-other-'))
+      await mkdir(join(otherDir, 'design/images'), { recursive: true })
+      await writeFile(join(otherDir, 'design/images/mockup-b.png'), png)
+      const byCwd = await dispatchRoute(
+        route!.handler,
+        `/ui-mockup/images/mockup-b.png?cwd=${encodeURIComponent(otherDir)}`,
+      )
+      expect(byCwd.status).toBe(200)
+      expect(byCwd.body).toEqual(png)
+      await rm(otherDir, { recursive: true, force: true })
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
