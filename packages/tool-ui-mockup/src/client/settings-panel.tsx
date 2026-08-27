@@ -1010,20 +1010,11 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
               </div>
             </div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {row.anchored ? (
+              {/* 设锚入口在对话卡片（点哪张设哪张）；历史页只保留解除与查看 */}
+              {row.anchored && (
                 <Button variant="ghost" size="sm" onClick={() => void act('anchor/unset', { cwd })}>
                   {t('panel.history.unsetAnchor')}
                 </Button>
-              ) : (
-                first !== undefined && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => void act('anchor/set', { cwd, file: name })}
-                  >
-                    {t('panel.history.setAnchor')}
-                  </Button>
-                )
               )}
               {name !== '' && (
                 <a href={imageUrl(name, cwd)} target="_blank" rel="noreferrer">

@@ -12,7 +12,12 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { imageUrl } from './shared.js'
 import type { NS } from './locales.js'
 
-type Props = ToolCallViewProps & PropsLocale<typeof NS>
+type Props = ToolCallViewProps & PropsLocale<typeof NS> & { anchor?: ToolviewAnchorFace }
+
+/** 卡片锚点注入面：由注册方闭包捕获 connection 提供，直连 RPC 不经 agent。 */
+export interface ToolviewAnchorFace {
+  set(file: string, cwd?: string): Promise<unknown>
+}
 
 /** 图片附件引用（会话附件块里的 image 块所携带的最小结构）。 */
 interface ImageRef {
@@ -35,10 +40,24 @@ function buildFeedbackMessage(
   return t('card.selectMessage', { n: index + 1, name })
 }
 
-export function UiMockupToolview({ block, inputActions, openFile, cwd, t }: Props) {
+export function UiMockupToolview({ block, inputActions, openFile, cwd, t, anchor }: Props) {
   const [showFeedback, setShowFeedback] = useState(false)
   const [opinion, setOpinion] = useState('')
   const [selected, setSelected] = useState('')
+  // 本卡已设为锚点的图名集合（点击即时反馈；权威状态在历史页/概览页）
+  const [anchoredNames, setAnchoredNames] = useState<ReadonlySet<string>>(new Set())
+  const [anchorError, setAnchorError] = useState('')
+
+  const setAnchor = async (name: string) => {
+    if (anchor === undefined) return
+    setAnchorError('')
+    try {
+      await anchor.set(name, cwd)
+      setAnchoredNames((prev) => new Set(prev).add(name))
+    } catch (err) {
+      setAnchorError(err instanceof Error ? err.message : String(err))
+    }
+  }
 
   if (!('kind' in block)) {
     return (
@@ -81,8 +100,9 @@ export function UiMockupToolview({ block, inputActions, openFile, cwd, t }: Prop
         {images.map((image, index) => {
           const ref = image.attachment as ImageRef
           const name = ref.name ?? `mockup-${index + 1}.png`
+          const anchored = anchoredNames.has(name)
           return (
-            <figure key={`${name}:${index}`} style={{ margin: 0 }}>
+            <figure key={`${name}:${index}`} style={{ margin: 0, position: 'relative' }}>
               <img
                 src={imageUrl(name, cwd)}
                 alt={name}
@@ -91,11 +111,37 @@ export function UiMockupToolview({ block, inputActions, openFile, cwd, t }: Prop
                   maxWidth: 240,
                   maxHeight: 240,
                   borderRadius: 8,
-                  border: '1px solid var(--dsw-alias-border-l2)',
+                  border: `1px solid ${anchored ? 'var(--dsw-alias-brand-primary)' : 'var(--dsw-alias-border-l2)'}`,
                   objectFit: 'contain',
                   background: 'var(--dsw-alias-bg-layer-3)',
                 }}
               />
+              {/* 每张图独立设锚入口：点哪张、哪张成为风格基准 */}
+              {anchor !== undefined && (
+                <button
+                  type="button"
+                  title={anchored ? t('card.anchored') : t('card.setAnchor')}
+                  onClick={() => void setAnchor(name)}
+                  disabled={anchored}
+                  style={{
+                    position: 'absolute',
+                    top: 6,
+                    right: 6,
+                    border: '1px solid var(--dsw-alias-border-l2)',
+                    borderRadius: 6,
+                    background: anchored
+                      ? 'var(--dsw-alias-brand-primary)'
+                      : 'var(--dsw-alias-bg-layer-2, rgba(127,127,127,0.18))',
+                    color: 'var(--dsw-alias-label-primary)',
+                    fontSize: 12,
+                    lineHeight: '16px',
+                    padding: '2px 6px',
+                    cursor: anchored ? 'default' : 'pointer',
+                  }}
+                >
+                  🚩{anchored ? '' : ''}
+                </button>
+              )}
               <figcaption
                 style={{
                   fontSize: 12,
@@ -105,11 +151,15 @@ export function UiMockupToolview({ block, inputActions, openFile, cwd, t }: Prop
                 }}
               >
                 {name}
+                {anchored ? ` · ${t('card.anchored')}` : ''}
               </figcaption>
             </figure>
           )
         })}
       </div>
+      {anchorError !== '' && (
+        <div style={{ fontSize: 12, color: 'var(--dsw-alias-label-error)' }}>{anchorError}</div>
+      )}
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
         <Button

@@ -9,8 +9,8 @@ import type {} from '@deepseek-ai/dsh-client-ui-tool/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
-import type { ConnectionFace, SettingsScopeBinderFace } from './shared.js'
-import { UiMockupToolview } from './toolview.js'
+import { callPanel, type ConnectionFace, type SettingsScopeBinderFace } from './shared.js'
+import { UiMockupToolview, type ToolviewAnchorFace } from './toolview.js'
 import { UiMockupSection, type PanelPrefs, type UiMockupPanelInjected } from './settings-panel.js'
 import { en, NS, zh } from './locales.js'
 
@@ -23,18 +23,31 @@ export const inject = ['slots', 'locale', 'connection', 'settingsScope']
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-mockup: dictionaries')
 
-  ctx.slots.inject('tool.call.toolview', () =>
-    ctx.slots.register(
-      { name: 'tool.call.toolview', key: 'ui_mockup', locale: NS },
-      UiMockupToolview,
-    ),
-  )
-
   // bind 在本插件 fiber 上登记镜像订阅：插件卸载时随之销毁
   const prefs = (ctx.get('settingsScope') as SettingsScopeBinderFace).bind<PanelPrefs>({
     namespace: 'ui-mockup',
   })
   const connection = ctx.get('connection') as ConnectionFace
+
+  /**
+   * 卡片锚点入口：设锚动作发生在「刚看完这版图」的瞬间，注入窄面
+   * set/unset 闭包捕获 connection，直连 RPC 不绕 agent 消息流。
+   */
+  const anchorFace: ToolviewAnchorFace = {
+    set: (file: string, cwd?: string) => callPanel(connection, 'anchor/set', { file, cwd }),
+  }
+
+  ctx.slots.inject('tool.call.toolview', () =>
+    ctx.slots.register(
+      {
+        name: 'tool.call.toolview',
+        key: 'ui_mockup',
+        locale: NS,
+        inject: () => ({ anchor: anchorFace }),
+      },
+      UiMockupToolview,
+    ),
+  )
 
   const panelInjected = (): UiMockupPanelInjected => ({ prefs, connection })
 
