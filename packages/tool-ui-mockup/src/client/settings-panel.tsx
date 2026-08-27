@@ -163,12 +163,21 @@ function StatusDot({ ok, busy }: { ok: boolean; busy?: boolean }) {
 }
 
 /**
- * 字段组：原生设置区是「分隔线行列表」而非卡片堆叠——组内子元素间用
- * border-top 分隔（首行不带），标题 13px/500/primary。
+ * 卡片容器：恢复已确认线框的圆角卡片布局，视觉用真实令牌
+ * （border-l2 边框 / 8px 圆角 / 13px·500 标题），浅深色自适应。
  */
 function Card({ title, children }: { title?: string; children: ReactNode }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 8,
+        border: `1px solid ${tokens.border}`,
+        borderRadius: 8,
+        padding: '10px 12px',
+      }}
+    >
       {title !== undefined && (
         <span style={{ fontSize: 13, fontWeight: 500, lineHeight: '20px' }}>{title}</span>
       )}
@@ -177,23 +186,17 @@ function Card({ title, children }: { title?: string; children: ReactNode }) {
   )
 }
 
-/** 原生 .field 范式：竖排（label 在上 13px/500，control 在下），行距 6px。 */
+/** 字段行：恢复已确认线框的横排（label 左 96px，控件右），颜色/字号用真实令牌。 */
 function FieldRow({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 6,
-        padding: '12px 0',
-        borderTop: `1px solid ${tokens.border}`,
-      }}
-    >
-      <span style={{ fontSize: 13, fontWeight: 500, lineHeight: '20px' }}>{label}</span>
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-        {children}
-      </div>
-    </div>
+    <label style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+      <span
+        style={{ minWidth: 96, fontSize: 13, lineHeight: '20px', color: tokens.labelSecondary }}
+      >
+        {label}
+      </span>
+      {children}
+    </label>
   )
 }
 
@@ -210,26 +213,6 @@ function Notice({ children, danger }: { children: ReactNode; danger?: boolean })
     >
       {children}
     </p>
-  )
-}
-
-/** 锚点徽标：对齐原生 badge（999 圆角 / 11px / bg-module-platform）。 */
-function Badge({ children }: { children: ReactNode }) {
-  return (
-    <span
-      style={{
-        borderRadius: 999,
-        padding: '1px 8px',
-        fontSize: 11,
-        lineHeight: '17px',
-        whiteSpace: 'nowrap',
-        fontWeight: 500,
-        background: 'var(--dsw-alias-bg-module-platform)',
-        color: tokens.labelSecondary,
-      }}
-    >
-      {children}
-    </span>
   )
 }
 
@@ -283,11 +266,14 @@ function OverviewPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
       </p>
       <Card title={t('panel.overview.quickTitle')}>
         {QUICK_STEPS.map((step) => (
-          <FieldRow key={step.title} label={`${step.icon}  ${t(step.title)}`}>
-            <span style={{ fontSize: 13, lineHeight: '20px', color: tokens.labelSecondary }}>
-              {t(step.body)}
-            </span>
-          </FieldRow>
+          <div key={step.title} style={{ display: 'flex', gap: 8 }}>
+            <span aria-hidden>{step.icon}</span>
+            <p style={{ margin: 0, lineHeight: '20px' }}>
+              <strong style={{ fontSize: 13 }}>{t(step.title)}</strong>
+              <br />
+              <span style={{ fontSize: 13, color: tokens.labelSecondary }}>{t(step.body)}</span>
+            </p>
+          </div>
         ))}
       </Card>
       <div
@@ -442,119 +428,132 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
       {writeError !== '' && <Notice danger>{writeError}</Notice>}
 
       <Card title={t('panel.provider.title')}>
-        <FieldRow label={t('panel.provider.dashscopeName')}>
+        {/* 已确认线框：两张横排单选卡片（选中态加粗边框，另一张置灰「即将支持」） */}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <label
+            style={{
+              flex: '1 1 200px',
+              border: `2px solid ${tokens.brand}`,
+              borderRadius: 8,
+              padding: '8px 10px',
+              cursor: 'default',
+            }}
+          >
+            <input type="radio" name="ui-mockup-provider" checked readOnly />{' '}
+            <strong style={{ fontSize: 13 }}>{t('panel.provider.dashscopeName')}</strong>
+            <div
+              style={{
+                fontSize: 12,
+                lineHeight: '17px',
+                color: tokens.labelSecondary,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                marginTop: 4,
+              }}
+            >
+              <StatusDot ok={credential?.configured === true} />
+              {credentialLine}
+            </div>
+          </label>
+          <label
+            aria-disabled
+            style={{
+              flex: '1 1 200px',
+              border: `1px dashed ${tokens.border}`,
+              borderRadius: 8,
+              padding: '8px 10px',
+              opacity: 0.45,
+            }}
+          >
+            <input type="radio" name="ui-mockup-provider" disabled />{' '}
+            <span style={{ fontSize: 13 }}>{t('panel.provider.volcengineName')}</span>
+            <div style={{ fontSize: 12, lineHeight: '17px', marginTop: 4 }}>
+              {t('panel.provider.comingSoon')}
+            </div>
+          </label>
+        </div>
+      </Card>
+
+      <Card title={t('panel.credential.title')}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <span
             style={{
               display: 'flex',
               alignItems: 'center',
               gap: 8,
+              flex: 1,
               fontSize: 13,
               lineHeight: '20px',
               color: tokens.labelSecondary,
             }}
           >
-            <StatusDot ok={credential?.configured === true} />
+            <StatusDot ok={credential?.configured === true} busy={testing} />
             {credentialLine}
           </span>
-        </FieldRow>
-        <FieldRow label={t('panel.provider.volcengineName')}>
-          <Badge>{t('panel.provider.comingSoon')}</Badge>
-        </FieldRow>
-      </Card>
-
-      <Card title={t('panel.credential.title')}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 10,
-              flexWrap: 'wrap',
-              padding: '12px 0',
-              borderTop: `1px solid ${tokens.border}`,
-            }}
-          >
-            <span
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                flex: 1,
-                fontSize: 13,
-                lineHeight: '20px',
-                color: tokens.labelSecondary,
+          <Button variant="outline" size="sm" onClick={() => void runTest()} disabled={testing}>
+            {testing ? t('panel.testing') : t('panel.testConnection')}
+          </Button>
+        </div>
+        {testResult !== null && <Notice>{testResult}</Notice>}
+        {/* 写入即覆盖、永不回显：草稿只在本地 state，回显的永远只有三个状态事实 */}
+        {credential?.writable === true ? (
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <Input
+              type="password"
+              style={{ flex: '1 1 220px' }}
+              value={keyDraft}
+              autoComplete="off"
+              placeholder={t('panel.credential.writePlaceholder')}
+              onChange={(event) => setKeyDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && keyDraft.trim() !== '') void applyKey('credential/set')
               }}
+            />
+            <Button
+              variant="primary"
+              size="sm"
+              disabled={keyBusy || keyDraft.trim() === ''}
+              onClick={() => void applyKey('credential/set')}
             >
-              <StatusDot ok={credential?.configured === true} busy={testing} />
-              {credentialLine}
-            </span>
-            <Button variant="outline" size="sm" onClick={() => void runTest()} disabled={testing}>
-              {testing ? t('panel.testing') : t('panel.testConnection')}
+              {t('panel.credential.save')}
             </Button>
-          </div>
-          {testResult !== null && <Notice>{testResult}</Notice>}
-          {/* 写入即覆盖、永不回显：草稿只在本地 state，回显的永远只有三个状态事实 */}
-          {credential?.writable === true ? (
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-              <Input
-                type="password"
-                style={{ flex: '1 1 220px' }}
-                value={keyDraft}
-                autoComplete="off"
-                placeholder={t('panel.credential.writePlaceholder')}
-                onChange={(event) => setKeyDraft(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' && keyDraft.trim() !== '')
-                    void applyKey('credential/set')
-                }}
-              />
+            {credential.configured && (
               <Button
-                variant="primary"
+                variant="ghost"
                 size="sm"
-                disabled={keyBusy || keyDraft.trim() === ''}
-                onClick={() => void applyKey('credential/set')}
+                disabled={keyBusy}
+                onClick={() => void applyKey('credential/unset')}
               >
-                {t('panel.credential.save')}
+                {t('panel.credential.clear')}
               </Button>
-              {credential.configured && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  disabled={keyBusy}
-                  onClick={() => void applyKey('credential/unset')}
-                >
-                  {t('panel.credential.clear')}
-                </Button>
-              )}
-            </div>
-          ) : credential !== undefined && credential.configured ? (
-            <Notice>{t('panel.credential.notWritable', { source: sourceLabel ?? '' })}</Notice>
-          ) : null}
-          {keyNotice !== null && (
-            <Notice danger={keyNotice.kind === 'error'}>{keyNotice.text}</Notice>
-          )}
-          <div
-            style={{
-              fontSize: 12,
-              lineHeight: '20px',
-              color: tokens.labelTertiary,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 4,
-              padding: '12px 0',
-              borderTop: `1px solid ${tokens.border}`,
-            }}
-          >
-            <span style={{ fontWeight: 500, color: tokens.labelSecondary }}>
-              {t('panel.credential.howTitle')}
-            </span>
-            <ol style={{ margin: 0, paddingLeft: 18, lineHeight: '20px' }}>
-              <li>{t('panel.credential.way1')}</li>
-              <li>{t('panel.credential.way2')}</li>
-              <li>{t('panel.credential.way3')}</li>
-              <li>{t('panel.credential.way4')}</li>
-            </ol>
+            )}
           </div>
+        ) : credential !== undefined && credential.configured ? (
+          <Notice>{t('panel.credential.notWritable', { source: sourceLabel ?? '' })}</Notice>
+        ) : null}
+        {keyNotice !== null && (
+          <Notice danger={keyNotice.kind === 'error'}>{keyNotice.text}</Notice>
+        )}
+        <div
+          style={{
+            fontSize: 12,
+            lineHeight: '20px',
+            color: tokens.labelTertiary,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 4,
+          }}
+        >
+          <span style={{ fontWeight: 500, color: tokens.labelSecondary }}>
+            {t('panel.credential.howTitle')}
+          </span>
+          <ol style={{ margin: 0, paddingLeft: 18, lineHeight: '20px' }}>
+            <li>{t('panel.credential.way1')}</li>
+            <li>{t('panel.credential.way2')}</li>
+            <li>{t('panel.credential.way3')}</li>
+            <li>{t('panel.credential.way4')}</li>
+          </ol>
         </div>
       </Card>
 
@@ -893,18 +892,37 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
         const first = row.files[0]
         const name = first === undefined ? '' : (first.split('/').pop() ?? '')
         return (
-          /* 历史行：行间分隔线；锚点行用品牌色左边线强调（对齐原生 active 下划线思路） */
+          /* 已确认线框：横向卡片行；锚点行整行边框加粗 + 右上角旗标徽标 */
           <div
             key={`${row.time}:${index}`}
             style={{
               display: 'flex',
               gap: 10,
               alignItems: 'center',
-              padding: '10px 8px',
-              borderTop: `1px solid ${tokens.border}`,
-              borderLeft: row.anchored ? `2px solid ${tokens.brand}` : '2px solid transparent',
+              border: `${row.anchored ? 2 : 1}px solid ${tokens.border}`,
+              borderRadius: 8,
+              padding: 8,
+              position: 'relative',
             }}
           >
+            {row.anchored && (
+              <span
+                style={{
+                  position: 'absolute',
+                  top: -9,
+                  right: 10,
+                  background: 'var(--dsw-alias-bg-module-platform)',
+                  borderRadius: 999,
+                  fontSize: 11,
+                  lineHeight: '17px',
+                  padding: '1px 8px',
+                  fontWeight: 500,
+                  color: tokens.labelSecondary,
+                }}
+              >
+                🚩 {t('panel.history.anchorTag')}
+              </span>
+            )}
             {name !== '' && (
               <img
                 src={imageUrl(name, cwd)}
@@ -934,22 +952,9 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
               >
                 {row.description}
               </div>
-              <div
-                style={{
-                  fontSize: 12,
-                  lineHeight: '17px',
-                  color: tokens.labelTertiary,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  flexWrap: 'wrap',
-                }}
-              >
-                {row.anchored && <Badge>🚩 {t('panel.history.anchorTag')}</Badge>}
-                <span>
-                  {formatTime(row.time)} · {row.model ?? '—'} · {row.size ?? '—'} ·{' '}
-                  {t('panel.history.fileCount', { n: row.files.length })}
-                </span>
+              <div style={{ fontSize: 12, lineHeight: '17px', color: tokens.labelTertiary }}>
+                {formatTime(row.time)} · {row.model ?? '—'} · {row.size ?? '—'} ·{' '}
+                {t('panel.history.fileCount', { n: row.files.length })}
               </div>
             </div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
