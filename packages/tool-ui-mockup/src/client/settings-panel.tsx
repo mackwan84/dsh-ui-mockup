@@ -164,7 +164,7 @@ function StatusDot({ ok, busy }: { ok: boolean; busy?: boolean }) {
 
 /**
  * 卡片容器：恢复已确认线框的圆角卡片布局，视觉用真实令牌
- * （border-l2 边框 / 8px 圆角 / 13px·500 标题），浅深色自适应。
+ * （border-l2 边框 / 8px 圆角 / 标题 15px·600 对齐原生 heading 层级）。
  */
 function Card({ title, children }: { title?: string; children: ReactNode }) {
   return (
@@ -179,17 +179,37 @@ function Card({ title, children }: { title?: string; children: ReactNode }) {
       }}
     >
       {title !== undefined && (
-        <span style={{ fontSize: 13, fontWeight: 500, lineHeight: '20px' }}>{title}</span>
+        <span style={{ fontSize: 15, fontWeight: 600, lineHeight: '22px' }}>{title}</span>
       )}
       {children}
     </div>
   )
 }
 
-/** 字段行：恢复已确认线框的横排（label 左 96px，控件右），颜色/字号用真实令牌。 */
-function FieldRow({ label, children }: { label: string; children: ReactNode }) {
+/**
+ * 字段行：横排（label 左 96px，控件右）。为对齐原生 `.field + .field { border-top }`
+ * 的表单节奏，相邻字段行之间画 1px 分隔线；卡片内首行由调用方传 `first` 免除。
+ */
+function FieldRow({
+  label,
+  children,
+  first = false,
+}: {
+  label: string
+  children: ReactNode
+  first?: boolean
+}) {
   return (
-    <label style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+    <label
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        flexWrap: 'wrap',
+        paddingTop: 10,
+        ...(first ? {} : { borderTop: `1px solid ${tokens.border}` }),
+      }}
+    >
       <span
         style={{ minWidth: 96, fontSize: 13, lineHeight: '20px', color: tokens.labelSecondary }}
       >
@@ -411,6 +431,14 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
 
   const sourceLabel = sourceLabelText(t, credential?.source)
 
+  /** 纯状态文本（不含来源），供提供方选中卡第一行使用；来源另起一行淡化展示。 */
+  const credentialStatus =
+    credential === undefined
+      ? t('panel.credential.checking')
+      : credential.configured
+        ? t('panel.credential.ready')
+        : t('panel.credential.missing')
+
   const credentialLine =
     credential === undefined
       ? t('panel.credential.checking')
@@ -443,17 +471,37 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
             <strong style={{ fontSize: 13 }}>{t('panel.provider.dashscopeName')}</strong>
             <div
               style={{
-                fontSize: 12,
-                lineHeight: '17px',
-                color: tokens.labelSecondary,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
                 marginTop: 4,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 2,
               }}
             >
-              <StatusDot ok={credential?.configured === true} />
-              {credentialLine}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  fontSize: 12,
+                  lineHeight: '17px',
+                  color: tokens.labelSecondary,
+                }}
+              >
+                <StatusDot ok={credential?.configured === true} />
+                {credentialStatus}
+              </div>
+              {credential?.configured && sourceLabel !== undefined && (
+                <div
+                  style={{
+                    fontSize: 12,
+                    lineHeight: '17px',
+                    color: tokens.labelTertiary,
+                    paddingLeft: 14,
+                  }}
+                >
+                  {sourceLabel}
+                </div>
+              )}
             </div>
           </label>
           <label
@@ -538,17 +586,18 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
         <div
           style={{
             fontSize: 12,
-            lineHeight: '20px',
+            lineHeight: '17px',
             color: tokens.labelTertiary,
             display: 'flex',
             flexDirection: 'column',
-            gap: 4,
+            gap: 2,
+            marginTop: 2,
           }}
         >
           <span style={{ fontWeight: 500, color: tokens.labelSecondary }}>
             {t('panel.credential.howTitle')}
           </span>
-          <ol style={{ margin: 0, paddingLeft: 18, lineHeight: '20px' }}>
+          <ol style={{ margin: 0, paddingLeft: 18 }}>
             <li>{t('panel.credential.way1')}</li>
             <li>{t('panel.credential.way2')}</li>
             <li>{t('panel.credential.way3')}</li>
@@ -558,7 +607,7 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
       </Card>
 
       <Card title={t('panel.models.title')}>
-        <FieldRow label={t('panel.models.wireframe')}>
+        <FieldRow first label={t('panel.models.wireframe')}>
           <datalist id="ui-mockup-wireframe-models">
             {WIREFRAME_MODEL_HINTS.map((m) => (
               <option key={m} value={m} />
@@ -671,7 +720,7 @@ function PreferencesPage({ t, prefs }: Omit<PanelProps, 'connection'>) {
       {readonlyNote && <Notice>{t('panel.readonlyBanner')}</Notice>}
       {error !== '' && <Notice danger>{error}</Notice>}
       <Card>
-        <FieldRow label={t('panel.prefs.fidelity')}>
+        <FieldRow first label={t('panel.prefs.fidelity')}>
           <Radio
             label={t('panel.prefs.fidelityWireframe')}
             checked={draft.defaultFidelity === 'wireframe'}
