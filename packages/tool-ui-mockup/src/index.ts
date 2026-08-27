@@ -208,6 +208,7 @@ const USAGE_SECTION = {
     "- 视觉风格待确认: fidelity='high-fidelity'(默认用 qwen-image-3.0-pro, 质量优先), 建议 count=2~4 一次给多个方向供用户选择。",
     '- 同一个站点的多个页面在高保真阶段应传 reference=已确认页面的图, 保持风格一致(图生图模式)。',
     '- 用户对生成的图提出修改意见: 再次调用 ui_mockup, 在 description 中写修改后的完整界面描述, 并保持与上一版一致的 style。',
+    '- 模型分层默认由设置面板管理; 用户没有点名具体模型时不要传 model 参数, 否则会绕过面板配置(面板未配置时才回落 wireframe→qwen-image-3.0 / high-fidelity→qwen-image-3.0-pro)。',
     '',
     '确认与锁定:',
     '- 生成后展示图片, 请用户反馈, 循环修改直到用户明确确认。',
@@ -412,17 +413,27 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
   // 本插件进程内已生成过图片的工作区根（canonical）：图片路由 cwd 白名单的信任源之一
   const knownRoots = new Set<string>()
   /**
-   * 偏好命名空间：宿主 settings 服务可用时注册之（保存/读取都走统一文档，
-   * cordis.yml 配置层作为组合 base）；服务缺席（纯内存部署）时以下调用点
-   * 全部退化为 config + 内置默认值，面板只读不可写。
+   * 偏好命名空间：settings 是晚就绪的宿主平面服务（与 webServer/connection 同类），
+   * apply 瞬间 ctx.get 可能拿到 undefined 而永久错过注册——面板写入会存进设置文档
+   * 但 execute 永远读不到。改用 ctx.inject 等服务就绪后再注册；服务缺席（纯内存
+   * 部署）时保持 undefined，各调用点退化为 config + 内置默认，面板只读不可写。
+   * effect 挂 inject 回调的 scope：服务重载时命名空间随 scope 销毁重建，引用同步复位。
    */
-  const settings = ctx.get('settings') as SettingsFace | undefined
-  const prefsScope = settings?.register('ui-mockup', PrefsSchema, { base: config })
+  let prefsScope: { get(): MockupPrefs } | undefined
+  ctx.inject(['settings'], (scope) => {
+    const settings = scope.get('settings') as SettingsFace
+    scope.effect(() => {
+      prefsScope = settings.register('ui-mockup', PrefsSchema, { base: config })
+      return () => {
+        prefsScope = undefined
+      }
+    }, 'ui-mockup: preferences namespace')
+  })
   ctx.effect(() =>
     tools.register({
       name: 'ui_mockup',
       description:
-        '调用外部图像生成接口, 为界面/页面生成线框图(wireframe)或高保真(high-fidelity)设计草图, 供用户在编写实现代码之前确认界面方向。图片显示在对话中并保存到工作区 design/images/ 目录。用户需要修改时, 用修改后的完整描述再次调用。模型按精度自动选择: wireframe 用 qwen-image-3.0(快), high-fidelity 用 qwen-image-3.0-pro(质量优先); 也可用 model 参数显式覆盖。传 reference 参数可用已确认的图作为风格基准(图生图), 保持多页面风格一致。接口限流时自动退避重试。需要阿里云百炼 DASHSCOPE_API_KEY(通过凭据服务或环境变量提供)。',
+        '调用外部图像生成接口, 为界面/页面生成线框图(wireframe)或高保真(high-fidelity)设计草图, 供用户在编写实现代码之前确认界面方向。图片显示在对话中并保存到工作区 design/images/ 目录。用户需要修改时, 用修改后的完整描述再次调用。模型分层默认由设置面板「提供方与模型」管理(未配置时 wireframe→qwen-image-3.0, high-fidelity→qwen-image-3.0-pro); 用户未点名模型时不要传 model 参数, 以免绕过面板配置。传 reference 参数可用已确认的图作为风格基准(图生图), 保持多页面风格一致。接口限流时自动退避重试。需要阿里云百炼 DASHSCOPE_API_KEY(通过凭据服务或环境变量提供)。',
       parameters: {
         type: 'object',
         properties: {
@@ -455,7 +466,7 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
           model: {
             type: 'string',
             description:
-              '可选: 显式覆盖模型。默认按精度自动选: wireframe→qwen-image-3.0, high-fidelity→qwen-image-3.0-pro; 线框图可换 qwen-image-2.0 / wan2.7-image, 高保真可换 qwen-image-2.0-pro / wan2.7-image-pro。',
+              '可选: 显式覆盖模型。默认取设置面板「提供方与模型」的分层默认(未配置时 wireframe→qwen-image-3.0, high-fidelity→qwen-image-3.0-pro)。用户未点名具体模型时请省略本参数, 否则会绕过面板配置。',
           },
           size: {
             type: 'string',

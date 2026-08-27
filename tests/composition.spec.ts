@@ -122,9 +122,21 @@ class SystemPromptStub extends Service {
   }
 }
 
-/** settings 服务桩：接受命名空间注册，resolved 值 = 默认 + 组合 base。 */
+/** settings 服务桩：接受命名空间注册，resolved 值 = 默认 + 组合 base；测试可改 resolved 模拟面板写入。 */
 class SettingsStub extends Service {
   readonly namespaces: string[] = []
+
+  /** 可变窗口：register().get() 返回该对象引用，改字段即等于用户层写入后的 resolved 值。 */
+  readonly resolved: Record<string, unknown> = {
+    defaultFidelity: 'wireframe',
+    defaultPlatform: 'web',
+    defaultCount: 2,
+    outputDir: 'design/images',
+    pollTimeoutMinutes: 10,
+    wireframeModel: '',
+    highFidelityModel: '',
+    defaultSize: '',
+  }
 
   constructor(ctx: Context) {
     super(ctx, 'settings')
@@ -132,18 +144,8 @@ class SettingsStub extends Service {
 
   register(ns: string, _schema: unknown, options?: { base?: Record<string, unknown> }) {
     this.namespaces.push(ns)
-    const resolved: Record<string, unknown> = {
-      defaultFidelity: 'wireframe',
-      defaultPlatform: 'web',
-      defaultCount: 2,
-      outputDir: 'design/images',
-      pollTimeoutMinutes: 10,
-      wireframeModel: '',
-      highFidelityModel: '',
-      defaultSize: '',
-      ...options?.base,
-    }
-    return { get: () => resolved as never }
+    Object.assign(this.resolved, options?.base ?? {})
+    return { get: () => this.resolved as never }
   }
 }
 
@@ -317,6 +319,56 @@ describe('ui-mockup real dynamic composition', () => {
       expect(booted.systemPrompt.sections.map((section) => section.name)).toContain(
         'ui-mockup-usage',
       )
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('applies the preference-tier model when the call omits an explicit model', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+    try {
+      const booted = await bootComposition(dir)
+      // 模拟用户在设置面板把线框图默认模型改为 qwen-image-2.0
+      booted.settings.resolved.wireframeModel = 'qwen-image-2.0'
+      const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00])
+      vi.stubGlobal('fetch', async (url: string) => {
+        if (url.includes('image-generation/generation')) {
+          return new Response(
+            JSON.stringify({ output: { task_id: 'task-pref-model', task_status: 'PENDING' } }),
+            { status: 200 },
+          )
+        }
+        if (url.includes('/api/v1/tasks/task-pref-model')) {
+          return new Response(
+            JSON.stringify({
+              output: {
+                task_id: 'task-pref-model',
+                task_status: 'SUCCEEDED',
+                results: [{ url: 'https://oss.example/pref.png' }],
+              },
+            }),
+            { status: 200 },
+          )
+        }
+        if (url.includes('oss.example')) {
+          return new Response(png, { status: 200, headers: { 'content-type': 'image/png' } })
+        }
+        throw new Error(`unexpected fetch: ${url}`)
+      })
+
+      const definition = booted.tools.registered.find((item) => item.name === 'ui_mockup')!
+      const execute = definition.execute as (
+        args: Record<string, unknown>,
+        exec: { signal: AbortSignal; agent?: { session: { header: { cwd?: string } } } },
+      ) => Promise<Record<string, unknown>>
+      // 不传 model：应走偏好分层默认而不是内置 qwen-image-3.0
+      const value = await execute(
+        { description: '设置页线框图', fidelity: 'wireframe', platform: 'web' },
+        { signal: new AbortController().signal, agent: { session: { header: { cwd: dir } } } },
+      )
+      expect(value.ok, String(value.message)).toBe(true)
+      expect(String(value.message)).toContain('qwen-image-2.0')
+      expect(String(value.message)).not.toContain('已用模型 qwen-image-3.0')
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
