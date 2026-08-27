@@ -2,8 +2,10 @@
  * ui_mockup 工具卡片：生成图内嵌展示 + 确认/选用/修改意见反馈按钮。
  * 纯展示组件，接收 tool.call.toolview 的 owner payload 与框架注入的
  * `t`（i18n）和 `inputActions`（反馈按钮通过 setDraft + submit 发送消息）。
+ * 视觉与 DSH 原生一致：Button 原语 + --dsw-alias-* 主题令牌。
  */
 import { useState } from 'react'
+import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ToolCallViewProps } from '@deepseek-ai/dsh-client-ui-tool/client'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -40,7 +42,7 @@ export function UiMockupToolview({ block, inputActions, openFile, cwd, t }: Prop
 
   if (!('kind' in block)) {
     return (
-      <div style={{ padding: '8px 0', color: 'var(--dsw-text-secondary, #888)' }}>
+      <div style={{ padding: '8px 0', fontSize: 13, color: 'var(--dsw-alias-label-tertiary)' }}>
         {t('card.generating')}
       </div>
     )
@@ -53,7 +55,19 @@ export function UiMockupToolview({ block, inputActions, openFile, cwd, t }: Prop
     .join('')
 
   if (images.length === 0) {
-    return <div style={{ padding: '8px 0', whiteSpace: 'pre-wrap' }}>{message}</div>
+    return (
+      <div
+        style={{
+          padding: '8px 0',
+          whiteSpace: 'pre-wrap',
+          fontSize: 13,
+          lineHeight: '20px',
+          color: 'var(--dsw-alias-label-primary)',
+        }}
+      >
+        {message}
+      </div>
+    )
   }
 
   const send = (text: string) => {
@@ -76,14 +90,19 @@ export function UiMockupToolview({ block, inputActions, openFile, cwd, t }: Prop
                 style={{
                   maxWidth: 240,
                   maxHeight: 240,
-                  borderRadius: 6,
-                  border: '1px solid var(--dsw-border, rgba(0,0,0,0.12))',
+                  borderRadius: 8,
+                  border: '1px solid var(--dsw-alias-border-l2)',
                   objectFit: 'contain',
-                  background: 'var(--dsw-bg-subtle, #f5f5f5)',
+                  background: 'var(--dsw-alias-bg-layer-3)',
                 }}
               />
               <figcaption
-                style={{ fontSize: 11, color: 'var(--dsw-text-secondary, #888)', marginTop: 2 }}
+                style={{
+                  fontSize: 12,
+                  lineHeight: '17px',
+                  color: 'var(--dsw-alias-label-tertiary)',
+                  marginTop: 2,
+                }}
               >
                 {name}
               </figcaption>
@@ -92,15 +111,16 @@ export function UiMockupToolview({ block, inputActions, openFile, cwd, t }: Prop
         })}
       </div>
 
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-        <button
-          type="button"
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+        <Button
+          variant="primary"
+          size="sm"
           onClick={() =>
             send(t('card.confirmMessage', { name: images[0]!.attachment.name ?? 'mockup.png' }))
           }
         >
-          ✅ {t('card.confirm')}
-        </button>
+          {t('card.confirm')}
+        </Button>
         {images.length > 1 && (
           <select
             value={selected}
@@ -113,6 +133,16 @@ export function UiMockupToolview({ block, inputActions, openFile, cwd, t }: Prop
               const name = (images[index]!.attachment as ImageRef).name ?? `mockup-${index + 1}.png`
               send(buildFeedbackMessage(t, name, index))
             }}
+            style={{
+              height: 28,
+              padding: '0 8px',
+              border: '1px solid var(--dsw-alias-border-l2)',
+              borderRadius: 999,
+              background: 'var(--dsw-alias-bg-layer-3)',
+              font: 'inherit',
+              fontSize: 13,
+              color: 'var(--dsw-alias-label-primary)',
+            }}
           >
             <option value="" disabled>
               {t('card.selectPlaceholder')}
@@ -124,18 +154,19 @@ export function UiMockupToolview({ block, inputActions, openFile, cwd, t }: Prop
             ))}
           </select>
         )}
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={() => {
-            const name = (images[0]!.attachment as ImageRef).name ?? 'mockup.png'
+            const name = images[0]!.attachment.name ?? 'mockup.png'
             openFile(`design/images/${name}`)
           }}
         >
-          🖼 {t('card.openOriginal')}
-        </button>
-        <button type="button" onClick={() => setShowFeedback((value) => !value)}>
-          📝 {t('card.feedback')}
-        </button>
+          {t('card.openOriginal')}
+        </Button>
+        <Button variant="ghost" size="sm" onClick={() => setShowFeedback((value) => !value)}>
+          {t('card.feedback')}
+        </Button>
       </div>
 
       {showFeedback && (
@@ -145,23 +176,34 @@ export function UiMockupToolview({ block, inputActions, openFile, cwd, t }: Prop
             onChange={(event) => setOpinion(event.target.value)}
             placeholder={t('card.feedbackPlaceholder')}
             rows={2}
-            style={{ resize: 'vertical' }}
+            style={{
+              resize: 'vertical',
+              padding: '6px 12px',
+              border: '1px solid var(--dsw-alias-border-l2)',
+              borderRadius: 8,
+              background: 'var(--dsw-alias-bg-layer-3)',
+              font: 'inherit',
+              fontSize: 13,
+              lineHeight: '20px',
+              color: 'var(--dsw-alias-label-primary)',
+            }}
           />
           <div style={{ display: 'flex', gap: 8 }}>
-            <button
-              type="button"
+            <Button
+              variant="primary"
+              size="sm"
               onClick={() => {
-                const name = (images[0]!.attachment as ImageRef).name ?? 'mockup.png'
+                const name = images[0]!.attachment.name ?? 'mockup.png'
                 send(buildFeedbackMessage(t, name, 0, opinion))
                 setOpinion('')
                 setShowFeedback(false)
               }}
             >
               {t('card.feedbackSubmit')}
-            </button>
-            <button type="button" onClick={() => setShowFeedback(false)}>
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setShowFeedback(false)}>
               {t('card.feedbackCancel')}
-            </button>
+            </Button>
           </div>
         </div>
       )}

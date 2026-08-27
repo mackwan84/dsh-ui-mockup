@@ -5,6 +5,7 @@
  * 数据面：偏好经同名 settings 命名空间镜像读写，历史/锚点/测试连接走私有 RPC 频道。
  */
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Button, Input, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import {
   callPanel,
@@ -67,25 +68,18 @@ const TAB_KEYS: Record<SubPage, `panel.tab.${SubPage}`> = {
 export function UiMockupSection({ t, prefs, connection }: PanelProps) {
   const [page, setPage] = useState<SubPage>('overview')
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div role="tablist" style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+    <div style={sectionStyle}>
+      {/* 子页切换：对齐原生 Plugins 设置区的 tab 范式（底边线 + active 下划线） */}
+      <div role="tablist" style={tabsStyle}>
         {SUBPAGES.map((key) => (
           <button
             key={key}
             type="button"
             role="tab"
             aria-selected={page === key}
+            data-active={page === key}
             onClick={() => setPage(key)}
-            style={{
-              padding: '4px 10px',
-              borderRadius: 6,
-              cursor: 'pointer',
-              border: `1px solid ${page === key ? 'var(--dsw-border-strong, var(--dsw-border, #999))' : 'transparent'}`,
-              background:
-                page === key ? 'var(--dsw-bg-subtle, rgba(127,127,127,0.12))' : 'transparent',
-              color: 'inherit',
-              fontWeight: page === key ? 600 : 400,
-            }}
+            style={page === key ? { ...tabStyle, ...tabActiveStyle } : tabStyle}
           >
             {t(TAB_KEYS[key])}
           </button>
@@ -99,38 +93,143 @@ export function UiMockupSection({ t, prefs, connection }: PanelProps) {
   )
 }
 
-/* ---------------- 共享原子 ---------------- */
+/* ---------------- 原生令牌与共享原子 ---------------- */
 
-function StatusDot({ ok }: { ok: boolean }) {
+/**
+ * DSH 真实主题令牌（--dsw-alias-*，与 ui-theme / ui-settings-plugins 的
+ * module.css 同名同用途）与原生设置区实测尺寸。布局仍用内联样式，但取值
+ * 逐项对齐 fields.module.css / PluginsSettingsSection.module.css，不再自造。
+ */
+const tokens = {
+  labelPrimary: 'var(--dsw-alias-label-primary)',
+  labelSecondary: 'var(--dsw-alias-label-secondary)',
+  labelTertiary: 'var(--dsw-alias-label-tertiary)',
+  labelError: 'var(--dsw-alias-label-error)',
+  border: 'var(--dsw-alias-border-l2)',
+  bgLayer: 'var(--dsw-alias-bg-layer-3)',
+  brand: 'var(--dsw-alias-brand-primary)',
+} as const
+
+/** 面板根容器：与原生设置 section 同宽（max-width 760px）。 */
+const sectionStyle = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 12,
+  maxWidth: 760,
+  width: '100%',
+  color: tokens.labelPrimary,
+} as const
+
+const tabsStyle = {
+  display: 'flex',
+  alignItems: 'flex-end',
+  gap: 22,
+  borderBottom: `1px solid ${tokens.border}`,
+  marginTop: 2,
+} as const
+
+const tabStyle = {
+  position: 'relative' as const,
+  border: 0,
+  padding: '7px 1px 9px',
+  background: 'transparent',
+  color: tokens.labelTertiary,
+  font: 'inherit',
+  fontSize: 13,
+  lineHeight: '20px',
+  cursor: 'pointer',
+}
+
+const tabActiveStyle = {
+  color: tokens.labelPrimary,
+} as const
+
+/** select 与原生 .input 同款（34px 高 / 8px 圆角 / layer-3 背景 / focus 品牌色边框）。 */
+const selectStyle = {
+  height: 34,
+  padding: '0 12px',
+  border: `1px solid ${tokens.border}`,
+  borderRadius: 8,
+  background: tokens.bgLayer,
+  font: 'inherit',
+  fontSize: 13,
+  lineHeight: '20px',
+  color: tokens.labelPrimary,
+} as const
+
+/** 状态点：直接复用原语 StateDot（done 绿 / warning 琥珀），观感与会话列表一致。 */
+function StatusDot({ ok, busy }: { ok: boolean; busy?: boolean }) {
+  return <StateDot state={busy ? 'ongoing' : ok ? 'done' : 'warning'} className="ui-mockup-dot" />
+}
+
+/**
+ * 字段组：原生设置区是「分隔线行列表」而非卡片堆叠——组内子元素间用
+ * border-top 分隔（首行不带），标题 13px/500/primary。
+ */
+function Card({ title, children }: { title?: string; children: ReactNode }) {
   return (
-    <span
-      aria-hidden
-      style={{
-        display: 'inline-block',
-        width: 8,
-        height: 8,
-        borderRadius: '50%',
-        marginRight: 6,
-        background: ok ? 'var(--dsw-success, #2e9e5b)' : 'var(--dsw-danger, #d0453c)',
-      }}
-    />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {title !== undefined && (
+        <span style={{ fontSize: 13, fontWeight: 500, lineHeight: '20px' }}>{title}</span>
+      )}
+      {children}
+    </div>
   )
 }
 
-function Card({ children }: { children: ReactNode }) {
+/** 原生 .field 范式：竖排（label 在上 13px/500，control 在下），行距 6px。 */
+function FieldRow({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div
       style={{
-        border: '1px solid var(--dsw-border, rgba(127,127,127,0.35))',
-        borderRadius: 8,
-        padding: '10px 12px',
         display: 'flex',
         flexDirection: 'column',
-        gap: 8,
+        gap: 6,
+        padding: '12px 0',
+        borderTop: `1px solid ${tokens.border}`,
+      }}
+    >
+      <span style={{ fontSize: 13, fontWeight: 500, lineHeight: '20px' }}>{label}</span>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+        {children}
+      </div>
+    </div>
+  )
+}
+
+/** 提示行：对齐原生 hint（12px tertiary）/ invalid（12px error），不带边框。 */
+function Notice({ children, danger }: { children: ReactNode; danger?: boolean }) {
+  return (
+    <p
+      style={{
+        margin: 0,
+        fontSize: 12,
+        lineHeight: '20px',
+        color: danger ? tokens.labelError : tokens.labelTertiary,
       }}
     >
       {children}
-    </div>
+    </p>
+  )
+}
+
+/** 锚点徽标：对齐原生 badge（999 圆角 / 11px / bg-module-platform）。 */
+function Badge({ children }: { children: ReactNode }) {
+  return (
+    <span
+      style={{
+        borderRadius: 999,
+        padding: '1px 8px',
+        fontSize: 11,
+        lineHeight: '17px',
+        whiteSpace: 'nowrap',
+        fontWeight: 500,
+        background: 'var(--dsw-alias-bg-module-platform)',
+        color: tokens.labelSecondary,
+      }}
+    >
+      {children}
+    </span>
   )
 }
 
@@ -173,29 +272,34 @@ function OverviewPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
     }
   }, [connection])
 
-  if (error !== '')
-    return (
-      <div style={{ color: 'var(--dsw-danger, #d0453c)' }}>{t('panel.loadFailed', { error })}</div>
-    )
-  if (data === undefined) return <div>{t('panel.loading')}</div>
+  if (error !== '') return <Notice danger>{t('panel.loadFailed', { error })}</Notice>
+  if (data === undefined)
+    return <div style={{ color: tokens.labelTertiary }}>{t('panel.loading')}</div>
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <p style={{ margin: 0, lineHeight: 1.6 }}>{t('panel.overview.intro')}</p>
-      <Card>
-        <strong>{t('panel.overview.quickTitle')}</strong>
+      <p style={{ margin: 0, fontSize: 13, lineHeight: '20px', color: tokens.labelTertiary }}>
+        {t('panel.overview.intro')}
+      </p>
+      <Card title={t('panel.overview.quickTitle')}>
         {QUICK_STEPS.map((step) => (
-          <div key={step.title} style={{ display: 'flex', gap: 8 }}>
-            <span aria-hidden>{step.icon}</span>
-            <p style={{ margin: 0, lineHeight: 1.55 }}>
-              <strong>{t(step.title)}</strong>
-              <br />
+          <FieldRow key={step.title} label={`${step.icon}  ${t(step.title)}`}>
+            <span style={{ fontSize: 13, lineHeight: '20px', color: tokens.labelSecondary }}>
               {t(step.body)}
-            </p>
-          </div>
+            </span>
+          </FieldRow>
         ))}
       </Card>
-      <div style={{ display: 'flex', alignItems: 'center', opacity: 0.85 }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          fontSize: 13,
+          lineHeight: '20px',
+          color: tokens.labelSecondary,
+        }}
+      >
         <StatusDot ok={data.credential.configured} />
         {t('panel.overview.statusLine', {
           provider: t('panel.provider.dashscopeName'),
@@ -336,138 +440,134 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
         <Notice>{t('panel.readonlyBanner')}</Notice>
       ) : null}
       {writeError !== '' && <Notice danger>{writeError}</Notice>}
-      <Card>
-        <strong>{t('panel.provider.title')}</strong>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <label
+
+      <Card title={t('panel.provider.title')}>
+        <FieldRow label={t('panel.provider.dashscopeName')}>
+          <span
             style={{
-              flex: '1 1 200px',
-              border: '2px solid var(--dsw-border-strong, var(--dsw-border, #888))',
-              borderRadius: 8,
-              padding: '8px 10px',
-              position: 'relative',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              fontSize: 13,
+              lineHeight: '20px',
+              color: tokens.labelSecondary,
             }}
           >
-            <input type="radio" name="ui-mockup-provider" checked readOnly />{' '}
-            <strong>{t('panel.provider.dashscopeName')}</strong>
-            <div style={{ fontSize: 11, opacity: 0.75, display: 'flex', alignItems: 'center' }}>
-              <StatusDot ok={credential?.configured === true} />
-              {credentialLine}
-            </div>
-          </label>
-          <label
-            aria-disabled
-            style={{
-              flex: '1 1 200px',
-              border: '1px dashed var(--dsw-border, rgba(127,127,127,0.35))',
-              borderRadius: 8,
-              padding: '8px 10px',
-              opacity: 0.45,
-            }}
-          >
-            <input type="radio" name="ui-mockup-provider" disabled />{' '}
-            {t('panel.provider.volcengineName')}
-            <div style={{ fontSize: 11 }}>{t('panel.provider.comingSoon')}</div>
-          </label>
-        </div>
+            <StatusDot ok={credential?.configured === true} />
+            {credentialLine}
+          </span>
+        </FieldRow>
+        <FieldRow label={t('panel.provider.volcengineName')}>
+          <Badge>{t('panel.provider.comingSoon')}</Badge>
+        </FieldRow>
       </Card>
 
-      <Card>
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            flexWrap: 'wrap',
-            gap: 8,
-          }}
-        >
-          <strong>{t('panel.credential.title')}</strong>
-          <button type="button" onClick={() => void runTest()} disabled={testing}>
-            {testing ? t('panel.testing') : t('panel.testConnection')}
-          </button>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center' }}>
-          <StatusDot ok={credential?.configured === true} />
-          {credentialLine}
-        </div>
-        {testResult !== null && <div style={{ opacity: 0.85 }}>{testResult}</div>}
-        {/* 写入即覆盖、永不回显：草稿只在本地 state，回显的永远只有三个状态事实 */}
-        {credential?.writable === true ? (
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-            <input
-              type="password"
-              style={{ flex: '1 1 220px' }}
-              value={keyDraft}
-              autoComplete="off"
-              placeholder={t('panel.credential.writePlaceholder')}
-              onChange={(event) => setKeyDraft(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' && keyDraft.trim() !== '') void applyKey('credential/set')
-              }}
-            />
-            <button
-              type="button"
-              disabled={keyBusy || keyDraft.trim() === ''}
-              onClick={() => void applyKey('credential/set')}
-            >
-              {t('panel.credential.save')}
-            </button>
-            {credential.configured && (
-              <button
-                type="button"
-                disabled={keyBusy}
-                onClick={() => void applyKey('credential/unset')}
-              >
-                {t('panel.credential.clear')}
-              </button>
-            )}
-          </div>
-        ) : credential !== undefined && credential.configured ? (
-          <Notice>{t('panel.credential.notWritable', { source: sourceLabel ?? '' })}</Notice>
-        ) : null}
-        {keyNotice !== null && (
+      <Card title={t('panel.credential.title')}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <div
             style={{
-              color:
-                keyNotice.kind === 'error'
-                  ? 'var(--dsw-danger, #d0453c)'
-                  : 'var(--dsw-success, #2e9e5b)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              flexWrap: 'wrap',
+              padding: '12px 0',
+              borderTop: `1px solid ${tokens.border}`,
             }}
           >
-            {keyNotice.text}
+            <span
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                flex: 1,
+                fontSize: 13,
+                lineHeight: '20px',
+                color: tokens.labelSecondary,
+              }}
+            >
+              <StatusDot ok={credential?.configured === true} busy={testing} />
+              {credentialLine}
+            </span>
+            <Button variant="outline" size="sm" onClick={() => void runTest()} disabled={testing}>
+              {testing ? t('panel.testing') : t('panel.testConnection')}
+            </Button>
           </div>
-        )}
-        <div
-          style={{
-            fontSize: 12,
-            opacity: 0.85,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 4,
-            marginTop: 4,
-          }}
-        >
-          <span style={{ fontWeight: 600 }}>{t('panel.credential.howTitle')}</span>
-          <ol style={{ margin: 0, paddingLeft: 18, lineHeight: 1.7 }}>
-            <li>{t('panel.credential.way1')}</li>
-            <li>{t('panel.credential.way2')}</li>
-            <li>{t('panel.credential.way3')}</li>
-            <li>{t('panel.credential.way4')}</li>
-          </ol>
+          {testResult !== null && <Notice>{testResult}</Notice>}
+          {/* 写入即覆盖、永不回显：草稿只在本地 state，回显的永远只有三个状态事实 */}
+          {credential?.writable === true ? (
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              <Input
+                type="password"
+                style={{ flex: '1 1 220px' }}
+                value={keyDraft}
+                autoComplete="off"
+                placeholder={t('panel.credential.writePlaceholder')}
+                onChange={(event) => setKeyDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && keyDraft.trim() !== '')
+                    void applyKey('credential/set')
+                }}
+              />
+              <Button
+                variant="primary"
+                size="sm"
+                disabled={keyBusy || keyDraft.trim() === ''}
+                onClick={() => void applyKey('credential/set')}
+              >
+                {t('panel.credential.save')}
+              </Button>
+              {credential.configured && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={keyBusy}
+                  onClick={() => void applyKey('credential/unset')}
+                >
+                  {t('panel.credential.clear')}
+                </Button>
+              )}
+            </div>
+          ) : credential !== undefined && credential.configured ? (
+            <Notice>{t('panel.credential.notWritable', { source: sourceLabel ?? '' })}</Notice>
+          ) : null}
+          {keyNotice !== null && (
+            <Notice danger={keyNotice.kind === 'error'}>{keyNotice.text}</Notice>
+          )}
+          <div
+            style={{
+              fontSize: 12,
+              lineHeight: '20px',
+              color: tokens.labelTertiary,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 4,
+              padding: '12px 0',
+              borderTop: `1px solid ${tokens.border}`,
+            }}
+          >
+            <span style={{ fontWeight: 500, color: tokens.labelSecondary }}>
+              {t('panel.credential.howTitle')}
+            </span>
+            <ol style={{ margin: 0, paddingLeft: 18, lineHeight: '20px' }}>
+              <li>{t('panel.credential.way1')}</li>
+              <li>{t('panel.credential.way2')}</li>
+              <li>{t('panel.credential.way3')}</li>
+              <li>{t('panel.credential.way4')}</li>
+            </ol>
+          </div>
         </div>
       </Card>
 
-      <Card>
-        <strong>{t('panel.models.title')}</strong>
+      <Card title={t('panel.models.title')}>
         <FieldRow label={t('panel.models.wireframe')}>
           <datalist id="ui-mockup-wireframe-models">
             {WIREFRAME_MODEL_HINTS.map((m) => (
               <option key={m} value={m} />
             ))}
           </datalist>
-          <input
+          <Input
             list="ui-mockup-wireframe-models"
+            style={{ width: 260 }}
             value={snap.value?.wireframeModel ?? ''}
             placeholder={t('panel.models.followDefault')}
             onChange={(event) =>
@@ -481,8 +581,9 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
               <option key={m} value={m} />
             ))}
           </datalist>
-          <input
+          <Input
             list="ui-mockup-hf-models"
+            style={{ width: 260 }}
             value={snap.value?.highFidelityModel ?? ''}
             placeholder={t('panel.models.followDefault')}
             onChange={(event) =>
@@ -490,9 +591,9 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
             }
           />
         </FieldRow>
-        <div style={{ fontSize: 11, opacity: 0.7 }}>
+        <Notice>
           {`${t('panel.models.wireframe')}: ${WIREFRAME_MODEL_HINTS.filter(Boolean).join(', ')} · ${t('panel.models.highFidelity')}: ${HIGH_FIDELITY_MODEL_HINTS.filter(Boolean).join(', ')}`}
-        </div>
+        </Notice>
         {nonQwenModel(snap.value?.wireframeModel, snap.value?.highFidelityModel) !== undefined && (
           <Notice>{t('panel.models.nonQwenWarning')}</Notice>
         )}
@@ -616,7 +717,8 @@ function PreferencesPage({ t, prefs }: Omit<PanelProps, 'connection'>) {
           ))}
         </FieldRow>
         <FieldRow label={t('panel.prefs.outputDir')}>
-          <input
+          <Input
+            style={{ width: 260 }}
             value={draft.outputDir}
             onChange={(event) => patch({ outputDir: event.target.value })}
             disabled={readonlyNote}
@@ -624,24 +726,30 @@ function PreferencesPage({ t, prefs }: Omit<PanelProps, 'connection'>) {
           />
         </FieldRow>
         <FieldRow label={t('panel.prefs.pollTimeout')}>
-          <input
+          <Input
             type="number"
             min={1}
             max={60}
+            style={{ width: 100 }}
             value={draft.pollTimeoutMinutes}
             onChange={(event) => patch({ pollTimeoutMinutes: Number(event.target.value) })}
             disabled={readonlyNote}
           />
-          <span style={{ opacity: 0.7 }}>{t('panel.prefs.minutes')}</span>
+          <span style={{ fontSize: 12, color: tokens.labelTertiary }}>
+            {t('panel.prefs.minutes')}
+          </span>
         </FieldRow>
         <FieldRow label={t('panel.prefs.backoff')}>
-          <span style={{ opacity: 0.55 }}>{t('panel.prefs.backoffFixed')}</span>
+          <span style={{ fontSize: 13, lineHeight: '20px', color: tokens.labelTertiary }}>
+            {t('panel.prefs.backoffFixed')}
+          </span>
         </FieldRow>
         <FieldRow label={t('panel.prefs.size')}>
           <select
             value={draft.defaultSize}
             onChange={(event) => patch({ defaultSize: event.target.value })}
             disabled={readonlyNote}
+            style={selectStyle}
           >
             <option value="">{t('panel.models.followDefault')}</option>
             <option value="1024*1024">1024*1024</option>
@@ -651,19 +759,28 @@ function PreferencesPage({ t, prefs }: Omit<PanelProps, 'connection'>) {
         </FieldRow>
       </Card>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <button type="button" onClick={() => void resetDefaults()} disabled={readonlyNote}>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => void resetDefaults()}
+          disabled={readonlyNote}
+        >
           {t('panel.prefs.reset')}
-        </button>
+        </Button>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-          {savedAt > 0 && !dirty && <span style={{ opacity: 0.7 }}>{t('panel.prefs.saved')}</span>}
-          <button
-            type="button"
+          {savedAt > 0 && !dirty && (
+            <span style={{ fontSize: 12, color: tokens.labelTertiary }}>
+              {t('panel.prefs.saved')}
+            </span>
+          )}
+          <Button
+            variant="primary"
+            size="sm"
             onClick={() => void save()}
             disabled={readonlyNote || !dirty}
-            style={{ fontWeight: 600 }}
           >
             {t('panel.prefs.save')}
-          </button>
+          </Button>
         </div>
       </div>
     </div>
@@ -723,16 +840,14 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
     }
   }
 
-  if (error !== '')
-    return (
-      <div style={{ color: 'var(--dsw-danger, #d0453c)' }}>{t('panel.loadFailed', { error })}</div>
-    )
-  if (rows === undefined) return <div>{t('panel.loading')}</div>
+  if (error !== '') return <Notice danger>{t('panel.loadFailed', { error })}</Notice>
+  if (rows === undefined)
+    return <div style={{ color: tokens.labelTertiary }}>{t('panel.loading')}</div>
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <div style={{ display: 'flex', gap: 8 }}>
-        <input
+        <Input
           style={{ flex: 1 }}
           placeholder={t('panel.history.searchPlaceholder')}
           value={query}
@@ -741,8 +856,9 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
             if (event.key === 'Enter') void reload(query)
           }}
         />
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={() =>
             confirmingClear
               ? void act('history/clear', { cwd }).finally(() => setConfirmingClear(false))
@@ -751,20 +867,24 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
           onBlur={() => setConfirmingClear(false)}
           style={
             confirmingClear
-              ? {
-                  borderColor: 'var(--dsw-danger, #d0453c)',
-                  color: 'var(--dsw-danger, #d0453c)',
-                  fontWeight: 600,
-                }
+              ? { color: tokens.labelError, borderColor: tokens.labelError }
               : undefined
           }
         >
           {confirmingClear ? t('panel.history.confirmClear') : t('panel.history.clear')}
-        </button>
+        </Button>
       </div>
 
       {rows.length === 0 && (
-        <div style={{ opacity: 0.65, padding: '18px 0', textAlign: 'center' }}>
+        <div
+          style={{
+            color: tokens.labelTertiary,
+            fontSize: 13,
+            lineHeight: '20px',
+            padding: '18px 0',
+            textAlign: 'center',
+          }}
+        >
           {t('panel.history.empty')}
         </div>
       )}
@@ -773,36 +893,18 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
         const first = row.files[0]
         const name = first === undefined ? '' : (first.split('/').pop() ?? '')
         return (
+          /* 历史行：行间分隔线；锚点行用品牌色左边线强调（对齐原生 active 下划线思路） */
           <div
             key={`${row.time}:${index}`}
             style={{
               display: 'flex',
               gap: 10,
-              border: row.anchored
-                ? '2px solid var(--dsw-border-strong, var(--dsw-border, #888))'
-                : '1px solid var(--dsw-border, rgba(127,127,127,0.35))',
-              borderRadius: 8,
-              padding: 8,
-              position: 'relative',
               alignItems: 'center',
+              padding: '10px 8px',
+              borderTop: `1px solid ${tokens.border}`,
+              borderLeft: row.anchored ? `2px solid ${tokens.brand}` : '2px solid transparent',
             }}
           >
-            {row.anchored && (
-              <span
-                style={{
-                  position: 'absolute',
-                  top: -9,
-                  right: 10,
-                  background: 'var(--dsw-bg-subtle, rgba(127,127,127,0.15))',
-                  border: '1px solid var(--dsw-border, #999)',
-                  borderRadius: 4,
-                  fontSize: 11,
-                  padding: '1px 6px',
-                }}
-              >
-                🚩 {t('panel.history.anchorTag')}
-              </span>
-            )}
             {name !== '' && (
               <img
                 src={imageUrl(name, cwd)}
@@ -811,44 +913,66 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
                 width={56}
                 height={56}
                 style={{
-                  borderRadius: 6,
-                  border: '1px solid var(--dsw-border, #ccc)',
+                  borderRadius: 8,
+                  border: `1px solid ${tokens.border}`,
                   objectFit: 'cover',
-                  background: 'var(--dsw-bg-subtle, #f5f5f5)',
+                  background: tokens.bgLayer,
+                  flexShrink: 0,
                 }}
               />
             )}
-            <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
               <div
                 style={{
                   whiteSpace: 'nowrap',
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
+                  fontSize: 13,
+                  lineHeight: '20px',
                   fontWeight: row.anchored ? 600 : 400,
                 }}
               >
                 {row.description}
               </div>
-              <div style={{ fontSize: 11, opacity: 0.65 }}>
-                {formatTime(row.time)} · {row.model ?? '—'} · {row.size ?? '—'} ·{' '}
-                {t('panel.history.fileCount', { n: row.files.length })}
+              <div
+                style={{
+                  fontSize: 12,
+                  lineHeight: '17px',
+                  color: tokens.labelTertiary,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  flexWrap: 'wrap',
+                }}
+              >
+                {row.anchored && <Badge>🚩 {t('panel.history.anchorTag')}</Badge>}
+                <span>
+                  {formatTime(row.time)} · {row.model ?? '—'} · {row.size ?? '—'} ·{' '}
+                  {t('panel.history.fileCount', { n: row.files.length })}
+                </span>
               </div>
             </div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {row.anchored ? (
-                <button type="button" onClick={() => void act('anchor/unset', { cwd })}>
+                <Button variant="ghost" size="sm" onClick={() => void act('anchor/unset', { cwd })}>
                   {t('panel.history.unsetAnchor')}
-                </button>
+                </Button>
               ) : (
                 first !== undefined && (
-                  <button type="button" onClick={() => void act('anchor/set', { cwd, file: name })}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => void act('anchor/set', { cwd, file: name })}
+                  >
                     {t('panel.history.setAnchor')}
-                  </button>
+                  </Button>
                 )
               )}
               {name !== '' && (
                 <a href={imageUrl(name, cwd)} target="_blank" rel="noreferrer">
-                  <button type="button">{t('card.openOriginal')}</button>
+                  <Button variant="outline" size="sm">
+                    {t('card.openOriginal')}
+                  </Button>
                 </a>
               )}
             </div>
@@ -856,7 +980,7 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
         )
       })}
       {anchorFile !== null && rows.some((r) => r.anchored) && (
-        <div style={{ fontSize: 12, opacity: 0.75 }}>{t('panel.history.anchorHint')}</div>
+        <Notice>{t('panel.history.anchorHint')}</Notice>
       )}
     </div>
   )
@@ -870,15 +994,6 @@ function formatTime(iso: string): string {
 }
 
 /* ---------------- 小部件与钩子 ---------------- */
-
-function FieldRow({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <label style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-      <span style={{ minWidth: 96, opacity: 0.85 }}>{label}</span>
-      {children}
-    </label>
-  )
-}
 
 function Radio(props: {
   label: string
@@ -898,21 +1013,6 @@ function Radio(props: {
       />{' '}
       {props.label}
     </>
-  )
-}
-
-function Notice({ children, danger }: { children: ReactNode; danger?: boolean }) {
-  return (
-    <div
-      style={{
-        border: `1px solid ${danger ? 'var(--dsw-danger, #d0453c)' : 'var(--dsw-border, rgba(127,127,127,0.35))'}`,
-        borderRadius: 6,
-        padding: '6px 10px',
-        color: danger ? 'var(--dsw-danger, #d0453c)' : undefined,
-      }}
-    >
-      {children}
-    </div>
   )
 }
 
