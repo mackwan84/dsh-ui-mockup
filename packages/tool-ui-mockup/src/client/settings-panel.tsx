@@ -225,8 +225,13 @@ function sourceLabelText(t: PanelProps['t'], source: string | undefined): string
   return key === undefined ? source : t(key)
 }
 
-const WIREFRAME_MODEL_HINTS = ['', 'qwen-image-3.0', 'wan2.2-t2i-plus']
-const HIGH_FIDELITY_MODEL_HINTS = ['', 'qwen-image-3.0-pro']
+const WIREFRAME_MODEL_HINTS = ['', 'qwen-image-3.0', 'qwen-image-2.0', 'wan2.7-image']
+const HIGH_FIDELITY_MODEL_HINTS = [
+  '',
+  'qwen-image-3.0-pro',
+  'qwen-image-2.0-pro',
+  'wan2.7-image-pro',
+]
 
 function ProviderPage({ t, prefs, connection }: PanelProps) {
   const snap = prefs.getSnapshot()
@@ -476,7 +481,7 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
           />
         </FieldRow>
         <div style={{ fontSize: 11, opacity: 0.7 }}>
-          {`${t('panel.models.hintPrefix')} ${[...WIREFRAME_MODEL_HINTS, ...HIGH_FIDELITY_MODEL_HINTS].filter(Boolean).join(', ')}`}
+          {`${t('panel.models.wireframe')}: ${WIREFRAME_MODEL_HINTS.filter(Boolean).join(', ')} · ${t('panel.models.highFidelity')}: ${HIGH_FIDELITY_MODEL_HINTS.filter(Boolean).join(', ')}`}
         </div>
       </Card>
     </div>

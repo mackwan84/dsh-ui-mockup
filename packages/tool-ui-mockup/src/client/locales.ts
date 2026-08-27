@@ -82,7 +82,6 @@ export const zh = {
   'panel.models.wireframe': '线框图',
   'panel.models.highFidelity': '高保真',
   'panel.models.followDefault': '跟随提供方默认',
-  'panel.models.hintPrefix': '可用模型:',
 
   // 生成偏好页
   'panel.prefs.fidelity': '保真度偏好',
@@ -205,7 +204,6 @@ export const en = {
   'panel.models.wireframe': 'Wireframe',
   'panel.models.highFidelity': 'High fidelity',
   'panel.models.followDefault': 'Follow provider default',
-  'panel.models.hintPrefix': 'Known models:',
 
   'panel.prefs.fidelity': 'Fidelity preference',
   'panel.prefs.fidelityWireframe': 'Wireframe',

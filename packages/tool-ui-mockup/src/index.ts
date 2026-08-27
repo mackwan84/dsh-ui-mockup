@@ -455,7 +455,7 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
           model: {
             type: 'string',
             description:
-              '可选: 显式覆盖模型。默认按精度自动选: wireframe→qwen-image-3.0, high-fidelity→qwen-image-3.0-pro; 也可换 wan2.2-t2i-plus 等。',
+              '可选: 显式覆盖模型。默认按精度自动选: wireframe→qwen-image-3.0, high-fidelity→qwen-image-3.0-pro; 线框图可换 qwen-image-2.0 / wan2.7-image, 高保真可换 qwen-image-2.0-pro / wan2.7-image-pro。',
           },
           size: {
             type: 'string',

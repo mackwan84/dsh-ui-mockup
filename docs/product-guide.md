@@ -104,7 +104,7 @@ flowchart LR
     M2 --> R
 ```
 
-可传 `model` 参数覆盖（如 `wan2.2-t2i-plus`）。
+可传 `model` 参数覆盖（线框图如 `qwen-image-2.0`、`wan2.7-image`，高保真如 `qwen-image-2.0-pro`、`wan2.7-image-pro`；设置面板「提供方与模型」页可配置各层默认）。
 
 ### 5.3 图片卡片的反馈按钮
 
