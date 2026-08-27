@@ -7,6 +7,7 @@ import { useState } from 'react'
 import type { ToolCallViewProps } from '@deepseek-ai/dsh-client-ui-tool/client'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { imageUrl } from './shared.js'
 import type { NS } from './locales.js'
 
 type Props = ToolCallViewProps & PropsLocale<typeof NS>
@@ -17,12 +18,6 @@ interface ImageRef {
   readonly mediaType?: string
   readonly width?: number
   readonly height?: number
-}
-
-/** 图片文件名 → webServer 路由 URL（host 半区 /ui-mockup/images 服务 design/images/）。 */
-function imageUrl(name: string, cwd?: string): string {
-  const base = `/ui-mockup/images/${encodeURIComponent(name)}`
-  return cwd !== undefined && cwd !== '' ? `${base}?cwd=${encodeURIComponent(cwd)}` : base
 }
 
 /** 反馈按钮发送给 agent 的消息正文（中文固定，模型可见文本不随 UI 语言切换）。 */

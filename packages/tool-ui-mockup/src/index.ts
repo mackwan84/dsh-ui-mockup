@@ -1,10 +1,22 @@
 import { randomUUID } from 'node:crypto'
 import { realpathSync } from 'node:fs'
-import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { basename, resolve } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { credentialRef } from '@deepseek-ai/dsh-credentials'
+import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
 import type { Context } from '@deepseek-ai/cordis'
 import { ImageProviderError, type ImageGenerateSpec } from '@mackwan84/dsh-image'
+import {
+  DEFAULT_PREFS,
+  PrefsSchema,
+  clampCount,
+  filterHistory,
+  parseHistoryLine,
+  sanitizeAnchorFileName,
+  type HistoryEntry,
+  type MockupPrefs,
+} from './prefs.js'
 import { buildPrompt } from './prompt.js'
 
 export const name = 'ui-mockup'
@@ -98,6 +110,54 @@ interface SessionsFace {
   list(): Array<{ header: { cwd?: string } }>
 }
 
+/** 凭据 seam 的结构面（概览与测试连接只读 resolve，不依赖完整类型）。 */
+interface CredentialsFace {
+  resolve(ref: ReturnType<typeof credentialRef>): Promise<{ value: string } | undefined>
+}
+
+/**
+ * settings 服务的结构面：注册偏好命名空间并读回 resolved 值。
+ * 纯内存/远程浏览器等存储不可写场景下服务可能缺席或拒绝写入，
+ * 本包按可选服务处理：缺席时全部偏好退化为 cordis.yml 配置层。
+ */
+interface SettingsFace {
+  register(
+    ns: string,
+    schema: unknown,
+    options?: { base?: Partial<MockupPrefs> },
+  ): { get(): MockupPrefs }
+}
+
+/** connection 服务的结构面（本包只注册私有的设置面板数据通道）。 */
+interface ConnectionFace {
+  rpc: {
+    handle(
+      channel: string,
+      handler: (
+        endpoint: string,
+        payload: unknown,
+        signal: AbortSignal,
+      ) => Promise<RpcResultLike<unknown>>,
+      options: { authority: 'trusted-host' | 'loopback' },
+    ): () => void
+  }
+}
+
+/** 与 dsh-host-apiproxy 的 RpcResult 同构的最小形状（避免宿主半区引入该依赖）。 */
+export type RpcResultLike<T> =
+  | { ok: true; value: T }
+  | { ok: false; error: { code: string; message: string; details?: Record<string, unknown> } }
+
+/** 成功结果包装。 */
+function rpcOk<T>(value: T): RpcResultLike<T> {
+  return { ok: true, value }
+}
+
+/** 失败结果包装：错误码与提供方 resolver 语义保持一致风格。 */
+function rpcError(code: string, message: string): RpcResultLike<never> {
+  return { ok: false, error: { code, message } }
+}
+
 interface ImageEntry {
   path: string
   name: string
@@ -135,6 +195,112 @@ const USAGE_SECTION = {
     '- 用户确认某一版设计后: 把设计提炼为规格写入 design/spec.md, 内容包括配色、字体、间距、组件清单、页面清单; 该文件成为后续实现代码的依据。',
     '- design/spec.md 尚未生成或未获用户确认前, 不要开始编写前端实现代码。',
   ].join('\n'),
+}
+
+/** 插件 Config：设置命名空间的组合 base 层；未配置的字段取内置默认。 */
+export interface MockupPluginConfig {
+  defaultFidelity?: 'wireframe' | 'high-fidelity'
+  defaultPlatform?: 'web' | 'mobile'
+  defaultCount?: number
+  outputDir?: string
+  pollTimeoutMinutes?: number
+  wireframeModel?: string
+  highFidelityModel?: string
+  defaultSize?: string
+}
+
+export const Config = PrefsSchema
+
+const IMAGE_DIR = 'design/images'
+const HISTORY_FILE = 'design/history.jsonl'
+const ANCHOR_FILE = 'design/anchor.json'
+
+/** 偏好生效值：settings 服务可用时以命名空间 resolved 值为准；
+ * 缺席（纯内存部署）时退化为 cordis.yml 配置层覆盖内置默认。 */
+export function effectivePrefs(
+  scope: { get(): MockupPrefs } | undefined,
+  config: MockupPluginConfig,
+): MockupPrefs {
+  if (scope !== undefined) return scope.get()
+  const merged = { ...DEFAULT_PREFS }
+  for (const [key, value] of Object.entries(config)) {
+    if (value !== undefined) (merged as Record<string, unknown>)[key] = value
+  }
+  return merged
+}
+
+/**
+ * 锚点登记是工作区内的一个两行 JSON 文件：只存「当前锚点文件名 + 时间」，
+ * 不复制图片内容。读取即校验文件名合法且目标图仍存在，任一不满足视为无锚点
+ * （清空历史、删图后残留的 anchor.json 自愈为空态）。
+ */
+async function readAnchor(workspaceRoot: string, requireExists = true): Promise<string | null> {
+  let raw: string
+  try {
+    raw = await readFile(resolve(workspaceRoot, ANCHOR_FILE), 'utf8')
+  } catch {
+    return null
+  }
+  let name: unknown
+  try {
+    name = (JSON.parse(raw) as Record<string, unknown>).file
+  } catch {
+    return null
+  }
+  const file = sanitizeAnchorFileName(name)
+  if (file === null) return null
+  if (!requireExists) return file
+  try {
+    await readFile(resolve(workspaceRoot, IMAGE_DIR, file))
+    return file
+  } catch {
+    return null
+  }
+}
+
+async function writeAnchor(workspaceRoot: string, fileName: string): Promise<void> {
+  const dir = resolve(workspaceRoot, 'design')
+  await mkdir(dir, { recursive: true })
+  await writeFile(
+    resolve(dir, 'anchor.json'),
+    `${JSON.stringify({ file: fileName, time: new Date().toISOString() })}\n`,
+  )
+}
+
+/** 清除锚点：文件不存在也算清除成功（幂等）。 */
+async function clearAnchor(workspaceRoot: string): Promise<void> {
+  await rm(resolve(workspaceRoot, ANCHOR_FILE), { force: true })
+}
+
+/** 读取并解析历史文件；目录不存在按空历史处理。 */
+async function readHistory(workspaceRoot: string): Promise<HistoryEntry[]> {
+  let raw: string
+  try {
+    raw = await readFile(resolve(workspaceRoot, HISTORY_FILE), 'utf8')
+  } catch {
+    return []
+  }
+  return raw
+    .split('\n')
+    .map(parseHistoryLine)
+    .filter((entry): entry is HistoryEntry => entry !== null)
+    .reverse()
+}
+
+/**
+ * 凭据是否就绪：credentials seam → 启动环境（.env/进程环境），与 Provider 的
+ * 解析顺序一致；只探测存在性，密钥值不出本函数。
+ */
+async function isCredentialReady(ctx: Context): Promise<boolean> {
+  const ref = credentialRef('DASHSCOPE_API_KEY')
+  const credentials = ctx.get('credentials') as CredentialsFace | undefined
+  if (credentials !== undefined) {
+    const hit = await credentials.resolve(ref).catch(() => undefined)
+    if (hit !== undefined && hit.value.length > 0) return true
+  }
+  // 与 Provider 相同的启动环境回退（.env / 进程环境），保证面板口径与实际生成一致
+  const ambient = launchEnvironmentOf(ctx).get(ref)
+  return ambient !== undefined && ambient.value.length > 0
 }
 
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
@@ -215,10 +381,17 @@ function allowedRoots(ctx: Context, known: ReadonlySet<string>): Set<string> {
   return roots
 }
 
-export function apply(ctx: Context) {
+export function apply(ctx: Context, config: MockupPluginConfig = {}) {
   const tools = ctx.get('tools') as ToolsFace
   // 本插件进程内已生成过图片的工作区根（canonical）：图片路由 cwd 白名单的信任源之一
   const knownRoots = new Set<string>()
+  /**
+   * 偏好命名空间：宿主 settings 服务可用时注册之（保存/读取都走统一文档，
+   * cordis.yml 配置层作为组合 base）；服务缺席（纯内存部署）时以下调用点
+   * 全部退化为 config + 内置默认值，面板只读不可写。
+   */
+  const settings = ctx.get('settings') as SettingsFace | undefined
+  const prefsScope = settings?.register('ui-mockup', PrefsSchema, { base: config })
   ctx.effect(() =>
     tools.register({
       name: 'ui_mockup',
@@ -250,8 +423,8 @@ export function apply(ctx: Context) {
           },
           count: {
             type: 'integer',
-            default: 1,
-            description: '一次生成的方案数量(1-4)。风格探索时建议 2-4, 让用户挑选方向。',
+            description:
+              '一次生成的方案数量(1-4)。风格探索时建议 2-4, 让用户挑选方向; 未指定时取设置面板的「一次生成数量」偏好。',
           },
           model: {
             type: 'string',
@@ -332,8 +505,11 @@ export function apply(ctx: Context) {
               message: 'fidelity 必须是 "wireframe"(线框图) 或 "high-fidelity"(高保真)。',
             }
           }
-          const platform = args.platform === 'mobile' ? 'mobile' : 'web'
-          const reference =
+          const platform =
+            args.platform === 'mobile' || args.platform === 'web'
+              ? args.platform
+              : effectivePrefs(prefsScope, config).defaultPlatform
+          let reference =
             typeof args.reference === 'string' && args.reference.trim() !== ''
               ? args.reference.trim()
               : undefined
@@ -348,6 +524,16 @@ export function apply(ctx: Context) {
               session?.header.cwd ??
               '.',
           )
+          // 风格锚点联动：调用未显式传 reference 时自动引用当前锚点（I2I 保持多页风格一致）
+          let anchorInjected: string | null = null
+          if (reference === undefined) {
+            const anchorFile = await readAnchor(workspaceRoot)
+            if (anchorFile !== null) {
+              anchorInjected = anchorFile
+              reference = `${IMAGE_DIR}/${anchorFile}`
+            }
+          }
+          const prefs = effectivePrefs(prefsScope, config)
           const spec: ImageGenerateSpec = {
             prompt: buildPrompt(
               {
@@ -361,9 +547,22 @@ export function apply(ctx: Context) {
             fidelity,
             platform,
             style: typeof args.style === 'string' ? args.style : undefined,
-            size: typeof args.size === 'string' ? args.size : undefined,
-            n: typeof args.count === 'number' ? args.count : undefined,
-            model: typeof args.model === 'string' ? args.model : undefined,
+            size:
+              typeof args.size === 'string' && args.size.trim() !== ''
+                ? args.size
+                : prefs.defaultSize.trim() !== ''
+                  ? prefs.defaultSize
+                  : undefined,
+            n: clampCount(args.count ?? prefs.defaultCount),
+            model:
+              typeof args.model === 'string' && args.model.trim() !== ''
+                ? args.model
+                : (fidelity === 'high-fidelity' ? prefs.highFidelityModel : prefs.wireframeModel) ||
+                  undefined,
+            // 偏好层缺字段时避免 NaN 下传；缺省让 Provider 走自身配置
+            ...(Number.isFinite(prefs.pollTimeoutMinutes) && prefs.pollTimeoutMinutes > 0
+              ? { pollTimeoutMs: Math.round(prefs.pollTimeoutMinutes * 60_000) }
+              : {}),
             reference,
             // 参考图必须相对会话工作区根解析: 宿主进程 CWD 不保证与工作区一致
             cwd: workspaceRoot,
@@ -464,7 +663,7 @@ export function apply(ctx: Context) {
           // 生成历史元数据：设置面板历史页的数据来源（M3 消费）。
           // 写失败不阻断结果返回，但留 debug 日志：历史页缺记录时可据此排查。
           void appendFile(
-            resolve(workspaceRoot, 'design/history.jsonl'),
+            resolve(workspaceRoot, HISTORY_FILE),
             `${JSON.stringify({
               time: new Date().toISOString(),
               files: images.map((image) => image.path),
@@ -472,6 +671,7 @@ export function apply(ctx: Context) {
               model: generated.model,
               fidelity,
               platform,
+              ...(spec.size !== undefined ? { size: spec.size } : {}),
               status: 'generated',
             })}\n`,
           ).catch((error: unknown) => {
@@ -485,6 +685,9 @@ export function apply(ctx: Context) {
           const label = fidelity === 'wireframe' ? '线框图' : '高保真设计稿'
           const paths = images.map((image) => image.path).join(', ')
           let message = `已用模型 ${generated.model} 生成 ${images.length} 张${label}。图片已保存到 ${paths}, 请在对话中查看并反馈; 需要修改时直接描述要改的地方。确认无误后我会将设计提炼为 design/spec.md 作为实现规格。`
+          if (anchorInjected !== null) {
+            message += ` 已按风格锚点 ${anchorInjected} 自动注入参考图(可在设置 · UI 草图 · 生成历史中解除)。`
+          }
           if (failures.length > 0) {
             message += ` 注意: 有 ${failures.length} 张下载失败(${failures.join('; ')}), 其余图片已保留。`
           }
@@ -571,7 +774,7 @@ export function apply(ctx: Context) {
             root = canonicalRoot(policy?.workspaceRoot ?? '.')
           }
           try {
-            const buffer = await readFile(resolve(root, 'design/images', fileName))
+            const buffer = await readFile(resolve(root, IMAGE_DIR, fileName))
             res.writeHead(200, {
               'Content-Type': mediaTypeForExtension(fileName),
               'Content-Length': buffer.byteLength,
@@ -586,6 +789,129 @@ export function apply(ctx: Context) {
       }),
     )
   })
+
+  /**
+   * 设置面板数据通道：私有 RPC 频道，承载概览/历史/锚点/测试连接四类端点。
+   * 偏好读写不在此通道——客户端直接绑定同名 settings 命名空间镜像。
+   * connection 与 webServer 同为晚就绪服务，走相同的 ctx.inject 等待模式。
+   */
+  ctx.inject(['connection'], (scope) => {
+    const connection = scope.get('connection') as ConnectionFace
+    // 同图片路由：effect 挂 scope，随本轮回调的子 fiber 销毁，防止重载累积
+    scope.effect(() =>
+      connection.rpc.handle(
+        '/ui-mockup',
+        async (endpoint: string, payload: unknown): Promise<RpcResultLike<unknown>> => {
+          const body = (payload ?? {}) as Record<string, unknown>
+          const cwd = typeof body.cwd === 'string' ? body.cwd : ''
+          switch (endpoint) {
+            case 'overview': {
+              const rootOrError = trustedRoot(ctx, knownRoots, cwd)
+              if (!rootOrError.ok) return rootOrError.error
+              return rpcOk({
+                provider: 'dashscope',
+                credentialReady: await isCredentialReady(ctx),
+                anchor: await readAnchor(rootOrError.root),
+              })
+            }
+            case 'history/list': {
+              const rootOrError = trustedRoot(ctx, knownRoots, cwd)
+              if (!rootOrError.ok) return rootOrError.error
+              const entries = filterHistory(
+                await readHistory(rootOrError.root),
+                typeof body.query === 'string' ? body.query : undefined,
+              )
+              const anchorFile = await readAnchor(rootOrError.root, false)
+              return rpcOk({
+                anchorFile,
+                entries: entries.map((entry) => ({
+                  ...entry,
+                  anchored:
+                    anchorFile !== null &&
+                    entry.files.some((file) => basename(file) === anchorFile),
+                })),
+              })
+            }
+            case 'history/clear': {
+              const rootOrError = trustedRoot(ctx, knownRoots, cwd)
+              if (!rootOrError.ok) return rootOrError.error
+              await writeFile(resolve(rootOrError.root, HISTORY_FILE), '')
+              // 清空历史后锚点记录指向的行不复存在，按规格一并解除
+              await clearAnchor(rootOrError.root)
+              return rpcOk({})
+            }
+            case 'anchor/set': {
+              const rootOrError = trustedRoot(ctx, knownRoots, cwd)
+              if (!rootOrError.ok) return rootOrError.error
+              const file = sanitizeAnchorFileName(body.file)
+              if (file === null)
+                return rpcError('INVALID_PARAMETER', `不是合法的生成图文件名: ${String(body.file)}`)
+              try {
+                await readFile(resolve(rootOrError.root, IMAGE_DIR, file))
+              } catch {
+                return rpcError('NOT_FOUND', `工作区中没有这张生成图: ${file}`)
+              }
+              await writeAnchor(rootOrError.root, file)
+              return rpcOk({ anchorFile: file })
+            }
+            case 'anchor/unset': {
+              const rootOrError = trustedRoot(ctx, knownRoots, cwd)
+              if (!rootOrError.ok) return rootOrError.error
+              await clearAnchor(rootOrError.root)
+              return rpcOk({})
+            }
+            case 'test-connection': {
+              const ready = await isCredentialReady(ctx)
+              if (!ready) {
+                return rpcOk({
+                  ok: false,
+                  detail: '未找到 DASHSCOPE_API_KEY：请在凭据服务存储，或在该进程环境导出。',
+                })
+              }
+              try {
+                const res = await fetch('https://dashscope.aliyuncs.com', {
+                  signal: AbortSignal.timeout(8_000),
+                })
+                // 网关对裸 GET 的状态码不重要：有 HTTP 应答即网络与 DNS 可达
+                return rpcOk({ ok: true, detail: `凭据已配置，网关可达（HTTP ${res.status}）。` })
+              } catch (error) {
+                return rpcOk({
+                  ok: false,
+                  detail: `网关不可达: ${error instanceof Error ? error.message : String(error)}`,
+                })
+              }
+            }
+            default:
+              return rpcError('NOT_FOUND', `未知端点: ${endpoint}`)
+          }
+          // 类型穷尽保底：所有分支均已 return，执行不会到达此处
+          throw new Error('unreachable')
+        },
+        { authority: 'trusted-host' },
+      ),
+    )
+  })
+}
+
+/**
+ * 设置面板端点的 cwd 信任检查：与图片路由同一信任源全集
+ * （execute 登记的根 / 已知会话 cwd / 宿主进程 fallback）。
+ * 无 cwd 时回退宿主进程级配置根（可信），与图片路由口径一致。
+ */
+function trustedRoot(
+  ctx: Context,
+  known: ReadonlySet<string>,
+  cwd: string,
+): { ok: true; root: string } | { ok: false; error: RpcResultLike<never> } {
+  if (cwd !== '') {
+    const canonical = canonicalRoot(cwd)
+    if (!allowedRoots(ctx, known).has(canonical)) {
+      return { ok: false, error: rpcError('UNTRUSTED_WORKSPACE', '请求的工作区不在信任源内') }
+    }
+    return { ok: true, root: canonical }
+  }
+  const policy = ctx.get('sandboxPolicy') as SandboxPolicyFace | undefined
+  return { ok: true, root: canonicalRoot(policy?.workspaceRoot ?? '.') }
 }
 
 /** image 服务的结构面（兼容 @mackwan84/dsh-image 的抽象契约）。 */
@@ -598,3 +924,10 @@ interface ImageGenerationServiceFace {
 
 /** 供单元测试引用的内部实现。 */
 export { buildPrompt }
+export {
+  sanitizeOutputDir,
+  clampCount,
+  parseHistoryLine,
+  filterHistory,
+  DEFAULT_PREFS,
+} from './prefs.js'

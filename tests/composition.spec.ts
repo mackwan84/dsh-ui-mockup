@@ -89,6 +89,70 @@ class SystemPromptStub extends Service {
   }
 }
 
+/** settings 服务桩：接受命名空间注册，resolved 值 = 默认 + 组合 base。 */
+class SettingsStub extends Service {
+  readonly namespaces: string[] = []
+
+  constructor(ctx: Context) {
+    super(ctx, 'settings')
+  }
+
+  register(ns: string, _schema: unknown, options?: { base?: Record<string, unknown> }) {
+    this.namespaces.push(ns)
+    const resolved: Record<string, unknown> = {
+      defaultFidelity: 'wireframe',
+      defaultPlatform: 'web',
+      defaultCount: 2,
+      outputDir: 'design/images',
+      pollTimeoutMinutes: 10,
+      wireframeModel: '',
+      highFidelityModel: '',
+      defaultSize: '',
+      ...options?.base,
+    }
+    return { get: () => resolved as never }
+  }
+}
+
+/** RPC 结果形状（与宿主半区 RpcResultLike 同构）。 */
+type CompositionRpcResult =
+  { ok: true; value: unknown } | { ok: false; error: { code: string; message: string } }
+
+/** connection 桩：记录私有频道注册并支持测试内直接调用端点。 */
+class ConnectionStub extends Service {
+  readonly channels = new Map<
+    string,
+    (endpoint: string, payload: unknown, signal: AbortSignal) => Promise<CompositionRpcResult>
+  >()
+
+  constructor(ctx: Context) {
+    super(ctx, 'connection')
+  }
+
+  get rpc() {
+    return {
+      handle: (
+        channel: string,
+        handler: (
+          endpoint: string,
+          payload: unknown,
+          signal: AbortSignal,
+        ) => Promise<CompositionRpcResult>,
+      ) => {
+        this.channels.set(channel, handler)
+        return () => {}
+      },
+    }
+  }
+
+  /** 测试辅助：直接调用已注册频道的端点。 */
+  async call(channel: string, endpoint: string, payload?: unknown): Promise<CompositionRpcResult> {
+    const handler = this.channels.get(channel)
+    if (handler === undefined) throw new Error(`channel not registered: ${channel}`)
+    return handler(endpoint, payload ?? {}, new AbortController().signal)
+  }
+}
+
 /** webServer 桩：记录注册的路由并暴露给断言。 */
 class WebServerStub extends Service {
   readonly routes: Array<{
@@ -123,6 +187,8 @@ interface Booted {
   attachments: AttachmentsStub
   systemPrompt: SystemPromptStub
   webServer: WebServerStub
+  connection: ConnectionStub
+  settings: SettingsStub
 }
 
 async function bootComposition(dir: string): Promise<Booted> {
@@ -144,6 +210,10 @@ async function bootComposition(dir: string): Promise<Booted> {
       "  name: 'test-system-prompt'",
       '- id: webserver',
       "  name: 'test-webserver'",
+      '- id: connection',
+      "  name: 'test-connection'",
+      '- id: settings',
+      "  name: 'test-settings'",
       '- id: image-dashscope',
       "  name: '@mackwan84/dsh-image-dashscope'",
       '- id: tool-ui-mockup',
@@ -159,6 +229,8 @@ async function bootComposition(dir: string): Promise<Booted> {
     ['test-attachments', AttachmentsStub],
     ['test-system-prompt', SystemPromptStub],
     ['test-webserver', WebServerStub],
+    ['test-connection', ConnectionStub],
+    ['test-settings', SettingsStub],
     ['@mackwan84/dsh-image-dashscope', DashscopeImageProvider],
     [
       '@mackwan84/dsh-tool-ui-mockup',
@@ -188,6 +260,8 @@ async function bootComposition(dir: string): Promise<Booted> {
     attachments: ctx.get('attachments') as unknown as AttachmentsStub,
     systemPrompt: ctx.get('systemPrompt') as unknown as SystemPromptStub,
     webServer: ctx.get('webServer') as unknown as WebServerStub,
+    connection: ctx.get('connection') as unknown as ConnectionStub,
+    settings: ctx.get('settings') as unknown as SettingsStub,
   }
 }
 
@@ -457,7 +531,183 @@ describe('ui-mockup real dynamic composition', () => {
       await rm(dir, { recursive: true, force: true })
     }
   })
+
+  it('registers the /ui-mockup rpc channel and the preferences namespace', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+    try {
+      const booted = await bootComposition(dir)
+      expect(booted.connection.channels.has('/ui-mockup')).toBe(true)
+      expect(booted.settings.namespaces).toContain('ui-mockup')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('auto-injects the style anchor as reference when the call omits one', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+    try {
+      // 预置锚点：mockup-seed.png + anchor.json（与面板 anchor/set 的落盘一致）
+      await mkdir(join(dir, 'design/images'), { recursive: true })
+      const seed = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+      await writeFile(join(dir, 'design/images/mockup-seed.png'), seed)
+      await writeFile(
+        join(dir, 'design/anchor.json'),
+        `${JSON.stringify({ file: 'mockup-seed.png', time: '2026-08-27T00:00:00Z' })}\n`,
+      )
+
+      const booted = await bootComposition(dir)
+      let createBody = ''
+      vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+        if (url.includes('image-generation/generation')) {
+          createBody = typeof init?.body === 'string' ? init.body : ''
+          return new Response(
+            JSON.stringify({ output: { task_id: 'task-anchor', task_status: 'PENDING' } }),
+            { status: 200 },
+          )
+        }
+        if (url.includes('/api/v1/tasks/task-anchor')) {
+          return new Response(
+            JSON.stringify({
+              output: {
+                task_id: 'task-anchor',
+                task_status: 'SUCCEEDED',
+                choices: [
+                  {
+                    finish_reason: 'stop',
+                    message: {
+                      role: 'assistant',
+                      content: [{ image: 'https://oss.example/m.png', type: 'image' }],
+                    },
+                  },
+                ],
+              },
+            }),
+            { status: 200 },
+          )
+        }
+        if (url.includes('oss.example')) {
+          return new Response(seed, { status: 200, headers: { 'content-type': 'image/png' } })
+        }
+        throw new Error(`unexpected fetch: ${url}`)
+      })
+
+      const definition = booted.tools.registered.find((item) => item.name === 'ui_mockup')!
+      const execute = definition.execute as (
+        args: Record<string, unknown>,
+        exec: { signal: AbortSignal; agent?: { session: { header: { cwd?: string } } } },
+      ) => Promise<Record<string, unknown>>
+      const value = await execute(
+        { description: '续画第二个页面', fidelity: 'high-fidelity', platform: 'web' },
+        { signal: new AbortController().signal, agent: { session: { header: { cwd: dir } } } },
+      )
+      expect(value.ok, String(value.message)).toBe(true)
+      // 锚点图以 base64 进入 I2I 输入；结果消息提示已注入
+      expect(createBody).toContain('data:image/png;base64,')
+      expect(String(value.message)).toContain('风格锚点')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('serves overview/history/anchor/clear endpoints with trust boundary on cwd', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+    try {
+      const booted = await bootComposition(dir)
+
+      // 制造两条历史（直接写文件，避免依赖生成流程）
+      await mkdir(join(dir, 'design/images'), { recursive: true })
+      await writeFile(join(dir, 'design/images/mockup-h1.png'), Buffer.from([0x01]))
+      await writeFile(
+        join(dir, 'design/history.jsonl'),
+        [
+          JSON.stringify({
+            time: '2026-08-27T00:00:01Z',
+            files: ['design/images/mockup-h1.png'],
+            description: '登录页线框',
+            model: 'qwen-image-3.0',
+            fidelity: 'wireframe',
+            platform: 'web',
+            status: 'generated',
+          }),
+          JSON.stringify({
+            time: '2026-08-27T00:00:02Z',
+            files: ['design/images/mockup-nope.png'],
+            description: '账单页高保真',
+            model: 'qwen-image-3.0-pro',
+            fidelity: 'high-fidelity',
+            platform: 'web',
+            status: 'generated',
+          }),
+          '',
+        ].join('\n'),
+      )
+
+      const call = (endpoint: string, payload?: unknown) =>
+        booted.connection.call('/ui-mockup', endpoint, payload)
+
+      // 概览：凭据来自环境 stub，无锚点
+      const overviewValue = valueOf<{ provider: string; credentialReady: boolean; anchor: null }>(
+        await call('overview'),
+      )
+      expect(overviewValue.provider).toBe('dashscope')
+      expect(overviewValue.credentialReady).toBe(true)
+      expect(overviewValue.anchor).toBeNull()
+
+      // 历史：默认全部、按 query 过滤、anchored 初始为 false
+      const listAll = valueOf<{ entries: Array<{ description: string; anchored: boolean }> }>(
+        await call('history/list', { cwd: dir }),
+      )
+      expect(listAll.entries).toHaveLength(2)
+      const listFiltered = valueOf<{ entries: unknown[] }>(
+        await call('history/list', { cwd: dir, query: '登录' }),
+      )
+      expect(listFiltered.entries).toHaveLength(1)
+
+      // 不在信任源内的 cwd 拒绝
+      const stranger = await mkdtemp(join(tmpdir(), 'dsh-uimock-stranger-'))
+      const denied = await call('history/list', { cwd: stranger })
+      expect(denied.ok).toBe(false)
+      if (!denied.ok) expect(denied.error.code).toBe('UNTRUSTED_WORKSPACE')
+      await rm(stranger, { recursive: true, force: true })
+
+      // 设为锚点 → anchored 标记 + 概览可见锚点（历史按新→旧排列，按描述定位目标行）
+      const setAnchor = await call('anchor/set', { cwd: dir, file: 'mockup-h1.png' })
+      expect(setAnchor.ok).toBe(true)
+      const listAnchored = valueOf<{
+        entries: Array<{ description: string; anchored: boolean }>
+      }>(await call('history/list', { cwd: dir }))
+      const anchorRow = listAnchored.entries.find((entry) => entry.description === '登录页线框')
+      expect(anchorRow?.anchored).toBe(true)
+      expect(
+        listAnchored.entries.find((entry) => entry.description === '账单页高保真')?.anchored,
+      ).toBe(false)
+      const overviewAfter = valueOf<{ anchor: string | null }>(await call('overview'))
+      expect(overviewAfter.anchor).toBe('mockup-h1.png')
+
+      // 清空历史 → 文件归零且锚点一并解除
+      expect((await call('history/clear', { cwd: dir })).ok).toBe(true)
+      expect(await readFile(join(dir, 'design/history.jsonl'), 'utf8')).toBe('')
+      const overviewCleared = valueOf<{ anchor: string | null }>(await call('overview'))
+      expect(overviewCleared.anchor).toBeNull()
+
+      // anchor/set 对不存在的文件名给出明确错误码
+      const missing = await call('anchor/set', { cwd: dir, file: 'mockup-missing.png' })
+      expect(missing.ok).toBe(false)
+      if (!missing.ok) expect(missing.error.code).toBe('NOT_FOUND')
+
+      // 图片文件本体不被清空历史删除
+      await expect(readFile(join(dir, 'design/images/mockup-h1.png'))).resolves.toBeDefined()
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
 })
+
+/** 断言 RPC 成功并取出值；给组合测试一个统一的窄化入口。 */
+function valueOf<T>(result: CompositionRpcResult): T {
+  if (!result.ok) throw new Error(`[${result.error.code}] ${result.error.message}`)
+  return result.value as T
+}
 
 /** 以记录式响应桩调用一次路由 handler。 */
 async function dispatchRoute(
