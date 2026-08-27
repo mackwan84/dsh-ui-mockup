@@ -1,8 +1,6 @@
-/** 工具卡片与设置面板共享的客户端最小面：图片路由 URL、会话 cwd 订阅、RPC 调用折叠。 */
+/** 工具卡片与设置面板共享的客户端最小面：图片路由 URL 与 RPC 调用折叠。 */
 
-import { useEffect, useState } from 'react'
-
-/** 图片文件名 → webServer 路由 URL（host 半区 /ui-mockup/images 服务 design/images/）。 */
+/** 图片文件名 → webServer 路由 URL（host 半区 /ui-mockup/images 服务资产库图片）。 */
 export function imageUrl(name: string, cwd?: string): string {
   const base = `/ui-mockup/images/${encodeURIComponent(name)}`
   return cwd !== undefined && cwd !== '' ? `${base}?cwd=${encodeURIComponent(cwd)}` : base
@@ -65,40 +63,4 @@ export interface PrefScope<T> {
   subscribe(listener: () => void): () => void
   set(field: string, value: unknown): Promise<void>
   unset(field: string): Promise<void>
-}
-
-/** 可观察快照的最小结构面（与运行时 ObservableSnapshot 同构）。 */
-export interface Observable<S> {
-  getSnapshot(): S
-  subscribe(listener: () => void): () => void
-}
-
-/** 当前会话 cwd：设置面板历史页请求工作区数据时随请求携带。 */
-export function useCurrentSessionCwd(sessions?: SessionsFace): string | undefined {
-  const [cwd, setCwd] = useState<string | undefined>(() =>
-    sessions === undefined ? undefined : pickCwd(sessions.list.getSnapshot()),
-  )
-  useEffect(() => {
-    if (sessions === undefined) return
-    const sync = () => setCwd(pickCwd(sessions.list.getSnapshot()))
-    sync()
-    return sessions.list.subscribe(sync)
-  }, [sessions])
-  return cwd
-}
-
-function pickCwd(list: SessionListSnapshot): string | undefined {
-  if (list.current === undefined) return undefined
-  return list.byId[list.current]?.cwd
-}
-
-export interface SessionListSnapshot {
-  ids: string[]
-  byId: Record<string, { id: string; cwd?: string }>
-  current: string | undefined
-  phase: 'pending' | 'ready'
-}
-
-export interface SessionsFace {
-  readonly list: Observable<SessionListSnapshot>
 }

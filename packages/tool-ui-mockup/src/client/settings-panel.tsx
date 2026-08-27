@@ -7,13 +7,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Button, Input, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
-import {
-  callPanel,
-  imageUrl,
-  useCurrentSessionCwd,
-  type ConnectionFace,
-  type PrefScope,
-} from './shared.js'
+import { callPanel, imageUrl, type ConnectionFace, type PrefScope } from './shared.js'
 import type { NS, UiMockupKey } from './locales.js'
 
 /** 偏好形状的客户端本地副本（不引入宿主 prefs 模块，避免把 schemastery 打进浏览器包）。 */
@@ -837,7 +831,10 @@ interface HistoryRow extends Record<string, unknown> {
 }
 
 function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
-  const cwd = useCurrentSessionCwd()
+  // 客户端第三方插件拿不到会话服务（ctx.get('sessions') 恒 undefined），
+  // 历史/缩略图/锚点请求一律不传 cwd，由宿主按「会话 cwd → 最近登记根 → 进程根」
+  // 回退链解析工作区——这是已验证有效的唯一路径。
+  const cwd: string | undefined = undefined
   const [rows, setRows] = useState<HistoryRow[]>()
   const [anchorFile, setAnchorFile] = useState<string | null>(null)
   const [query, setQuery] = useState('')

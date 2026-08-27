@@ -16,7 +16,6 @@ import { en, NS, zh } from './locales.js'
 
 /**
  * 客户端半区硬依赖：卡片与设置槽注册、语言切换、connection 通道与设置域服务。
- * sessions 为可选运行时面（仅用于历史页 cwd），缺席时退化为宿主进程 fallback 根。
  */
 export const inject = ['slots', 'locale', 'connection', 'settingsScope']
 

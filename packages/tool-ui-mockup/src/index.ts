@@ -864,23 +864,17 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
             return
           }
           // 会话工作区由卡片经 query 传入（webServer 是进程级服务，无会话上下文）。
-          // cwd 是客户端可控输入，必须命中信任源（execute 登记的根 / 已知会话 cwd /
-          // 宿主进程级 fallback），否则本机任意网页可借 ?cwd= 探测任意目录。
+          // 信任判定与空 cwd 回退与 RPC 端点共用 trustedRoot：非空 cwd 必须命中
+          // 信任源（execute 登记的根 / 已知会话 cwd），空 cwd 走「宿主会话 cwd →
+          // 最近登记根 → 进程根」回退链——旧实现独立回退进程根，缩略图因此 404。
           const cwdParam = url.searchParams.get('cwd')
-          let root: string
-          if (cwdParam !== null && cwdParam !== '') {
-            const requested = canonicalRoot(cwdParam)
-            if (!allowedRoots(ctx, knownRoots).has(requested)) {
-              res.writeHead(400)
-              res.end()
-              return
-            }
-            root = requested
-          } else {
-            // 无 cwd：回退宿主进程级 fallback（sandboxPolicy 配置根，可信）
-            const policy = ctx.get('sandboxPolicy') as SandboxPolicyFace | undefined
-            root = canonicalRoot(policy?.workspaceRoot ?? '.')
+          const rootOrError = trustedRoot(ctx, knownRoots, cwdParam ?? '')
+          if (!rootOrError.ok) {
+            res.writeHead(400)
+            res.end()
+            return
           }
+          const root = rootOrError.root
           try {
             // 信任链按工作区根判定, 文件本体在资产库该工作区目录下
             const buffer = await readFile(resolve(storeOf(root).imagesDir, fileName))
@@ -1087,6 +1081,26 @@ function trustedRoot(
       return { ok: false, error: rpcError('UNTRUSTED_WORKSPACE', '请求的工作区不在信任源内') }
     }
     return { ok: true, root: canonical }
+  }
+  // 空 cwd 的回退顺序：宿主已知会话的 cwd（去重后唯一即采用——数据源头，
+  // 与 allowedRoots 同源；单工作区场景直接命中）→ 本插件登记过的最近工作区根
+  // （进程内 execute 插入序）→ sandboxPolicy 进程根（最后的最后）。
+  // 旧实现直接退进程根：DSH 不从项目目录启动时指向无关目录，面板读到空 store。
+  const sessions = ctx.get('sessions') as SessionsFace | undefined
+  if (sessions !== undefined) {
+    const cwds = [
+      ...new Set(
+        sessions
+          .list()
+          .map((session) => session.header.cwd)
+          .filter((value): value is string => value !== undefined && value !== ''),
+      ),
+    ]
+    if (cwds.length === 1) return { ok: true, root: canonicalRoot(cwds[0]!) }
+    if (known.size > 0) {
+      const latest = [...known].at(-1)!
+      return { ok: true, root: canonicalRoot(latest) }
+    }
   }
   const policy = ctx.get('sandboxPolicy') as SandboxPolicyFace | undefined
   return { ok: true, root: canonicalRoot(policy?.workspaceRoot ?? '.') }
