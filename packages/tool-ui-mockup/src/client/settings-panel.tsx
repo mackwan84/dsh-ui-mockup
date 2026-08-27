@@ -611,36 +611,36 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
 
       <Card title={t('panel.models.title')}>
         <FieldRow first label={t('panel.models.wireframe')}>
-          <datalist id="ui-mockup-wireframe-models">
-            {WIREFRAME_MODEL_HINTS.map((m) => (
-              <option key={m} value={m} />
-            ))}
-          </datalist>
-          <Input
-            list="ui-mockup-wireframe-models"
-            style={{ width: 260 }}
+          <select
             value={snap.value?.wireframeModel ?? ''}
-            placeholder={t('panel.models.followDefault')}
             onChange={(event) =>
               void writePref(prefs, 'wireframeModel', event.target.value.trim(), setWriteError)
             }
-          />
+            style={{ ...selectStyle, width: 260 }}
+          >
+            <option value="">{t('panel.models.followDefault')}</option>
+            {WIREFRAME_MODEL_HINTS.filter(Boolean).map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
         </FieldRow>
         <FieldRow label={t('panel.models.highFidelity')}>
-          <datalist id="ui-mockup-hf-models">
-            {HIGH_FIDELITY_MODEL_HINTS.map((m) => (
-              <option key={m} value={m} />
-            ))}
-          </datalist>
-          <Input
-            list="ui-mockup-hf-models"
-            style={{ width: 260 }}
+          <select
             value={snap.value?.highFidelityModel ?? ''}
-            placeholder={t('panel.models.followDefault')}
             onChange={(event) =>
               void writePref(prefs, 'highFidelityModel', event.target.value.trim(), setWriteError)
             }
-          />
+            style={{ ...selectStyle, width: 260 }}
+          >
+            <option value="">{t('panel.models.followDefault')}</option>
+            {HIGH_FIDELITY_MODEL_HINTS.filter(Boolean).map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
         </FieldRow>
         <Notice>
           {`${t('panel.models.wireframe')}: ${WIREFRAME_MODEL_HINTS.filter(Boolean).join(', ')} · ${t('panel.models.highFidelity')}: ${HIGH_FIDELITY_MODEL_HINTS.filter(Boolean).join(', ')}`}
