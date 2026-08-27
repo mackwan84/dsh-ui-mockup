@@ -73,8 +73,10 @@ export const zh = {
   'panel.credential.clearedNotice': '已清除 DSH 密钥存储中的 DASHSCOPE_API_KEY ✓',
   'panel.credential.notWritable':
     '当前密钥由更高优先级的来源（{source}）提供，面板写入不会生效；如需在面板管理，请先移除该来源中的同名变量。',
-  'panel.test.ok': '凭据可用, 网关可达({detail})。',
+  'panel.test.ok': '凭据有效：鉴权通过，网关可达。',
   'panel.test.missingKey': '未找到 DASHSCOPE_API_KEY——请按上方「配置方式」任选其一配置后重试。',
+  'panel.test.invalidKey':
+    '网关拒绝了这把密钥（鉴权未通过）——请确认 DASHSCOPE_API_KEY 是否正确、是否已过期。',
   'panel.test.gatewayFail': '网关不可达: {detail}',
   'panel.models.title': '模型分层默认',
   'panel.models.wireframe': '线框图',
@@ -193,9 +195,11 @@ export const en = {
   'panel.credential.clearedNotice': 'DASHSCOPE_API_KEY removed from the DSH credential store ✓',
   'panel.credential.notWritable':
     'The key is currently supplied by a higher-priority source ({source}); panel writes would not take effect. Remove that variable first to manage it here.',
-  'panel.test.ok': 'Credential works, gateway reachable ({detail}).',
+  'panel.test.ok': 'Credential valid: authentication passed, gateway reachable.',
   'panel.test.missingKey':
     'DASHSCOPE_API_KEY not found — configure it via any option above, then retry.',
+  'panel.test.invalidKey':
+    'The gateway rejected this key (authentication failed) — check that DASHSCOPE_API_KEY is correct and not expired.',
   'panel.test.gatewayFail': 'Gateway unreachable: {detail}',
   'panel.models.title': 'Model defaults by fidelity',
   'panel.models.wireframe': 'Wireframe',

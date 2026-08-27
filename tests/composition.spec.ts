@@ -711,6 +711,56 @@ describe('ui-mockup real dynamic composition', () => {
     }
   })
 
+  it('classifies test-connection outcomes from gateway responses', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+    try {
+      vi.stubEnv('DASHSCOPE_API_KEY', 'sk-env-key')
+      const booted = await bootComposition(dir)
+      const probe = async () =>
+        valueOf<{ ok: boolean; reason?: string; detail?: string }>(
+          await booted.connection.call('/ui-mockup', 'test-connection'),
+        )
+
+      // 鉴权失败: 401 + InvalidApiKey → invalid-key
+      vi.stubGlobal(
+        'fetch',
+        async () =>
+          new Response(JSON.stringify({ code: 'InvalidApiKey', message: 'Invalid API-key' }), {
+            status: 401,
+          }),
+      )
+      expect(await probe()).toEqual({ ok: false, reason: 'invalid-key' })
+
+      // 鉴权通过: 有效 key 的空体请求得到 400 参数错误 → ok
+      vi.stubGlobal(
+        'fetch',
+        async () =>
+          new Response(JSON.stringify({ code: 'InvalidParameter', message: 'model required' }), {
+            status: 400,
+          }),
+      )
+      expect(await probe()).toEqual({ ok: true, reason: 'ok' })
+
+      // 429 限流也说明鉴权已通过 → ok
+      vi.stubGlobal(
+        'fetch',
+        async () =>
+          new Response(JSON.stringify({ code: 'Throttling.RateQuota', request_id: 'x' }), {
+            status: 429,
+          }),
+      )
+      expect(await probe()).toEqual({ ok: true, reason: 'ok' })
+
+      // 网络层失败 → gateway + 原始错误
+      vi.stubGlobal('fetch', async () => {
+        throw new TypeError('fetch failed')
+      })
+      expect(await probe()).toMatchObject({ ok: false, reason: 'gateway' })
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   it('serves overview/history/anchor/clear endpoints with trust boundary on cwd', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
     try {

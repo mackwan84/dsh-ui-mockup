@@ -927,16 +927,47 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
             }
             case 'test-connection': {
               // 只回机器可判的 reason + 原始 detail；用户可见文案由客户端按语言渲染
-              const status = await credentialStatus(ctx)
-              if (!status.configured) {
+              const credentials = ctx.get('credentials') as CredentialsFace | undefined
+              const ref = credentialRef('DASHSCOPE_API_KEY')
+              // 取值仅用于探测请求的 Authorization 头，永不进入任何响应
+              let apiKey: string | undefined
+              if (credentials !== undefined) {
+                const hit = await credentials.resolve(ref).catch(() => undefined)
+                apiKey = hit?.value
+              }
+              if (apiKey === undefined || apiKey === '') {
+                apiKey = launchEnvironmentOf(ctx).get(ref)?.value
+              }
+              if (apiKey === undefined || apiKey === '') {
                 return rpcOk({ ok: false, reason: 'missing-key' })
               }
               try {
-                const res = await fetch('https://dashscope.aliyuncs.com', {
-                  signal: AbortSignal.timeout(8_000),
-                })
-                // 网关对裸 GET 的状态码不重要：有 HTTP 应答即网络与 DNS 可达
-                return rpcOk({ ok: true, detail: `HTTP ${res.status}` })
+                // 鉴权探测：向图像生成端点发空体 POST（不消耗生成配额）。
+                // 网关鉴权先于参数校验：无效 key → 401/InvalidApiKey；
+                // 有效 key → 400 参数错误；429 限流也说明鉴权已通过。
+                const res = await fetch(
+                  'https://dashscope.aliyuncs.com/api/v1/services/aigc/image-generation/generation',
+                  {
+                    method: 'POST',
+                    headers: {
+                      Authorization: `Bearer ${apiKey}`,
+                      'content-type': 'application/json',
+                    },
+                    body: '{}',
+                    signal: AbortSignal.timeout(8_000),
+                    redirect: 'error',
+                  },
+                )
+                const body = (await res.json().catch(() => ({}))) as { code?: unknown }
+                const code = typeof body.code === 'string' ? body.code : ''
+                if (
+                  res.status === 401 ||
+                  code.includes('InvalidApiKey') ||
+                  code.includes('Unauthorized')
+                ) {
+                  return rpcOk({ ok: false, reason: 'invalid-key' })
+                }
+                return rpcOk({ ok: true, reason: 'ok' })
               } catch (error) {
                 return rpcOk({
                   ok: false,

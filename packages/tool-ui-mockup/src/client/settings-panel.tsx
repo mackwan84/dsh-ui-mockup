@@ -290,10 +290,12 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
       }>(connection, 'test-connection')
       setTestResult(
         result.ok
-          ? t('panel.test.ok', { detail: result.detail ?? '' })
+          ? t('panel.test.ok')
           : result.reason === 'missing-key'
             ? t('panel.test.missingKey')
-            : t('panel.test.gatewayFail', { detail: result.detail ?? '' }),
+            : result.reason === 'invalid-key'
+              ? t('panel.test.invalidKey')
+              : t('panel.test.gatewayFail', { detail: result.detail ?? '' }),
       )
     } catch (err) {
       setTestResult(err instanceof Error ? err.message : String(err))
