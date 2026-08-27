@@ -115,8 +115,7 @@ export function UiMockupToolview({ block, inputActions, openFile, cwd, t }: Prop
               if (raw === '') return
               const index = Number(raw)
               setSelected('')
-              const name =
-                (images[index]!.attachment as ImageRef).name ?? `mockup-${index + 1}.png`
+              const name = (images[index]!.attachment as ImageRef).name ?? `mockup-${index + 1}.png`
               send(buildFeedbackMessage(t, name, index))
             }}
           >
