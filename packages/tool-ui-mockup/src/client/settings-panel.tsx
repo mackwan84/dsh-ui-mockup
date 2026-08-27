@@ -7,7 +7,14 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Button, Input, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
-import { callPanel, imageUrl, type ConnectionFace, type PrefScope } from './shared.js'
+import {
+  callPanel,
+  imageUrl,
+  HISTORY_PAGE_SIZE,
+  anchorPageOf,
+  type ConnectionFace,
+  type PrefScope,
+} from './shared.js'
 import type { NS, UiMockupKey } from './locales.js'
 
 /** 偏好形状的客户端本地副本（不引入宿主 prefs 模块，避免把 schemastery 打进浏览器包）。 */
@@ -837,21 +844,37 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
   const cwd: string | undefined = undefined
   const [rows, setRows] = useState<HistoryRow[]>()
   const [anchorFile, setAnchorFile] = useState<string | null>(null)
+  const [anchorIndex, setAnchorIndex] = useState(-1)
+  const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(1)
   const [query, setQuery] = useState('')
   const [error, setError] = useState('')
   const [confirmingClear, setConfirmingClear] = useState(false)
 
+  // 服务端分页：宿主按 page/pageSize 切片返回当前页 + total + 锚点索引；
+  // 页码越界由宿主钳制后回传 data.page，客户端直接采用，无需本地 clamp。
   const reload = useCallback(
-    async (needle: string) => {
+    async (needle: string, targetPage: number) => {
       setError('')
       try {
-        const data = await callPanel<{ anchorFile: string | null; entries: HistoryRow[] }>(
-          connection,
-          'history/list',
-          { cwd, query: needle },
-        )
+        const data = await callPanel<{
+          anchorFile: string | null
+          anchorIndex: number
+          total: number
+          page: number
+          pageSize: number
+          entries: HistoryRow[]
+        }>(connection, 'history/list', {
+          cwd,
+          query: needle,
+          page: targetPage,
+          pageSize: HISTORY_PAGE_SIZE,
+        })
         setRows(data.entries)
         setAnchorFile(data.anchorFile)
+        setAnchorIndex(data.anchorIndex)
+        setTotal(data.total)
+        setPage(data.page)
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err))
       }
@@ -860,14 +883,17 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
   )
 
   useEffect(() => {
-    void reload(query)
-    // 列表仅在 cwd/连接变化(reload 标识)时自动重载；query 由回车显式触发, 故不列入依赖
+    void reload(query, 1)
+    // 列表仅在 cwd/连接变化(reload 标识)时自动重载；query/翻页由交互显式触发, 故不列入依赖
   }, [reload])
 
-  const act = async (endpoint: string, payload: Record<string, unknown>) => {
+  const totalPages = Math.max(1, Math.ceil(total / HISTORY_PAGE_SIZE))
+  const anchorPage = anchorPageOf(anchorIndex, HISTORY_PAGE_SIZE)
+
+  const act = async (endpoint: string, payload: Record<string, unknown>, stayPage = page) => {
     try {
       await callPanel(connection, endpoint, payload)
-      await reload(query)
+      await reload(query, stayPage)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
@@ -886,7 +912,7 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === 'Enter') void reload(query)
+            if (event.key === 'Enter') void reload(query, 1)
           }}
         />
         <Button
@@ -894,7 +920,7 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
           size="sm"
           onClick={() =>
             confirmingClear
-              ? void act('history/clear', { cwd }).finally(() => setConfirmingClear(false))
+              ? void act('history/clear', { cwd }, 1).finally(() => setConfirmingClear(false))
               : setConfirmingClear(true)
           }
           onBlur={() => setConfirmingClear(false)}
@@ -1009,6 +1035,69 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
           </div>
         )
       })}
+      {anchorPage !== null && anchorPage !== page && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            fontSize: 12,
+            lineHeight: '17px',
+            color: tokens.labelSecondary,
+          }}
+        >
+          <span>🚩 {t('panel.history.anchorOnPage', { n: anchorPage })}</span>
+          <Button variant="ghost" size="sm" onClick={() => void reload(query, anchorPage)}>
+            {t('panel.history.goToAnchor')}
+          </Button>
+        </div>
+      )}
+
+      {totalPages > 1 && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 8,
+            flexWrap: 'wrap',
+          }}
+        >
+          <span style={{ fontSize: 12, color: tokens.labelTertiary }}>
+            {t('panel.history.totalCount', { n: total })}
+          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={page <= 1}
+              onClick={() => void reload(query, page - 1)}
+            >
+              {t('panel.history.prev')}
+            </Button>
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+              <Button
+                key={p}
+                variant={p === page ? 'primary' : 'ghost'}
+                size="sm"
+                onClick={() => void reload(query, p)}
+                style={p === page ? { minWidth: 28 } : { minWidth: 28 }}
+              >
+                {p}
+              </Button>
+            ))}
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={page >= totalPages}
+              onClick={() => void reload(query, page + 1)}
+            >
+              {t('panel.history.next')}
+            </Button>
+          </div>
+        </div>
+      )}
+
       {anchorFile !== null && rows.some((r) => r.anchored) && (
         <Notice>{t('panel.history.anchorHint')}</Notice>
       )}

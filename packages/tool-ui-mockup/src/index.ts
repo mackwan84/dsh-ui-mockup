@@ -11,6 +11,8 @@ import {
   DEFAULT_PREFS,
   PrefsSchema,
   clampCount,
+  clampPage,
+  clampPageSize,
   filterHistory,
   parseHistoryLine,
   sanitizeAnchorFileName,
@@ -959,13 +961,29 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
             case 'history/list': {
               const rootOrError = trustedRoot(ctx, knownRoots, cwd)
               if (!rootOrError.ok) return rootOrError.error
-              const entries = filterHistory(
+              // 服务端分页：先按 query 过滤得到全量有序列表，再切片返回当前页，
+              // 附带 total 与锚点在过滤后列表中的索引（客户端据此提示锚点所在页）。
+              const all = filterHistory(
                 await readHistory(rootOrError.root),
                 typeof body.query === 'string' ? body.query : undefined,
               )
+              const pageSize = clampPageSize(body.pageSize)
+              const totalPages = Math.max(1, Math.ceil(all.length / pageSize))
+              const page = clampPage(body.page, totalPages)
               const anchorFile = await readAnchor(rootOrError.root, false)
+              const entries = all.slice((page - 1) * pageSize, page * pageSize)
+              const anchorIndex =
+                anchorFile === null
+                  ? -1
+                  : all.findIndex((entry) =>
+                      entry.files.some((file) => basename(file) === anchorFile),
+                    )
               return rpcOk({
                 anchorFile,
+                anchorIndex,
+                total: all.length,
+                page,
+                pageSize,
                 entries: entries.map((entry) => ({
                   ...entry,
                   anchored:

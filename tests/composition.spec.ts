@@ -933,6 +933,80 @@ describe('ui-mockup real dynamic composition', () => {
       await rm(dir, { recursive: true, force: true })
     }
   })
+
+  it('paginates history/list with total, clamped page and anchor index', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+    try {
+      const epStore = storeDirFor(dir)
+      await mkdir(join(epStore, 'images'), { recursive: true })
+      // 造 10 条历史（pageSize 8 → 2 页），第 3 条设为锚点（过滤后索引 2 → 第 1 页）
+      const lines: string[] = []
+      for (let i = 0; i < 10; i++) {
+        const file = `mockup-p${i}.png`
+        await writeFile(join(epStore, 'images', file), Buffer.from([0x01]))
+        lines.push(
+          JSON.stringify({
+            time: `2026-08-27T00:00:${String(i).padStart(2, '0')}Z`,
+            files: [`design/images/${file}`],
+            description: `分页测试第 ${i} 条`,
+            model: 'qwen-image-3.0',
+            fidelity: 'wireframe',
+            platform: 'web',
+            status: 'generated',
+          }),
+        )
+      }
+      await writeFile(join(epStore, 'history.jsonl'), `${lines.join('\n')}\n`)
+      await writeFile(
+        join(epStore, 'anchor.json'),
+        `${JSON.stringify({ file: 'mockup-p2.png', time: '2026-08-27T00:00:00Z' })}\n`,
+      )
+
+      const booted = await bootComposition(dir)
+      const call = (endpoint: string, payload?: unknown) =>
+        booted.connection.call('/ui-mockup', endpoint, payload)
+
+      // 第 1 页：8 条，total 10，锚点索引 7（最新在前，p2 排第 8 → 0-based 7）在第 1 页
+      const p1 = valueOf<{
+        entries: unknown[]
+        total: number
+        page: number
+        pageSize: number
+        anchorIndex: number
+      }>(await call('history/list', { cwd: dir, page: 1, pageSize: 8 }))
+      expect(p1.entries).toHaveLength(8)
+      expect(p1.total).toBe(10)
+      expect(p1.page).toBe(1)
+      expect(p1.pageSize).toBe(8)
+      expect(p1.anchorIndex).toBe(7)
+
+      // 第 2 页：剩余 2 条
+      const p2 = valueOf<{ entries: unknown[]; page: number }>(
+        await call('history/list', { cwd: dir, page: 2, pageSize: 8 }),
+      )
+      expect(p2.entries).toHaveLength(2)
+      expect(p2.page).toBe(2)
+
+      // 越界页码钳制到最后一页
+      const clamped = valueOf<{ entries: unknown[]; page: number }>(
+        await call('history/list', { cwd: dir, page: 99, pageSize: 8 }),
+      )
+      expect(clamped.page).toBe(2)
+      expect(clamped.entries).toHaveLength(2)
+
+      // 非法 pageSize 钳制到 [1,50]（负数取下限 1，非有限数才回退默认 8）
+      const badSize = valueOf<{ pageSize: number }>(
+        await call('history/list', { cwd: dir, page: 1, pageSize: -3 }),
+      )
+      expect(badSize.pageSize).toBe(1)
+      const nanSize = valueOf<{ pageSize: number }>(
+        await call('history/list', { cwd: dir, page: 1, pageSize: Number.NaN }),
+      )
+      expect(nanSize.pageSize).toBe(8)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
 })
 
 /** 断言 RPC 成功并取出值；给组合测试一个统一的窄化入口。 */

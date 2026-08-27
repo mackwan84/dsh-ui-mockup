@@ -132,3 +132,24 @@ export function filterHistory(entries: HistoryEntry[], query: string | undefined
   if (needle === '') return entries
   return entries.filter((entry) => entry.description.toLowerCase().includes(needle))
 }
+
+/** 历史分页默认每页条数（宿主与客户端共用同一常量）。 */
+export const HISTORY_PAGE_SIZE = 8
+
+/** 钳制每页条数到 [1, 50]，防异常/恶意值；非有限数回退默认。 */
+export function clampPageSize(value: unknown): number {
+  const n =
+    typeof value === 'number' && Number.isFinite(value) ? Math.round(value) : HISTORY_PAGE_SIZE
+  return Math.min(50, Math.max(1, n))
+}
+
+/** 钳制页码到 [1, totalPages]；非有限数回退第 1 页。 */
+export function clampPage(value: unknown, totalPages: number): number {
+  const n = typeof value === 'number' && Number.isFinite(value) ? Math.round(value) : 1
+  return Math.min(totalPages, Math.max(1, n))
+}
+
+/** 锚点在过滤后列表中的索引 → 所在页码（1-based）；无锚点(-1)返回 null。 */
+export function anchorPageOf(anchorIndex: number, pageSize: number): number | null {
+  return anchorIndex < 0 ? null : Math.floor(anchorIndex / pageSize) + 1
+}

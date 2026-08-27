@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_PREFS,
+  HISTORY_PAGE_SIZE,
+  anchorPageOf,
   clampCount,
+  clampPage,
+  clampPageSize,
   filterHistory,
   parseHistoryLine,
   sanitizeAnchorFileName,
@@ -89,5 +93,31 @@ describe('filterHistory', () => {
     expect(filterHistory([...entries], '图书')).toHaveLength(1)
     expect(filterHistory([...entries], '')).toHaveLength(2)
     expect(filterHistory([...entries], undefined)).toHaveLength(2)
+  })
+})
+
+describe('history pagination helpers', () => {
+  it('clamps page size into [1,50] with a sane default', () => {
+    expect(HISTORY_PAGE_SIZE).toBe(8)
+    expect(clampPageSize(undefined)).toBe(8)
+    expect(clampPageSize(Number.NaN)).toBe(8)
+    expect(clampPageSize(0)).toBe(1)
+    expect(clampPageSize(99)).toBe(50)
+    expect(clampPageSize(20)).toBe(20)
+  })
+
+  it('clamps page into [1, totalPages]', () => {
+    expect(clampPage(undefined, 3)).toBe(1)
+    expect(clampPage(0, 3)).toBe(1)
+    expect(clampPage(99, 3)).toBe(3)
+    expect(clampPage(2, 3)).toBe(2)
+  })
+
+  it('maps an anchor index to its 1-based page, or null when absent', () => {
+    expect(anchorPageOf(-1, 8)).toBeNull()
+    expect(anchorPageOf(0, 8)).toBe(1)
+    expect(anchorPageOf(7, 8)).toBe(1)
+    expect(anchorPageOf(8, 8)).toBe(2)
+    expect(anchorPageOf(15, 8)).toBe(2)
   })
 })

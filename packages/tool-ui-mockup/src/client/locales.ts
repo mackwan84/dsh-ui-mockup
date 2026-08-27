@@ -115,6 +115,11 @@ export const zh = {
   'panel.history.anchorTag': '风格锚点',
   'panel.history.anchorHint':
     '设为锚点后, 调用 ui_mockup 未显式传 reference 时会自动引用该图保持多页风格一致。',
+  'panel.history.prev': '上一页',
+  'panel.history.next': '下一页',
+  'panel.history.totalCount': '共 {n} 条',
+  'panel.history.anchorOnPage': '风格锚点在第 {n} 页',
+  'panel.history.goToAnchor': '前往',
   'panel.history.fileCount': '{n} 张图',
 } satisfies Record<string, string>
 
@@ -241,5 +246,10 @@ export const en = {
   'panel.history.anchorTag': 'Style anchor',
   'panel.history.anchorHint':
     'Once set, ui_mockup calls without an explicit reference automatically reuse this image for consistent style.',
+  'panel.history.prev': 'Previous',
+  'panel.history.next': 'Next',
+  'panel.history.totalCount': '{n} entries',
+  'panel.history.anchorOnPage': 'Style anchor on page {n}',
+  'panel.history.goToAnchor': 'Go to anchor',
   'panel.history.fileCount': '{n} images',
 } satisfies Record<UiMockupKey, string>
