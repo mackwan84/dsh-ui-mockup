@@ -676,16 +676,10 @@ function PreferencesPage({ t, prefs }: Omit<PanelProps, 'connection'>) {
 
   const save = async () => {
     setError('')
-    const dir = draft.outputDir.trim()
-    if (dir === '' || dir.split('/').includes('..') || dir.startsWith('/')) {
-      setError(t('panel.prefs.invalidDir'))
-      return
-    }
     try {
       await prefs.set('defaultFidelity', draft.defaultFidelity)
       await prefs.set('defaultPlatform', draft.defaultPlatform)
       await prefs.set('defaultCount', Math.min(4, Math.max(1, Math.round(draft.defaultCount))))
-      await prefs.set('outputDir', dir)
       await prefs.set('pollTimeoutMinutes', Math.max(1, Math.round(draft.pollTimeoutMinutes)))
       await prefs.set('defaultSize', draft.defaultSize)
       setDirty(false)
@@ -702,7 +696,6 @@ function PreferencesPage({ t, prefs }: Omit<PanelProps, 'connection'>) {
         'defaultFidelity',
         'defaultPlatform',
         'defaultCount',
-        'outputDir',
         'pollTimeoutMinutes',
         'defaultSize',
       ] as const) {
@@ -767,15 +760,7 @@ function PreferencesPage({ t, prefs }: Omit<PanelProps, 'connection'>) {
             />
           ))}
         </FieldRow>
-        <FieldRow label={t('panel.prefs.outputDir')}>
-          <Input
-            style={{ width: 260 }}
-            value={draft.outputDir}
-            onChange={(event) => patch({ outputDir: event.target.value })}
-            disabled={readonlyNote}
-            spellCheck={false}
-          />
-        </FieldRow>
+        {/* 输出目录已由设计资产库接管($DSH_HOME/mockups/<工作区>/images)，不再可配 */}
         <FieldRow label={t('panel.prefs.pollTimeout')}>
           <Input
             type="number"

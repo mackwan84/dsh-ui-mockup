@@ -40,7 +40,7 @@ function buildFeedbackMessage(
   return t('card.selectMessage', { n: index + 1, name })
 }
 
-export function UiMockupToolview({ block, inputActions, openFile, cwd, t, anchor }: Props) {
+export function UiMockupToolview({ block, inputActions, cwd, t, anchor }: Props) {
   const [showFeedback, setShowFeedback] = useState(false)
   const [opinion, setOpinion] = useState('')
   const [selected, setSelected] = useState('')
@@ -226,16 +226,17 @@ export function UiMockupToolview({ block, inputActions, openFile, cwd, t, anchor
               ))}
             </select>
           ))}
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => {
-            const name = images[0]!.attachment.name ?? 'mockup.png'
-            openFile(`design/images/${name}`)
-          }}
-        >
-          {t('card.openOriginal')}
-        </Button>
+        {/* 图片本体在资产库（不在工作区），打开原图走图片路由新开页 */}
+        {(() => {
+          const firstName = images[0]!.attachment.name ?? 'mockup.png'
+          return (
+            <a href={imageUrl(firstName, cwd)} target="_blank" rel="noreferrer">
+              <Button variant="ghost" size="sm">
+                {t('card.openOriginal')}
+              </Button>
+            </a>
+          )
+        })()}
         <Button variant="ghost" size="sm" onClick={() => setShowFeedback((value) => !value)}>
           {t('card.feedback')}
         </Button>

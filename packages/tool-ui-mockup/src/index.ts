@@ -231,9 +231,68 @@ export interface MockupPluginConfig {
 
 export const Config = PrefsSchema
 
+/** 语义路径（agent / reference 兼容层，映射到资产库物理路径）。 */
 const IMAGE_DIR = 'design/images'
-const HISTORY_FILE = 'design/history.jsonl'
-const ANCHOR_FILE = 'design/anchor.json'
+
+import { homedir } from 'node:os'
+
+/** 一个工作区的设计资产库物理布局（$DSH_HOME/mockups/<slug>/ 下）。 */
+interface MockupStore {
+  /** 工作区资产目录（绝对路径）。 */
+  root: string
+  /** 生成图目录（绝对路径）。 */
+  imagesDir: string
+  /** 锚点登记文件（绝对路径）。 */
+  anchorFile: string
+  /** 历史记录文件（绝对路径）。 */
+  historyFile: string
+}
+
+/**
+ * 工作区根 → slug：与 DSH sessions 目录同款转义（路径分隔符 `-` + 首尾包 `-`），
+ * 例 /Users/l/x → --Users-l-x--。集中存放、按工作区隔离，与宿主数据组织方式一致。
+ */
+function workspaceSlug(workspaceRoot: string): string {
+  return `-${workspaceRoot.split(/[\\/]+/).join('-')}-`
+}
+
+/** $DSH_HOME：与 DSH 宿主一致的环境变量优先，默认 ~/.dsh。 */
+function dshHome(): string {
+  const fromEnv = process.env['DSH_HOME']
+  return fromEnv !== undefined && fromEnv !== '' ? fromEnv : resolve(homedir(), '.dsh')
+}
+
+/**
+ * 工作区的设计资产库：$DSH_HOME/mockups/<slug>/{images,anchor.json,history.jsonl}。
+ * 项目工作区不再落任何运行时产物（spec.md 等交付物仍留项目内）。
+ */
+function storeOf(workspaceRoot: string): MockupStore {
+  const root = resolve(dshHome(), 'mockups', workspaceSlug(workspaceRoot))
+  return {
+    root,
+    imagesDir: resolve(root, 'images'),
+    anchorFile: resolve(root, 'anchor.json'),
+    historyFile: resolve(root, 'history.jsonl'),
+  }
+}
+
+/**
+ * 把语义 reference 翻译为可解析路径：
+ * - `design/images/x.png` / `design/x.png`（agent 习惯写法）→ 资产库内绝对路径；
+ * - 其余输入（如用户自备的 `assets/base.png`）按「相对工作区」原样返回，
+ *   由 Provider 以 cwd 为根防逃逸。
+ */
+function translateReference(reference: string, workspaceRoot: string): string {
+  const store = storeOf(workspaceRoot)
+  if (reference === 'design' || reference === 'design/') return store.root
+  if (reference.startsWith('design/images/')) {
+    return resolve(store.imagesDir, reference.slice('design/images/'.length))
+  }
+  if (reference.startsWith('design/')) {
+    return resolve(store.root, reference.slice('design/'.length))
+  }
+  return reference
+}
 
 /** 偏好生效值：settings 服务可用时以命名空间 resolved 值为准；
  * 缺席（纯内存部署）时退化为 cordis.yml 配置层覆盖内置默认。 */
@@ -250,14 +309,15 @@ export function effectivePrefs(
 }
 
 /**
- * 锚点登记是工作区内的一个两行 JSON 文件：只存「当前锚点文件名 + 时间」，
+ * 锚点登记是资产库里的一个两行 JSON 文件：只存「当前锚点文件名 + 时间」，
  * 不复制图片内容。读取即校验文件名合法且目标图仍存在，任一不满足视为无锚点
  * （清空历史、删图后残留的 anchor.json 自愈为空态）。
  */
 async function readAnchor(workspaceRoot: string, requireExists = true): Promise<string | null> {
+  const store = storeOf(workspaceRoot)
   let raw: string
   try {
-    raw = await readFile(resolve(workspaceRoot, ANCHOR_FILE), 'utf8')
+    raw = await readFile(store.anchorFile, 'utf8')
   } catch {
     return null
   }
@@ -271,7 +331,7 @@ async function readAnchor(workspaceRoot: string, requireExists = true): Promise<
   if (file === null) return null
   if (!requireExists) return file
   try {
-    await readFile(resolve(workspaceRoot, IMAGE_DIR, file))
+    await readFile(resolve(store.imagesDir, file))
     return file
   } catch {
     return null
@@ -279,24 +339,24 @@ async function readAnchor(workspaceRoot: string, requireExists = true): Promise<
 }
 
 async function writeAnchor(workspaceRoot: string, fileName: string): Promise<void> {
-  const dir = resolve(workspaceRoot, 'design')
-  await mkdir(dir, { recursive: true })
+  const store = storeOf(workspaceRoot)
+  await mkdir(store.root, { recursive: true })
   await writeFile(
-    resolve(dir, 'anchor.json'),
+    store.anchorFile,
     `${JSON.stringify({ file: fileName, time: new Date().toISOString() })}\n`,
   )
 }
 
 /** 清除锚点：文件不存在也算清除成功（幂等）。 */
 async function clearAnchor(workspaceRoot: string): Promise<void> {
-  await rm(resolve(workspaceRoot, ANCHOR_FILE), { force: true })
+  await rm(storeOf(workspaceRoot).anchorFile, { force: true })
 }
 
 /** 读取并解析历史文件；目录不存在按空历史处理。 */
 async function readHistory(workspaceRoot: string): Promise<HistoryEntry[]> {
   let raw: string
   try {
-    raw = await readFile(resolve(workspaceRoot, HISTORY_FILE), 'utf8')
+    raw = await readFile(storeOf(workspaceRoot).historyFile, 'utf8')
   } catch {
     return []
   }
@@ -433,7 +493,7 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
     tools.register({
       name: 'ui_mockup',
       description:
-        '调用外部图像生成接口, 为界面/页面生成线框图(wireframe)或高保真(high-fidelity)设计草图, 供用户在编写实现代码之前确认界面方向。图片显示在对话中并保存到工作区 design/images/ 目录。用户需要修改时, 用修改后的完整描述再次调用。模型分层默认由设置面板「提供方与模型」管理(未配置时 wireframe→qwen-image-3.0, high-fidelity→qwen-image-3.0-pro); 用户未点名模型时不要传 model 参数, 以免绕过面板配置。传 reference 参数可用已确认的图作为风格基准(图生图), 保持多页面风格一致。接口限流时自动退避重试。需要阿里云百炼 DASHSCOPE_API_KEY(通过凭据服务或环境变量提供)。',
+        '调用外部图像生成接口, 为界面/页面生成线框图(wireframe)或高保真(high-fidelity)设计草图, 供用户在编写实现代码之前确认界面方向。图片显示在对话中并保存到 DSH 设计资产库($DSH_HOME/mockups/<工作区>/images/)。用户需要修改时, 用修改后的完整描述再次调用。模型分层默认由设置面板「提供方与模型」管理(未配置时 wireframe→qwen-image-3.0, high-fidelity→qwen-image-3.0-pro); 用户未点名模型时不要传 model 参数, 以免绕过面板配置。传 reference 参数可用已确认的图作为风格基准(图生图), 保持多页面风格一致。接口限流时自动退避重试。需要阿里云百炼 DASHSCOPE_API_KEY(通过凭据服务或环境变量提供)。',
       parameters: {
         type: 'object',
         properties: {
@@ -570,6 +630,12 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
               reference = `${IMAGE_DIR}/${anchorFile}`
             }
           }
+          // reference 语义翻译：design/ 前缀(生成图/锚点)→资产库绝对路径, 其余(用户自备图)保持相对工作区。
+          // cwd 随之分流：store 路径以 store 为根防逃逸, 相对路径仍以工作区为根。
+          const translatedReference =
+            reference === undefined ? undefined : translateReference(reference, workspaceRoot)
+          const referenceInStore =
+            translatedReference !== undefined && translatedReference !== reference
           const prefs = effectivePrefs(prefsScope, config)
           const spec: ImageGenerateSpec = {
             prompt: buildPrompt(
@@ -600,9 +666,9 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
             ...(Number.isFinite(prefs.pollTimeoutMinutes) && prefs.pollTimeoutMinutes > 0
               ? { pollTimeoutMs: Math.round(prefs.pollTimeoutMinutes * 60_000) }
               : {}),
-            reference,
-            // 参考图必须相对会话工作区根解析: 宿主进程 CWD 不保证与工作区一致
-            cwd: workspaceRoot,
+            reference: translatedReference,
+            // 参考图解析根随语义分流: 资产库绝对路径以 store 为根, 其余以会话工作区为根
+            cwd: referenceInStore ? storeOf(workspaceRoot).root : workspaceRoot,
           }
 
           const service = ctx.get('image') as ImageGenerationServiceFace | undefined
@@ -635,10 +701,11 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
                 detectMediaType(buffer) ?? toMediaType(res.headers.get('content-type'))
               // 文件名带随机段: 工具标记为可并发, 同毫秒完成的两次调用不应互相覆盖
               const fileName = `mockup-${stamp}-${runId}-${i + 1}.${extensionFor(mediaType)}`
-              const dir = resolve(workspaceRoot, 'design/images')
-              await mkdir(dir, { recursive: true })
-              await writeFile(resolve(dir, fileName), buffer)
-              const relPath = `design/images/${fileName}`
+              const store = storeOf(workspaceRoot)
+              await mkdir(store.imagesDir, { recursive: true })
+              await writeFile(resolve(store.imagesDir, fileName), buffer)
+              // 模型可见路径写真实物理位置（资产库绝对路径），避免 agent 去工作区找不到
+              const relPath = resolve(store.imagesDir, fileName)
               let entry: ImageEntry
               if (
                 attachments !== undefined &&
@@ -699,8 +766,9 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
 
           // 生成历史元数据：设置面板历史页的数据来源（M3 消费）。
           // 写失败不阻断结果返回，但留 debug 日志：历史页缺记录时可据此排查。
+          const historyWrite = storeOf(workspaceRoot)
           void appendFile(
-            resolve(workspaceRoot, HISTORY_FILE),
+            historyWrite.historyFile,
             `${JSON.stringify({
               time: new Date().toISOString(),
               files: images.map((image) => image.path),
@@ -811,7 +879,8 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
             root = canonicalRoot(policy?.workspaceRoot ?? '.')
           }
           try {
-            const buffer = await readFile(resolve(root, IMAGE_DIR, fileName))
+            // 信任链按工作区根判定, 文件本体在资产库该工作区目录下
+            const buffer = await readFile(resolve(storeOf(root).imagesDir, fileName))
             res.writeHead(200, {
               'Content-Type': mediaTypeForExtension(fileName),
               'Content-Length': buffer.byteLength,
@@ -911,7 +980,7 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
             case 'history/clear': {
               const rootOrError = trustedRoot(ctx, knownRoots, cwd)
               if (!rootOrError.ok) return rootOrError.error
-              await writeFile(resolve(rootOrError.root, HISTORY_FILE), '')
+              await writeFile(storeOf(rootOrError.root).historyFile, '')
               // 清空历史后锚点记录指向的行不复存在，按规格一并解除
               await clearAnchor(rootOrError.root)
               return rpcOk({})
@@ -923,7 +992,7 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
               if (file === null)
                 return rpcError('INVALID_PARAMETER', `不是合法的生成图文件名: ${String(body.file)}`)
               try {
-                await readFile(resolve(rootOrError.root, IMAGE_DIR, file))
+                await readFile(resolve(storeOf(rootOrError.root).imagesDir, file))
               } catch {
                 return rpcError('NOT_FOUND', `工作区中没有这张生成图: ${file}`)
               }

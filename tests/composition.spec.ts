@@ -1,6 +1,7 @@
+import { mkdtempSync, realpathSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { homedir, tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { Context, Service } from '@deepseek-ai/cordis'
 import Include from '@deepseek-ai/cordis-plugin-include'
@@ -300,8 +301,24 @@ async function bootComposition(dir: string): Promise<Booted> {
   }
 }
 
+/** 与宿主同口径：先 canonical(REALPATH, macOS /var→/private/var) 再 slug 转义。 */
+function storeDirFor(workspaceRoot: string): string {
+  const home = process.env['DSH_HOME'] ?? join(homedir(), '.dsh')
+  let canonical: string
+  try {
+    canonical = realpathSync.native(workspaceRoot)
+  } catch {
+    canonical = resolve(workspaceRoot)
+  }
+  return join(home, 'mockups', `-${canonical.split(/[\\/]+/).join('-')}-`)
+}
+
 beforeEach(() => {
+  // 资产库隔离：每个用例独立的 DSH_HOME，避免污染真实 ~/.dsh
+  const home = mkdtempSync(join(tmpdir(), 'dsh-uimock-home-'))
+  vi.stubEnv('DSH_HOME', home)
   vi.stubEnv('DASHSCOPE_API_KEY', 'sk-composition-key')
+  return () => undefined
 })
 
 afterEach(() => {
@@ -427,15 +444,18 @@ describe('ui-mockup real dynamic composition', () => {
       const images = value.images as Array<{ path: string }>
       expect(images).toHaveLength(1)
 
-      // 工作区落盘 + 附件 + 历史记录
-      const files = await readdir(join(dir, 'design/images'))
+      // 资产库落盘(不再写工作区) + 附件 + 历史记录
+      const store = storeDirFor(dir)
+      const files = await readdir(join(store, 'images'))
       expect(files).toHaveLength(1)
       expect(files[0]!.startsWith('mockup-')).toBe(true)
       expect(booted.attachments.saved).toHaveLength(1)
       expect(booted.attachments.saved[0]!.mediaType).toBe('image/png')
-      const history = await readFile(join(dir, 'design/history.jsonl'), 'utf8')
+      const history = await readFile(join(store, 'history.jsonl'), 'utf8')
       expect(history).toContain('"model":"qwen-image-3.0"')
       expect(history).toContain('"status":"generated"')
+      // 工作区不再出现运行时产物目录
+      await expect(readdir(join(dir, 'design'))).rejects.toThrow()
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
@@ -543,8 +563,9 @@ describe('ui-mockup real dynamic composition', () => {
       expect(route).toBeDefined()
 
       const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00])
-      await mkdir(join(dir, 'design/images'), { recursive: true })
-      await writeFile(join(dir, 'design/images/mockup-a.png'), png)
+      const storeA = storeDirFor(dir)
+      await mkdir(join(storeA, 'images'), { recursive: true })
+      await writeFile(join(storeA, 'images/mockup-a.png'), png)
 
       // 正常命中：返回 200 与图片字节，Content-Type 与扩展名一致
       const ok = await dispatchRoute(route!.handler, '/ui-mockup/images/mockup-a.png')
@@ -604,7 +625,9 @@ describe('ui-mockup real dynamic composition', () => {
       expect(value.ok).toBe(true)
       vi.unstubAllGlobals()
 
-      await writeFile(join(otherDir, 'design/images/mockup-b.png'), png)
+      const storeB = storeDirFor(otherDir)
+      await mkdir(join(storeB, 'images'), { recursive: true })
+      await writeFile(join(storeB, 'images/mockup-b.png'), png)
       const byCwd = await dispatchRoute(
         route!.handler,
         `/ui-mockup/images/mockup-b.png?cwd=${encodeURIComponent(otherDir)}`,
@@ -631,12 +654,13 @@ describe('ui-mockup real dynamic composition', () => {
   it('auto-injects the style anchor as reference when the call omits one', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
     try {
-      // 预置锚点：mockup-seed.png + anchor.json（与面板 anchor/set 的落盘一致）
-      await mkdir(join(dir, 'design/images'), { recursive: true })
+      // 预置锚点：资产库内 mockup-seed.png + anchor.json（与面板 anchor/set 的落盘一致）
+      const seedStore = storeDirFor(dir)
+      await mkdir(join(seedStore, 'images'), { recursive: true })
       const seed = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
-      await writeFile(join(dir, 'design/images/mockup-seed.png'), seed)
+      await writeFile(join(seedStore, 'images/mockup-seed.png'), seed)
       await writeFile(
-        join(dir, 'design/anchor.json'),
+        join(seedStore, 'anchor.json'),
         `${JSON.stringify({ file: 'mockup-seed.png', time: '2026-08-27T00:00:00Z' })}\n`,
       )
 
@@ -818,11 +842,12 @@ describe('ui-mockup real dynamic composition', () => {
     try {
       const booted = await bootComposition(dir)
 
-      // 制造两条历史（直接写文件，避免依赖生成流程）
-      await mkdir(join(dir, 'design/images'), { recursive: true })
-      await writeFile(join(dir, 'design/images/mockup-h1.png'), Buffer.from([0x01]))
+      // 制造两条历史（直接写资产库文件，避免依赖生成流程）
+      const epStore = storeDirFor(dir)
+      await mkdir(join(epStore, 'images'), { recursive: true })
+      await writeFile(join(epStore, 'images/mockup-h1.png'), Buffer.from([0x01]))
       await writeFile(
-        join(dir, 'design/history.jsonl'),
+        join(epStore, 'history.jsonl'),
         [
           JSON.stringify({
             time: '2026-08-27T00:00:01Z',
@@ -892,7 +917,7 @@ describe('ui-mockup real dynamic composition', () => {
 
       // 清空历史 → 文件归零且锚点一并解除
       expect((await call('history/clear', { cwd: dir })).ok).toBe(true)
-      expect(await readFile(join(dir, 'design/history.jsonl'), 'utf8')).toBe('')
+      expect(await readFile(join(epStore, 'history.jsonl'), 'utf8')).toBe('')
       const overviewCleared = valueOf<{ anchor: string | null }>(await call('overview'))
       expect(overviewCleared.anchor).toBeNull()
 
@@ -902,7 +927,7 @@ describe('ui-mockup real dynamic composition', () => {
       if (!missing.ok) expect(missing.error.code).toBe('NOT_FOUND')
 
       // 图片文件本体不被清空历史删除
-      await expect(readFile(join(dir, 'design/images/mockup-h1.png'))).resolves.toBeDefined()
+      await expect(readFile(join(epStore, 'images/mockup-h1.png'))).resolves.toBeDefined()
     } finally {
       await rm(dir, { recursive: true, force: true })
     }

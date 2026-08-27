@@ -96,7 +96,6 @@ export const zh = {
   'panel.prefs.fidelityHigh': '高保真',
   'panel.prefs.platform': '目标平台',
   'panel.prefs.count': '一次生成数量',
-  'panel.prefs.outputDir': '输出目录',
   'panel.prefs.pollTimeout': '轮询超时',
   'panel.prefs.minutes': '分钟',
   'panel.prefs.backoff': '限流退避策略',
@@ -105,7 +104,6 @@ export const zh = {
   'panel.prefs.reset': '恢复默认',
   'panel.prefs.save': '保存',
   'panel.prefs.saved': '已保存 ✓',
-  'panel.prefs.invalidDir': '输出目录必须是工作区内的相对路径(不能为空、不能包含 .. 或绝对路径)。',
 
   // 生成历史页
   'panel.history.searchPlaceholder': '按描述搜索…',
@@ -225,7 +223,6 @@ export const en = {
   'panel.prefs.fidelityHigh': 'High fidelity',
   'panel.prefs.platform': 'Target platform',
   'panel.prefs.count': 'Images per request',
-  'panel.prefs.outputDir': 'Output directory',
   'panel.prefs.pollTimeout': 'Polling timeout',
   'panel.prefs.minutes': 'minutes',
   'panel.prefs.backoff': 'Rate-limit backoff',
@@ -234,8 +231,6 @@ export const en = {
   'panel.prefs.reset': 'Reset to defaults',
   'panel.prefs.save': 'Save',
   'panel.prefs.saved': 'Saved ✓',
-  'panel.prefs.invalidDir':
-    'Output directory must be a relative path inside the workspace (non-empty, no "..", no absolute path).',
 
   'panel.history.searchPlaceholder': 'Search by description…',
   'panel.history.clear': 'Clear history',

@@ -85,6 +85,11 @@
 ## 3. 行为规格
 
 - **锚点联动**：用户确认采用的生成结果可设为风格锚点；此后 `ui_mockup` 调用**未显式传 reference 时自动引用当前锚点**作为参考图（I2I 保持多页风格一致）；显式传入 reference 或解除锚点后不注入；
+- **存储位置**：生成图 / 锚点 / 历史集中存于 `$DSH_HOME/mockups/<工作区 slug>/`
+  （slug = 工作区绝对路径分隔符转 `-` 并首尾包 `-`，与 DSH sessions 目录一致），
+  按 workspaceRoot 隔离、跨会话共享、重启持久；`reference` 参数仍收
+  `design/images/…` 语义路径（宿主翻译到资产库）或工作区内自备图的相对路径；
+  「输出目录」偏好已由资产库接管（schema 字段保留仅为兼容旧用户层数据）；
 - 设置面板所有修改经 RPC 落入 Host 持久化（settings service 为源，cordis.yml 为初始值）；保存前做边界校验（数量 1–4、超时 ≥1 分钟、输出目录非法路径拒绝）；
 - 清空历史仅删除 `design/history.jsonl` 内容与锚点登记，不删除图片文件本身；
 - 历史/锚点数据属当前会话工作区（`design/history.jsonl`），不做跨会话聚合。
