@@ -719,6 +719,74 @@ describe('ui-mockup real dynamic composition', () => {
     }
   })
 
+  it('skips anchor injection when the effective model is not qwen-image (wan tier)', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+    try {
+      // 预置锚点（同上），但把线框层默认模型切到 wan 系
+      const seedStore = storeDirFor(dir)
+      await mkdir(join(seedStore, 'images'), { recursive: true })
+      const seed = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+      await writeFile(join(seedStore, 'images/mockup-seed.png'), seed)
+      await writeFile(
+        join(seedStore, 'anchor.json'),
+        `${JSON.stringify({ file: 'mockup-seed.png', time: '2026-08-27T00:00:00Z' })}\n`,
+      )
+
+      const booted = await bootComposition(dir)
+      booted.settings.resolved.wireframeModel = 'wan2.7-image'
+      let createUrl = ''
+      let createBody = ''
+      vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+        if (url.includes('text2image/image-synthesis')) {
+          createUrl = url
+          createBody = typeof init?.body === 'string' ? init.body : ''
+          return new Response(
+            JSON.stringify({ output: { task_id: 'task-wan', task_status: 'PENDING' } }),
+            { status: 200 },
+          )
+        }
+        if (url.includes('/api/v1/tasks/task-wan')) {
+          return new Response(
+            JSON.stringify({
+              output: {
+                task_id: 'task-wan',
+                task_status: 'SUCCEEDED',
+                results: [{ url: 'https://oss.example/wan.png' }],
+              },
+            }),
+            { status: 200 },
+          )
+        }
+        if (url.includes('oss.example')) {
+          return new Response(seed, { status: 200, headers: { 'content-type': 'image/png' } })
+        }
+        throw new Error(`unexpected fetch: ${url}`)
+      })
+
+      const definition = booted.tools.registered.find((item) => item.name === 'ui_mockup')!
+      const execute = definition.execute as (
+        args: Record<string, unknown>,
+        exec: { signal: AbortSignal; agent?: { session: { header: { cwd?: string } } } },
+      ) => Promise<Record<string, unknown>>
+      const value = await execute(
+        { description: 'wan 系模型下的页面', fidelity: 'wireframe', platform: 'web' },
+        { signal: new AbortController().signal, agent: { session: { header: { cwd: dir } } } },
+      )
+      // 不再被 Provider INVALID_PARAMETER 拒绝：走 T2I 纯文本路径，无 base64 参考图
+      expect(value.ok, String(value.message)).toBe(true)
+      expect(createUrl).toContain('text2image/image-synthesis')
+      expect(createBody).not.toContain('data:image/png;base64,')
+      expect(String(value.message)).toContain('已跳过风格锚点注入')
+      // 锚点保留（不解除），用户换回 qwen 系后仍可联动
+      const overview = valueOf<{ anchor: string | null }>(
+        await booted.connection.call('/ui-mockup', 'overview'),
+      )
+      expect(overview.anchor).toBe('mockup-seed.png')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   it('reports missing credentials with a machine reason from test-connection', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
     try {
@@ -827,6 +895,16 @@ describe('ui-mockup real dynamic composition', () => {
           }),
       )
       expect(await probe()).toEqual({ ok: true, reason: 'ok' })
+
+      // 未知响应（如未来网关对无效 key 改返 403）→ unknown 灰态，不误报成功
+      vi.stubGlobal(
+        'fetch',
+        async () =>
+          new Response(JSON.stringify({ code: 'Forbidden', message: 'forbidden' }), {
+            status: 403,
+          }),
+      )
+      expect(await probe()).toEqual({ ok: false, reason: 'unknown', detail: 'HTTP 403 Forbidden' })
 
       // 网络层失败 → gateway + 原始错误
       vi.stubGlobal('fetch', async () => {
@@ -939,7 +1017,7 @@ describe('ui-mockup real dynamic composition', () => {
     try {
       const epStore = storeDirFor(dir)
       await mkdir(join(epStore, 'images'), { recursive: true })
-      // 造 10 条历史（pageSize 8 → 2 页），第 3 条设为锚点（过滤后索引 2 → 第 1 页）
+      // 造 10 条历史（pageSize 8 → 2 页；默认 pageSize 5 → 2 页），第 3 条设为锚点（过滤后索引 2 → 第 1 页）
       const lines: string[] = []
       for (let i = 0; i < 10; i++) {
         const file = `mockup-p${i}.png`
@@ -994,7 +1072,7 @@ describe('ui-mockup real dynamic composition', () => {
       expect(clamped.page).toBe(2)
       expect(clamped.entries).toHaveLength(2)
 
-      // 非法 pageSize 钳制到 [1,50]（负数取下限 1，非有限数才回退默认 8）
+      // 非法 pageSize 钳制到 [1,50]（负数取下限 1，非有限数回退默认 5）
       const badSize = valueOf<{ pageSize: number }>(
         await call('history/list', { cwd: dir, page: 1, pageSize: -3 }),
       )
@@ -1003,6 +1081,26 @@ describe('ui-mockup real dynamic composition', () => {
         await call('history/list', { cwd: dir, page: 1, pageSize: Number.NaN }),
       )
       expect(nanSize.pageSize).toBe(5)
+
+      // 不传 pageSize 走服务端默认 5（面板契约：默认值被误改时此处会红）
+      const defaulted = valueOf<{ entries: unknown[]; pageSize: number; total: number }>(
+        await call('history/list', { cwd: dir }),
+      )
+      expect(defaulted.pageSize).toBe(5)
+      expect(defaulted.entries).toHaveLength(5)
+      expect(defaulted.total).toBe(10)
+
+      // 过滤 + 分页组合：query 命中的 4 条（描述含「第 2」仅 1 条，改用子集描述）
+      // 这里用锚点所在条目的描述子串验证 anchorIndex 是相对过滤后列表的：
+      // 锚点 mockup-p2.png 描述「分页测试第 2 条」，query=「第 2」仅命中它 → total 1、索引 0
+      const filtered = valueOf<{
+        entries: Array<{ description: string; anchored: boolean }>
+        total: number
+        anchorIndex: number
+      }>(await call('history/list', { cwd: dir, query: '第 2', page: 1, pageSize: 8 }))
+      expect(filtered.total).toBe(1)
+      expect(filtered.anchorIndex).toBe(0)
+      expect(filtered.entries[0]?.anchored).toBe(true)
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
