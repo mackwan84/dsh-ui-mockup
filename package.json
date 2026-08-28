@@ -12,7 +12,7 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "pack:all": "rm -rf dist && mkdir -p dist && cd packages/image && pnpm pack --pack-destination ../../dist && cd ../image-dashscope && pnpm pack --pack-destination ../../dist && cd ../tool-ui-mockup && pnpm pack --pack-destination ../../dist && cd ../../bundle/ui-mockup && pnpm pack --pack-destination ../../dist"
+    "pack:all": "rm -rf dist && mkdir -p dist && cd packages/image && pnpm pack --pack-destination ../../dist && cd ../image-dashscope && pnpm pack --pack-destination ../../dist && cd ../image-volcengine && pnpm pack --pack-destination ../../dist && cd ../tool-ui-mockup && pnpm pack --pack-destination ../../dist && cd ../../bundle/ui-mockup && pnpm pack --pack-destination ../../dist"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
@@ -21,6 +21,7 @@
     "@eslint/js": "^10.0.1",
     "@mackwan84/dsh-image": "workspace:^",
     "@mackwan84/dsh-image-dashscope": "workspace:^",
+    "@mackwan84/dsh-image-volcengine": "workspace:^",
     "@mackwan84/dsh-tool-ui-mockup": "workspace:^",
     "@types/node": "^24.0.0",
     "eslint": "^10.9.1",

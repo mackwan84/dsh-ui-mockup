@@ -27,6 +27,7 @@
 
 ## Known Limitations
 
-- `edit`（参考图编辑/掩码局部重绘）为 `NOT_IMPLEMENTED`，M4 提供；
+- `edit`（指令编辑/掩码局部重绘）为 `NOT_IMPLEMENTED`：百炼编辑链路尚未在本仓实测；
+  编辑模式当前请启用火山方舟 Provider（`@mackwan84/dsh-image-volcengine`，seededit 3.0）；
 - 参考图模式仅支持 qwen-image 系列模型；
 - `reference` 路径会被限制在 `cwd`（缺省为进程工作目录）之内，逃逸路径直接以 `INVALID_PARAMETER` 拒绝。

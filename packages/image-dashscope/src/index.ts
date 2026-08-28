@@ -143,6 +143,8 @@ export function extractImageUrls(output: unknown): string[] {
 export default class DashscopeImageProvider extends ImageGenerationService {
   static Config = Config
 
+  readonly providerId = 'dashscope'
+
   constructor(
     ctx: Context,
     public config: Config,

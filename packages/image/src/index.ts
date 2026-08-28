@@ -21,6 +21,12 @@ export abstract class ImageGenerationService extends Service {
     super(ctx, 'image')
   }
 
+  /**
+   * 提供方标识：设置面板/工具用它识别当前生效的 Provider（不依赖易被
+   * 压缩改写的 constructor.name）。约定稳定字符串：'dashscope' / 'volcengine'。
+   */
+  abstract readonly providerId: string
+
   /** 按 spec 生成 1-N 张图片。 */
   abstract generate(spec: ImageGenerateSpec, signal?: AbortSignal): Promise<ImageGenerateResult>
 
