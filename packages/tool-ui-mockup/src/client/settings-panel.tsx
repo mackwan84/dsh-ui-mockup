@@ -405,6 +405,8 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
   const [statusUnknown, setStatusUnknown] = useState(true)
   // 切换请求进行中：期间两张卡禁点，完成后刷新状态
   const [switching, setSwitching] = useState(false)
+  // 切换落位后的伴随提示（如模型分层默认被重置）
+  const [providerNotice, setProviderNotice] = useState<string | null>(null)
   // 凭据状态（configured/source/writable，永不含值）：写入/清除后刷新
   const [credential, setCredential] = useState<PanelCredential | undefined>()
   const [keyDraft, setKeyDraft] = useState('')
@@ -434,10 +436,31 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
   const switchProvider = async (target: Exclude<ProviderId, 'unknown'>) => {
     if (switching) return
     setSwitching(true)
+    setProviderNotice(null)
     try {
-      await callPanel<{ active: ProviderId }>(connection, 'provider/switch', {
-        provider: target,
-      })
+      const result = await callPanel<{ active: ProviderId; pending?: boolean }>(
+        connection,
+        'provider/switch',
+        { provider: target },
+      )
+      // 切换落位后重置模型分层默认：模型 ID 是提供方私有的，旧提供方的值
+      // 残留会被当作显式 model 直传新网关而必败（INVALID_PARAMETER）。
+      // best-effort：只读/内存态偏好写不进时不阻断切换，用户可手动改回。
+      if (result.active === target && result.pending !== true) {
+        const current = prefs.getSnapshot().value
+        if (
+          current !== undefined &&
+          (current.wireframeModel !== '' || current.highFidelityModel !== '')
+        ) {
+          try {
+            await prefs.set('wireframeModel', '')
+            await prefs.set('highFidelityModel', '')
+            setProviderNotice(t('panel.provider.modelsReset'))
+          } catch {
+            // 偏好不可写：切换本身已成功，重置跳过
+          }
+        }
+      }
     } catch (err) {
       setTestResult(err instanceof Error ? err.message : String(err))
     } finally {
@@ -578,6 +601,7 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
         {/* 提供方卡可点击切换：宿主端点改写 home 用户层 patch（DSH 热重载即时生效），
             面板不直接写 bundle 层——组合行仍是唯一事实源，这里只是代写它。 */}
         {statusUnknown && <Notice>{t('panel.provider.unknownHint')}</Notice>}
+        {providerNotice !== null && <Notice>{providerNotice}</Notice>}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <label
             style={{

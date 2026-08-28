@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest'
-import { mergeProviderSwitchRows } from '../src/index.js'
+import { homedir } from 'node:os'
+import { join, resolve } from 'node:path'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { dshHome, mergeProviderSwitchRows } from '../src/index.js'
 
 describe('mergeProviderSwitchRows', () => {
   it('appends both provider rows when the user layer is empty', () => {
@@ -42,5 +44,26 @@ describe('mergeProviderSwitchRows', () => {
       { id: 'image-dashscope', disabled: false },
       { id: 'image-volcengine', disabled: true },
     ])
+  })
+})
+
+describe('dshHome', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it('prefers $DSH_HOME and resolves it to an absolute path', () => {
+    vi.stubEnv('DSH_HOME', 'some/relative/home')
+    expect(dshHome()).toBe(resolve('some/relative/home'))
+  })
+
+  it('treats blank $DSH_HOME as unset, matching the host resolveDshHome', () => {
+    vi.stubEnv('DSH_HOME', '   ')
+    expect(dshHome()).toBe(resolve(homedir(), '.dsh'))
+  })
+
+  it('expands a leading ~ to the home directory', () => {
+    vi.stubEnv('DSH_HOME', '~/custom-dsh')
+    expect(dshHome()).toBe(join(homedir(), 'custom-dsh'))
   })
 })

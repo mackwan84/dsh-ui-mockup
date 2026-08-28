@@ -59,6 +59,8 @@ export const zh = {
   'panel.provider.volcengineDisabled':
     '已安装未启用。点击本卡片即可切换——插件会改写 DSH 用户层 patch，组合热重载后立即生效。',
   'panel.provider.inactive': '未启用',
+  'panel.provider.modelsReset':
+    '已随切换把模型分层默认重置为「跟随提供方默认」——旧提供方的模型 ID 对新提供方无效。',
   'panel.credential.title': '凭据（{credential}）',
   'panel.credential.ready': '凭据已配置',
   'panel.credential.missing': '未配置 {credential}',
@@ -198,6 +200,8 @@ export const en = {
   'panel.provider.volcengineDisabled':
     'Installed but disabled. Click this card to switch — the plugin rewrites the home user patch layer and DSH hot-reloads the composition.',
   'panel.provider.inactive': 'Disabled',
+  'panel.provider.modelsReset':
+    "Model defaults were reset to 'follow provider default' on switch — the previous provider's model IDs are not valid here.",
   'panel.credential.title': 'Credentials ({credential})',
   'panel.credential.ready': 'API key configured',
   'panel.credential.missing': '{credential} not configured',

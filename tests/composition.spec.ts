@@ -1273,6 +1273,34 @@ describe('ui-mockup real dynamic composition', () => {
       await rm(dir, { recursive: true, force: true })
     }
   }, 20_000)
+
+  it('refuses to rewrite a user patch layer it cannot safely parse', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+    try {
+      const booted = await bootComposition(dir)
+      const call = (endpoint: string, payload?: unknown) =>
+        booted.connection.call('/ui-mockup', endpoint, payload)
+      const patchFile = join(process.env['DSH_HOME']!, 'cordis.patch.yml')
+
+      // !!js 表达式是宿主专有 schema：代写会把表达式物化成字面值，必须中止并专项提示
+      const jsExpr = '- id: image-dashscope\n  config: !!js/process.env.X\n'
+      await writeFile(patchFile, jsExpr, 'utf8')
+      const jsResult = await call('provider/switch', { provider: 'volcengine' })
+      expect(jsResult.ok).toBe(false)
+      if (!jsResult.ok) expect(jsResult.error.message).toContain('!!js')
+      expect(await readFile(patchFile, 'utf8')).toBe(jsExpr)
+
+      // 合法 YAML 但非顶层数组同样是坏 patch：中止而不是用空数组覆盖
+      const notArray = 'just: a-mapping\n'
+      await writeFile(patchFile, notArray, 'utf8')
+      const mapResult = await call('provider/switch', { provider: 'volcengine' })
+      expect(mapResult.ok).toBe(false)
+      if (!mapResult.ok) expect(mapResult.error.message).toContain('YAML')
+      expect(await readFile(patchFile, 'utf8')).toBe(notArray)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
 })
 
 /** 断言 RPC 成功并取出值；给组合测试一个统一的窄化入口。 */

@@ -212,12 +212,12 @@ const USAGE_SECTION = {
     '使用时机:',
     '- 功能需求讨论基本明确、准备开始写前端实现代码之前, 主动提议生成草图确认, 不要直接开始写代码。',
     '- 用户提到界面、页面、UI、视觉风格时, 主动询问是否需要生成草图。',
-    "- 布局与信息架构待确认: fidelity='wireframe'(默认用 qwen-image-3.0, 速度快)。",
-    "- 视觉风格待确认: fidelity='high-fidelity'(默认用 qwen-image-3.0-pro, 质量优先), 建议 count=2~4 一次给多个方向供用户选择。",
+    "- 布局与信息架构待确认: fidelity='wireframe'(面板分层默认里的线框图模型, 速度快)。",
+    "- 视觉风格待确认: fidelity='high-fidelity'(面板分层默认里的高保真模型, 质量优先), 建议 count=2~4 一次给多个方向供用户选择。",
     '- 同一个站点的多个页面在高保真阶段应传 reference=已确认页面的图, 保持风格一致(图生图模式)。',
     '- 用户对生成的图提出修改意见: 优先走编辑模式(同时传 baseImage=上一版生成图路径 与 editNote=修改指令, 只重绘要改的部分, 更快且更贴近原稿); 大改布局或换风格时才在 description 中写修改后的完整描述整体重新生成。',
     '- 编辑模式当前仅火山方舟 Provider 支持; 生效提供方为阿里云百炼时编辑调用会返回 NOT_IMPLEMENTED, 此时改用整体重新生成。',
-    '- 模型分层默认由设置面板管理; 用户没有点名具体模型时不要传 model 参数, 否则会绕过面板配置(面板未配置时才回落 wireframe→qwen-image-3.0 / high-fidelity→qwen-image-3.0-pro)。',
+    '- 模型分层默认由设置面板管理; 用户没有点名具体模型时不要传 model 参数, 否则会绕过面板配置(面板未配置时回落生效提供方的内置分层默认)。',
     '',
     '确认与锁定:',
     '- 生成后展示图片, 请用户反馈, 循环修改直到用户明确确认。',
@@ -269,10 +269,16 @@ function workspaceSlug(workspaceRoot: string): string {
   return `-${withTrailing.split(/[\\/]+/).join('-')}-`
 }
 
-/** $DSH_HOME：与 DSH 宿主一致的环境变量优先，默认 ~/.dsh。 */
+/**
+ * $DSH_HOME：与宿主 resolveDshHome 同口径——环境变量优先、默认 ~/.dsh；
+ * 纯空白值视为未设置（避免把 home 解析成 cwd 下的怪目录），前导 ~ 展开为 home。
+ */
 function dshHome(): string {
   const fromEnv = process.env['DSH_HOME']
-  return fromEnv !== undefined && fromEnv !== '' ? fromEnv : resolve(homedir(), '.dsh')
+  if (fromEnv !== undefined && fromEnv.trim() !== '') {
+    return resolve(fromEnv.startsWith('~') ? join(homedir(), fromEnv.slice(1)) : fromEnv)
+  }
+  return resolve(homedir(), '.dsh')
 }
 
 /**
@@ -531,7 +537,7 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
     tools.register({
       name: 'ui_mockup',
       description:
-        '调用外部图像生成接口, 为界面/页面生成线框图(wireframe)或高保真(high-fidelity)设计草图, 供用户在编写实现代码之前确认界面方向。图片显示在对话中并保存到 DSH 设计资产库($DSH_HOME/mockups/<工作区>/images/)。用户需要修改时, 用修改后的完整描述再次调用。模型分层默认由设置面板「提供方与模型」管理(未配置时 wireframe→qwen-image-3.0, high-fidelity→qwen-image-3.0-pro); 用户未点名模型时不要传 model 参数, 以免绕过面板配置。传 reference 参数可用已确认的图作为风格基准(图生图), 保持多页面风格一致。接口限流时自动退避重试。需要阿里云百炼 DASHSCOPE_API_KEY(通过凭据服务或环境变量提供)。',
+        '调用外部图像生成接口, 为界面/页面生成线框图(wireframe)或高保真(high-fidelity)设计草图, 供用户在编写实现代码之前确认界面方向。图片显示在对话中并保存到 DSH 设计资产库($DSH_HOME/mockups/<工作区>/images/)。用户需要修改时, 用修改后的完整描述再次调用。模型分层默认由设置面板「提供方与模型」管理(未配置时回落生效提供方的内置分层默认); 用户未点名模型时不要传 model 参数, 以免绕过面板配置。传 reference 参数可用已确认的图作为风格基准(图生图), 保持多页面风格一致。接口限流时自动退避重试。需要生效提供方的凭据(阿里云百炼 DASHSCOPE_API_KEY 或火山方舟 ARK_API_KEY, 取决于面板生效提供方, 通过凭据服务或环境变量提供)。',
       parameters: {
         type: 'object',
         properties: {
@@ -564,7 +570,7 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
           model: {
             type: 'string',
             description:
-              '可选: 显式覆盖模型。默认取设置面板「提供方与模型」的分层默认(未配置时 wireframe→qwen-image-3.0, high-fidelity→qwen-image-3.0-pro)。用户未点名具体模型时请省略本参数, 否则会绕过面板配置。',
+              '可选: 显式覆盖模型。默认取设置面板「提供方与模型」的分层默认(未配置时回落生效提供方的内置分层默认)。用户未点名具体模型时请省略本参数, 否则会绕过面板配置。',
           },
           size: {
             type: 'string',
@@ -1160,29 +1166,51 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
                 return rpcOk({ active: provider })
               }
               const patchFile = join(dshHome(), HOME_PATCH_FILENAME)
-              let patches: unknown[] = []
+              // catch 的各分支要么赋值要么 return，TS 可判定赋值完毕
+              let patches: unknown[]
               try {
                 const content = await readFile(patchFile, 'utf8')
                 const parsed: unknown = loadYaml(content)
+                // 合法 YAML 但非数组同样是坏 patch（宿主会 fail-loud）——
+                // 抛进 catch 统一走中止分支，绝不能用空数组覆盖用户文件
                 if (Array.isArray(parsed)) patches = parsed
+                else throw new Error('patch file is not a top-level array')
               } catch {
                 // 文件不存在 = 空用户层；存在但不可解析时不要吞掉用户的错误——
                 // 直接中止切换并报告，绝不能用空数组覆盖用户写好的 patch。
+                let content: string | undefined
                 try {
-                  await readFile(patchFile, 'utf8')
+                  content = await readFile(patchFile, 'utf8')
+                } catch {
+                  content = undefined
+                }
+                if (content === undefined) {
+                  patches = []
+                } else if (content.includes('!!js')) {
+                  // 宿主 patch schema 允许 !!js 表达式，js-yaml 默认 schema 不认；
+                  // 代写会把表达式物化成字面值，只能请用户手工翻转
+                  return rpcError(
+                    'PROVIDER_SWITCH_FAILED',
+                    `用户层 patch 文件 ${patchFile} 含 !!js 表达式（宿主专有语法，本插件无法安全代写）；请手工翻转两行 Provider 的 disabled 后再试。`,
+                  )
+                } else {
                   return rpcError(
                     'PROVIDER_SWITCH_FAILED',
                     `用户层 patch 文件 ${patchFile} 不是合法的 YAML 数组，请先手工修复后再切换。`,
                   )
-                } catch {
-                  patches = []
                 }
               }
               const merged = mergeProviderSwitchRows(patches, provider)
-              // 临时文件 + rename 原子写：watcher 读到半截文件会误判为坏 patch
+              // 临时文件 + rename 原子写：watcher 读到半截文件会误判为坏 patch。
+              // js-yaml dump 无法保留原文件注释，头部注明代写来源与这一限制。
               const tmpFile = `${patchFile}.${randomUUID().slice(0, 8)}.tmp`
               try {
-                await writeFile(tmpFile, dumpYaml(merged, { lineWidth: -1 }), 'utf8')
+                await writeFile(
+                  tmpFile,
+                  '# 本文件由 ui-mockup 提供方切换代写（js-yaml 往返不保留原注释）\n' +
+                    dumpYaml(merged, { lineWidth: -1 }),
+                  'utf8',
+                )
                 await rename(tmpFile, patchFile)
               } catch (error) {
                 await rm(tmpFile, { force: true }).catch(() => {})
@@ -1400,7 +1428,7 @@ export function mergeProviderSwitchRows(
 }
 
 /** 供单元测试引用的内部实现。 */
-export { buildPrompt }
+export { buildPrompt, dshHome }
 export {
   sanitizeOutputDir,
   clampCount,
