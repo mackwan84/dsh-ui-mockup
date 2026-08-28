@@ -1,6 +1,7 @@
 /**
- * 真实 API 冒烟测试：用本机百炼 key 跑一次完整链路。
+ * 真实 API 冒烟测试：用本机 key 跑一次完整链路。
  * 用法：DASHSCOPE_API_KEY=sk-xxx npx tsx scripts/generate-smoke.ts
+ *      ARK_API_KEY=ark-xxx npx tsx scripts/generate-smoke.ts --provider volcengine
  * 结果落盘到临时目录（默认 /tmp 下新建），并打印图片路径与附件信息。
  */
 import { mkdtemp, rm } from 'node:fs/promises'
@@ -8,6 +9,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context, Service } from '@deepseek-ai/cordis'
 import DashscopeImageProvider from '@mackwan84/dsh-image-dashscope'
+import VolcengineImageProvider from '@mackwan84/dsh-image-volcengine'
 import {
   apply as toolApply,
   inject as toolInject,
@@ -75,13 +77,17 @@ class SystemPromptStub extends Service {
 }
 
 const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-smoke-'))
+// --provider volcengine：切换烟测提供方（需 ARK_API_KEY）；默认 DashScope。
+// 注意 description 是位置参数，放在 --provider 之前：npx tsx … "描述" --provider volcengine
+const providerIndex = process.argv.indexOf('--provider')
+const useVolcengine = providerIndex !== -1 && process.argv[providerIndex + 1] === 'volcengine'
 const ctx = new Context()
 await ctx.plugin(CredentialsStub)
 await ctx.plugin(ToolsStub)
 await ctx.plugin(SandboxPolicyStub, { workspaceRoot: dir })
 await ctx.plugin(AttachmentsStub)
 await ctx.plugin(SystemPromptStub)
-await ctx.plugin(DashscopeImageProvider)
+await ctx.plugin(useVolcengine ? VolcengineImageProvider : DashscopeImageProvider)
 await ctx.plugin({ name: toolName, inject: toolInject, apply: toolApply })
 
 const tools = ctx.get('tools') as unknown as ToolsStub
@@ -98,7 +104,10 @@ const execute = definition.execute as (
 ) => Promise<Record<string, unknown>>
 const description =
   process.argv[2] ?? '一个待办事项应用的主页：顶部导航栏、任务输入框、任务列表、底部筛选栏'
-console.log(`[smoke] 生成中：${description.slice(0, 40)}…（qwen-image-3.0，一般 30~90 秒）`)
+console.log(
+  `[smoke] 提供方: ${useVolcengine ? '火山方舟（doubao-seedream）' : '百炼（qwen-image-3.0）'}`,
+)
+console.log(`[smoke] 生成中：${description.slice(0, 40)}…`)
 const value = await execute(
   { description, fidelity: 'wireframe', platform: 'web' },
   { signal: new AbortController().signal },

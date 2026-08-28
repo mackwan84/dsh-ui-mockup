@@ -1,12 +1,22 @@
 # dsh-ui-mockup bundle: 图像生成服务与 ui_mockup 工具。
 # 该 patch 应用在 profile 自身的 cordis.patch.yml 之前；行 id 可被用户
-# 的后续 patch 覆盖（例如改默认模型）。
+# 的后续 patch 覆盖（例如翻转提供方的 disabled、改默认模型）。
+#
+# 提供方切换：ctx.image 是单槽位服务，同一时刻只允许一个 Provider 生效。
+# 两行由 bundle 预置，火山方舟行默认 disabled: true（已安装未加载）；
+# 切换 = 在用户 patch 里翻转两行的 disabled（对齐 DSH llm-deepseek 的
+# 单行互斥语义，无运行时聚合器）。设置面板「提供方与模型」页经
+# provider/status 端点如实反映当前生效方。
 #
 # 注意：patch 会整体替换目标行的 config，因此每个行 restates 它拥有的全部键。
 
 - insert:
     - id: image-dashscope
       name: '@mackwan84/dsh-image-dashscope'
+
+    - id: image-volcengine
+      name: '@mackwan84/dsh-image-volcengine'
+      disabled: true
 
     - id: tool-ui-mockup
       name: '@mackwan84/dsh-tool-ui-mockup'
