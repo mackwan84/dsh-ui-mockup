@@ -8,7 +8,8 @@
 - **内嵌展示**：生成图直接以卡片形式显示在对话中（带确认 / 选用 / 修改意见按钮），无需访问文件目录；
 - **设计资产库**：生成图 / 锚点 / 历史集中存于 `$DSH_HOME/mockups/<工作区>/`（slug 与 DSH sessions 同款），
   项目工作区不再落运行时产物；`design/spec.md` 等交付物仍留在项目内；
-- **模型分层**：线框图用 `qwen-image-3.0`（快、省），高保真用 `qwen-image-3.0-pro`（质量优先）；
+- **模型分层**：按保真度分层，默认随生效提供方（百炼：线框 `qwen-image-3.0` / 高保真
+  `qwen-image-3.0-pro`；火山：线框 `doubao-seedream-4-5` / 高保真 `doubao-seedream-5-0-pro`）；
 - **双提供方**：阿里云百炼 DashScope（默认启用）与火山方舟 Volcengine Ark（预置未启用）；
   设置面板「提供方与模型」页**点卡片一键切换**——写入 DSH 用户层 patch 并热重载，无需重启；
 - **指令编辑**：对已生成图传 `baseImage` + `editNote` 走整图指令重绘（火山 seededit 3.0，
@@ -84,8 +85,8 @@ pnpm lint          # ESLint（js/ts 推荐 + 类型感知规则）
 pnpm lint:fix      # ESLint 自动修复
 pnpm format        # Prettier 全仓格式化
 pnpm format:check  # Prettier 格式检查
-pnpm build         # 构建三个包的 lib/
-pnpm run pack:all  # 打包 4 个 tarball 到 dist/
+pnpm build         # 构建四个包的 lib/
+pnpm run pack:all  # 打包 5 个 tarball 到 dist/
 ```
 
 ## License

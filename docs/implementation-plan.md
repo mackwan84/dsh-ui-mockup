@@ -81,8 +81,9 @@ dsh plugin --profile web add github:mackwan84/dsh-ui-mockup#main   # 需 prepare
 
 ### 6.2.1 Provider · 火山方舟（image-volcengine，M4）
 
-- Config：credentials ref（默认 `ARK_API_KEY`）、模型默认（生成 `doubao-seedream-4-0-250828`、
-  编辑 `doubao-seededit-3-0-i2i-250628`）、`requestTimeoutMs`（300s，同步 API 无轮询）、限流重试策略；
+- Config：credentials ref（默认 `ARK_API_KEY`）、模型分层默认（线框 `doubao-seedream-4-5-251128`、
+  高保真 `doubao-seedream-5-0-pro-260628`、编辑 `doubao-seededit-3-0-i2i-250628`）、
+  `requestTimeoutMs`（300s，同步 API 无轮询）、限流重试策略；
 - **同步 API**：`POST /api/v3/images/generations` 一次返回；`response_format: 'url'` 固定、
   `watermark: false`；size 翻译见 Provider README（档位 1K/2K/4K 或显式 WxH 合法域钳制）；
 - 编辑：seededit 同端点（image + prompt）；**mask 不受支持**（方舟无掩码编辑）→ `NOT_IMPLEMENTED`；
