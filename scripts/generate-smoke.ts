@@ -47,6 +47,11 @@ class SandboxPolicyStub extends Service {
   }
 
   readonly workspaceRoot: string
+
+  /** 与宿主 sandboxPolicy 同名同语义：execute 里经 resolve 取会话工作区根。 */
+  resolve(_request?: { session?: unknown }): { workspaceRoot: string } {
+    return { workspaceRoot: this.workspaceRoot }
+  }
 }
 
 class AttachmentsStub extends Service {

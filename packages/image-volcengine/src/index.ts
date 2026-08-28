@@ -81,13 +81,12 @@ const ARK_SIZE_TIERS = new Map([
 ])
 
 /**
- * 方舟显式 WxH 的合法域（官方文档：总像素 [1280x720, 4096x4096] 且宽高比 [1/16, 16]）。
- * 官方同时点名 "1024x1024" 不合法——其总像素 1,048,576 高于 921,600，说明真实校验
- * 在总像素之外还有边长约束；据此推断为「短边 ≥ 720 且长边 ≥ 1280」（与
- * 1280x720 / 720x1280 合法、1024x1024 不合法两个已确认事实一致）。
+ * 方舟显式 WxH 的合法域（seedream 4.5/5.0 实测网关约束，2026-08 冒烟）：
+ * 总像素 ≥ 3,686,400（错误消息原文 "image size must be at least 3686400 pixels"，
+ * 比官方 4.0 文档的 1280x720=921,600 高得多，4.0 文档口径对新一代模型已过时）；
+ * 上界沿用 4.0 文档的 4096x4096=16,777,216；宽高比 [1/16, 16]。
  */
-const ARK_SIZE_MIN_SHORT = 720
-const ARK_SIZE_MIN_LONG = 1280
+const ARK_SIZE_MIN_PIXELS = 3_686_400
 const ARK_SIZE_MAX_PIXELS = 4096 * 4096
 const ARK_SIZE_MAX_RATIO = 16
 
@@ -99,17 +98,21 @@ function clampArkDimensions(
   const short = Math.min(width, height)
   const long = Math.max(width, height)
   if (long / short > ARK_SIZE_MAX_RATIO) return null
-  // 等比放大补足边长下限（如 1024x1024 → 1280x1280、720x1280 原样）
-  const scaleUp = Math.max(1, ARK_SIZE_MIN_SHORT / short, ARK_SIZE_MIN_LONG / long)
-  let w = Math.ceil((width * scaleUp) / 2) * 2
-  let h = Math.ceil((height * scaleUp) / 2) * 2
+  // 等比放大补足总像素下限（如 1280x720 → 2560x1440、2048x2048 原样）
+  let w = width
+  let h = height
+  if (w * h < ARK_SIZE_MIN_PIXELS) {
+    const scaleUp = Math.sqrt(ARK_SIZE_MIN_PIXELS / (w * h))
+    w = Math.ceil((w * scaleUp) / 2) * 2
+    h = Math.ceil((h * scaleUp) / 2) * 2
+  }
   // 超出总像素上界时等比缩小（极端宽高比在下界放大后即超上界的组合不可达）
   const pixels = w * h
   if (pixels > ARK_SIZE_MAX_PIXELS) {
     const scaleDown = Math.sqrt(ARK_SIZE_MAX_PIXELS / pixels)
     w = Math.floor((w * scaleDown) / 2) * 2
     h = Math.floor((h * scaleDown) / 2) * 2
-    if (Math.min(w, h) < ARK_SIZE_MIN_SHORT) return null
+    if (w * h < ARK_SIZE_MIN_PIXELS) return null
   }
   return { width: w, height: h }
 }
@@ -118,13 +121,13 @@ function clampArkDimensions(
  * 插件统一 size（"1280*720" 风格或档位名）→ 方舟生成 size 值（seedream 系）。
  * 方舟与百炼的画幅体系不同：档位 "1K/2K/4K" 与显式 "宽x高" 是两种互斥写法
  * （单次请求只传一种，天然不混用）；"adaptive" 是 seededit 专属档位，生成路径不接受。
- * 缺省按平台给 16:9 / 9:16 的显式像素（横竖方向即平台方向，无需在 prompt 里补比例描述）；
- * 显式 WxH 低于边长下限时等比放大（工具文档示例 720*1280 由此保证可用），
+ * 缺省按平台给 16:9 / 9:16 的显式像素（恰好等于总像素下限，横竖方向即平台方向）；
+ * 显式 WxH 低于总像素下限时等比放大（工具文档示例 720*1280 由此保证可用），
  * 超出总像素上界时等比缩小，宽高比越界按 INVALID_PARAMETER 拒绝。
  */
 export function toArkGenerateSize(size: string | undefined, platform: 'web' | 'mobile'): string {
   if (size === undefined || size.trim() === '') {
-    return platform === 'mobile' ? '1080x1920' : '1920x1080'
+    return platform === 'mobile' ? '1440x2560' : '2560x1440'
   }
   const normalized = size.trim().toLowerCase()
   const tier = ARK_SIZE_TIERS.get(normalized)
@@ -148,7 +151,7 @@ export function toArkGenerateSize(size: string | undefined, platform: 'web' | 'm
   if (clamped === null) {
     throw new ImageProviderError(
       'INVALID_PARAMETER',
-      `画幅 ${size} 超出方舟合法范围（宽高比 [1/16, 16] 且总像素不超过 4096x4096）`,
+      `画幅 ${size} 超出方舟合法范围（宽高比 [1/16, 16]，总像素 [2560x1440, 4096x4096]）`,
     )
   }
   return `${clamped.width}x${clamped.height}`

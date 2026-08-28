@@ -80,9 +80,9 @@ afterEach(() => {
 })
 
 describe('toArkGenerateSize', () => {
-  it('defaults to platform-oriented 16:9 pixels when absent or blank', () => {
-    expect(toArkGenerateSize(undefined, 'web')).toBe('1920x1080')
-    expect(toArkGenerateSize('  ', 'mobile')).toBe('1080x1920')
+  it('defaults to platform-oriented 16:9 pixels at the seedream 4.5+ pixel floor', () => {
+    expect(toArkGenerateSize(undefined, 'web')).toBe('2560x1440')
+    expect(toArkGenerateSize('  ', 'mobile')).toBe('1440x2560')
   })
 
   it('normalizes tier names case-insensitively', () => {
@@ -96,14 +96,16 @@ describe('toArkGenerateSize', () => {
   })
 
   it('translates plugin star syntax and keeps in-domain pixel sizes', () => {
-    expect(toArkGenerateSize('1280*720', 'web')).toBe('1280x720')
     expect(toArkGenerateSize('2048x2048', 'web')).toBe('2048x2048')
-    expect(toArkGenerateSize('720*1280', 'mobile')).toBe('720x1280')
+    expect(toArkGenerateSize('2560*1440', 'web')).toBe('2560x1440')
+    expect(toArkGenerateSize('1440*2560', 'mobile')).toBe('1440x2560')
   })
 
-  it('scales up pixel sizes below the documented minimum domain', () => {
-    // 官方点名 1024x1024 不合法（低于边长下限）：钳制到 1280x1280
-    expect(toArkGenerateSize('1024*1024', 'web')).toBe('1280x1280')
+  it('scales pixel sizes up to the minimum total pixels (seedream 4.5/5.0)', () => {
+    // 2026-08 实测网关约束：总像素 ≥ 3,686,400（2560x1440）
+    expect(toArkGenerateSize('1280*720', 'web')).toBe('2560x1440')
+    expect(toArkGenerateSize('720*1280', 'mobile')).toBe('1440x2560')
+    expect(toArkGenerateSize('1024*1024', 'web')).toBe('1920x1920')
   })
 
   it('scales down pixel sizes exceeding the total-pixel ceiling', () => {
@@ -163,7 +165,7 @@ describe('generate request shape', () => {
       prompt: '黑白线框图测试',
       response_format: 'url',
       watermark: false,
-      size: '1920x1080',
+      size: '2560x1440',
     })
     expect(body.image).toBeUndefined()
     expect(result).toMatchObject({ model: 'doubao-seedream-4-5-251128' })
@@ -179,7 +181,8 @@ describe('generate request shape', () => {
     })
     const body = JSON.parse(bodyOf(calls[0]!)) as Record<string, unknown>
     expect(body.model).toBe('doubao-seedream-4-0-250828')
-    expect(body.size).toBe('1280x720')
+    // 显式画幅低于总像素下限时等比放大（seedream 4.5/5.0 实测约束）
+    expect(body.size).toBe('2560x1440')
   })
 
   it('uses high-fidelity model default for high-fidelity spec', async () => {
