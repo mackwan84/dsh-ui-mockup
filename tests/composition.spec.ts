@@ -8,6 +8,7 @@ import Include from '@deepseek-ai/cordis-plugin-include'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import { ImageGenerationService } from '@mackwan84/dsh-image'
 import DashscopeImageProvider from '@mackwan84/dsh-image-dashscope'
+import VolcengineImageProvider from '@mackwan84/dsh-image-volcengine'
 import {
   apply as uiMockupApply,
   inject as uiMockupInject,
@@ -227,7 +228,28 @@ interface Booted {
   settings: SettingsStub
 }
 
-async function bootComposition(dir: string): Promise<Booted> {
+async function bootComposition(
+  dir: string,
+  options: { provider?: 'dashscope' | 'volcengine' } = {},
+): Promise<Booted> {
+  // 提供方行与 bundle patch 同构：默认 dashscope 启用 + volcengine 禁用（bundle 预置形态）；
+  // volcengine 场景模拟用户 patch 翻转 disabled——两行并存、单槽位只生效一个。
+  const providerRows =
+    options.provider === 'volcengine'
+      ? [
+          '- id: image-dashscope',
+          "  name: '@mackwan84/dsh-image-dashscope'",
+          '  disabled: true',
+          '- id: image-volcengine',
+          "  name: '@mackwan84/dsh-image-volcengine'",
+        ]
+      : [
+          '- id: image-dashscope',
+          "  name: '@mackwan84/dsh-image-dashscope'",
+          '- id: image-volcengine',
+          "  name: '@mackwan84/dsh-image-volcengine'",
+          '  disabled: true',
+        ]
   const configPath = join(dir, 'cordis.yml')
   await writeFile(
     configPath,
@@ -250,8 +272,7 @@ async function bootComposition(dir: string): Promise<Booted> {
       "  name: 'test-connection'",
       '- id: settings',
       "  name: 'test-settings'",
-      '- id: image-dashscope',
-      "  name: '@mackwan84/dsh-image-dashscope'",
+      ...providerRows,
       '- id: tool-ui-mockup',
       "  name: '@mackwan84/dsh-tool-ui-mockup'",
       '',
@@ -268,6 +289,7 @@ async function bootComposition(dir: string): Promise<Booted> {
     ['test-connection', ConnectionStub],
     ['test-settings', SettingsStub],
     ['@mackwan84/dsh-image-dashscope', DashscopeImageProvider],
+    ['@mackwan84/dsh-image-volcengine', VolcengineImageProvider],
     [
       '@mackwan84/dsh-tool-ui-mockup',
       { name: uiMockupName, inject: uiMockupInject, apply: uiMockupApply },
@@ -319,6 +341,7 @@ beforeEach(() => {
   const home = mkdtempSync(join(tmpdir(), 'dsh-uimock-home-'))
   vi.stubEnv('DSH_HOME', home)
   vi.stubEnv('DASHSCOPE_API_KEY', 'sk-composition-key')
+  vi.stubEnv('ARK_API_KEY', 'ark-composition-key')
   return () => undefined
 })
 
@@ -1101,6 +1124,115 @@ describe('ui-mockup real dynamic composition', () => {
       expect(filtered.total).toBe(1)
       expect(filtered.anchorIndex).toBe(0)
       expect(filtered.entries[0]?.anchored).toBe(true)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('boots the volcengine provider when the bundle row flips disabled', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+    try {
+      const booted = await bootComposition(dir, { provider: 'volcengine' })
+      // 两行并存但单槽位只生效一个：禁用的 dashscope 不注册，火山行胜出
+      const service = booted.ctx.get('image') as unknown as InstanceType<
+        typeof VolcengineImageProvider
+      >
+      expect(service).toBeInstanceOf(VolcengineImageProvider)
+      expect(service.providerId).toBe('volcengine')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('executes the edit flow end-to-end on the volcengine provider', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+    try {
+      const booted = await bootComposition(dir, { provider: 'volcengine' })
+      // 基准图预置进资产库（design/images/ 前缀 → 资产库路径翻译的编辑路径验证）
+      const store = storeDirFor(dir)
+      await mkdir(join(store, 'images'), { recursive: true })
+      const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00])
+      await writeFile(join(store, 'images', 'mockup-base.png'), pngBytes)
+
+      const editBodies: Array<Record<string, unknown>> = []
+      vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+        if (url.includes('/images/generations')) {
+          // 请求体恒为 Provider JSON.stringify 的字符串，收窄以通过 no-base-to-string
+          editBodies.push(JSON.parse(init?.body as string) as Record<string, unknown>)
+          return new Response(
+            JSON.stringify({
+              model: 'doubao-seededit-3-0-i2i-250628',
+              created: 0,
+              data: [{ url: 'https://ark-cdn.example/edited.png' }],
+            }),
+            { status: 200 },
+          )
+        }
+        if (url.includes('ark-cdn.example')) {
+          return new Response(pngBytes, { status: 200, headers: { 'content-type': 'image/png' } })
+        }
+        throw new Error(`unexpected fetch: ${url}`)
+      })
+
+      const definition = booted.tools.registered.find((item) => item.name === 'ui_mockup')!
+      const execute = definition.execute as (
+        args: Record<string, unknown>,
+        exec: { signal: AbortSignal; agent?: { session: { header: { cwd?: string } } } },
+      ) => Promise<Record<string, unknown>>
+      const value = await execute(
+        {
+          description: '保持其余不变',
+          fidelity: 'wireframe',
+          platform: 'web',
+          baseImage: 'design/images/mockup-base.png',
+          editNote: '把主按钮改成绿色',
+        },
+        { signal: new AbortController().signal, agent: { session: { header: { cwd: dir } } } },
+      )
+
+      expect(value.ok, String(value.message)).toBe(true)
+      // 编辑请求直达方舟同步端点：seededit 模型 + 基准图 data URL + 编辑指令
+      expect(editBodies).toHaveLength(1)
+      expect(editBodies[0]).toMatchObject({
+        model: 'doubao-seededit-3-0-i2i-250628',
+        prompt: '把主按钮改成绿色',
+        response_format: 'url',
+        watermark: false,
+      })
+      const image = editBodies[0]!.image as string[]
+      expect(image[0]).toMatch(/^data:image\/png;base64,/)
+      // 结果落资产库 + 附件 + 历史标记 edited
+      const images = value.images as Array<{ path: string }>
+      expect(images).toHaveLength(1)
+      expect(booted.attachments.saved).toHaveLength(1)
+      const history = await readFile(join(store, 'history.jsonl'), 'utf8')
+      expect(history).toContain('"status":"edited"')
+      expect(history).toContain('doubao-seededit-3-0-i2i-250628')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects a half-specified edit call with a pairing hint', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+    try {
+      const booted = await bootComposition(dir, { provider: 'volcengine' })
+      const definition = booted.tools.registered.find((item) => item.name === 'ui_mockup')!
+      const execute = definition.execute as (
+        args: Record<string, unknown>,
+        exec: { signal: AbortSignal; agent?: { session: { header: { cwd?: string } } } },
+      ) => Promise<Record<string, unknown>>
+      const value = await execute(
+        {
+          description: '只传了基准图',
+          fidelity: 'wireframe',
+          platform: 'web',
+          baseImage: 'design/images/mockup-base.png',
+        },
+        { signal: new AbortController().signal, agent: { session: { header: { cwd: dir } } } },
+      )
+      expect(value.ok).toBe(false)
+      expect(String(value.message)).toContain('成对')
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
