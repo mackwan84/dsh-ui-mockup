@@ -4,7 +4,7 @@
  * 视觉完全使用 DSH 主题令牌（--dsw-*）与原生控件，浅/深色自适应；
  * 数据面：偏好经同名 settings 命名空间镜像读写，历史/锚点/测试连接走私有 RPC 频道。
  */
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Button, Input, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import {
@@ -192,6 +192,8 @@ function Card({ title, children }: { title?: string; children: ReactNode }) {
  * 的表单节奏，相邻字段行之间画 1px 分隔线；卡片内首行由调用方传 `first` 免除。
  * 内容区统一 min-height 34（控件基准高）并垂直居中，使 radio / 输入框 / 纯文字行
  * 各行等高、底边齐平，分隔线间距一致。
+ * 无障碍：用 role=group + aria-labelledby 而非 <label> 包裹——单个 label 只能
+ * 隐式关联一个可标记元素，多 radio 场景下其余选项会失去标签关联。
  */
 function FieldRow({
   label,
@@ -202,8 +204,11 @@ function FieldRow({
   children: ReactNode
   first?: boolean
 }) {
+  const labelId = useId()
   return (
-    <label
+    <div
+      role="group"
+      aria-labelledby={labelId}
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -215,12 +220,13 @@ function FieldRow({
       }}
     >
       <span
+        id={labelId}
         style={{ minWidth: 96, fontSize: 13, lineHeight: '20px', color: tokens.labelSecondary }}
       >
         {label}
       </span>
       {children}
-    </label>
+    </div>
   )
 }
 
@@ -424,7 +430,9 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
             ? t('panel.test.missingKey')
             : result.reason === 'invalid-key'
               ? t('panel.test.invalidKey')
-              : t('panel.test.gatewayFail', { detail: result.detail ?? '' }),
+              : result.reason === 'unknown'
+                ? t('panel.test.unknown', { detail: result.detail ?? '' })
+                : t('panel.test.gatewayFail', { detail: result.detail ?? '' }),
       )
     } catch (err) {
       setTestResult(err instanceof Error ? err.message : String(err))
@@ -855,11 +863,15 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
   const [query, setQuery] = useState('')
   const [error, setError] = useState('')
   const [confirmingClear, setConfirmingClear] = useState(false)
+  // 并发防护：连续翻页/搜索时多个 history/list 在飞，单调序号丢弃过期响应，
+  // 避免晚到的旧响应覆盖新页码（页码高亮与内容错位）
+  const requestSeq = useRef(0)
 
   // 服务端分页：宿主按 page/pageSize 切片返回当前页 + total + 锚点索引；
   // 页码越界由宿主钳制后回传 data.page，客户端直接采用，无需本地 clamp。
   const reload = useCallback(
     async (needle: string, targetPage: number) => {
+      const seq = ++requestSeq.current
       setError('')
       try {
         const data = await callPanel<{
@@ -875,12 +887,14 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
           page: targetPage,
           pageSize: HISTORY_PAGE_SIZE,
         })
+        if (seq !== requestSeq.current) return
         setRows(data.entries)
         setAnchorFile(data.anchorFile)
         setAnchorIndex(data.anchorIndex)
         setTotal(data.total)
         setPage(data.page)
       } catch (err) {
+        if (seq !== requestSeq.current) return
         setError(err instanceof Error ? err.message : String(err))
       }
     },
@@ -920,23 +934,29 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
             if (event.key === 'Enter') void reload(query, 1)
           }}
         />
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() =>
-            confirmingClear
-              ? void act('history/clear', { cwd }, 1).finally(() => setConfirmingClear(false))
-              : setConfirmingClear(true)
-          }
-          onBlur={() => setConfirmingClear(false)}
-          style={
-            confirmingClear
-              ? { color: tokens.labelError, borderColor: tokens.labelError }
-              : undefined
-          }
-        >
-          {confirmingClear ? t('panel.history.confirmClear') : t('panel.history.clear')}
-        </Button>
+        {/* 两段确认拆为确认/取消双按钮：同按钮 onBlur 重置会让键盘用户
+            Tab 离开时意外丢失确认态，双按钮语义明确且无障碍友好 */}
+        {confirmingClear ? (
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() =>
+                void act('history/clear', { cwd }, 1).finally(() => setConfirmingClear(false))
+              }
+              style={{ color: tokens.labelError, borderColor: tokens.labelError }}
+            >
+              {t('panel.history.confirmClear')}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setConfirmingClear(false)}>
+              {t('panel.history.cancelClear')}
+            </Button>
+          </>
+        ) : (
+          <Button variant="ghost" size="sm" onClick={() => setConfirmingClear(true)}>
+            {t('panel.history.clear')}
+          </Button>
+        )}
       </div>
 
       {rows.length === 0 && (
@@ -957,9 +977,10 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
         const first = row.files[0]
         const name = first === undefined ? '' : (first.split('/').pop() ?? '')
         return (
-          /* 已确认线框：横向卡片行；锚点行整行边框加粗 + 右上角旗标徽标 */
+          /* 已确认线框：横向卡片行；锚点行整行边框加粗 + 右上角旗标徽标。
+             key 用 time+首图文件名：同秒多条 / 翻页过滤后 index 会错位，不能作 key */
           <div
-            key={`${row.time}:${index}`}
+            key={`${row.time}:${row.files[0] ?? index}`}
             style={{
               display: 'flex',
               gap: 10,
@@ -1126,17 +1147,18 @@ function Radio(props: {
   name: string
   disabled?: boolean
 }) {
+  // 每个选项自带 label 包裹 input：点中文本即选中，屏幕阅读器可正确播报选项标签
   return (
-    <>
+    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
       <input
         type="radio"
         name={props.name}
         checked={props.checked}
         disabled={props.disabled}
         onChange={props.onChange}
-      />{' '}
+      />
       {props.label}
-    </>
+    </label>
   )
 }
 

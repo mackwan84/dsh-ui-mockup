@@ -83,12 +83,13 @@ export const zh = {
   'panel.test.invalidKey':
     '网关拒绝了这把密钥（鉴权未通过）——请确认 DASHSCOPE_API_KEY 是否正确、是否已过期。',
   'panel.test.gatewayFail': '网关不可达: {detail}',
+  'panel.test.unknown': '探测结果无法判定（{detail}）——网关行为有变化，请直接生成一张草图验证。',
   'panel.models.title': '模型分层默认',
   'panel.models.wireframe': '线框图',
   'panel.models.highFidelity': '高保真',
   'panel.models.followDefault': '跟随提供方默认',
   'panel.models.nonQwenWarning':
-    '当前默认模型含 wan 系：wan 端点不支持参考图（图生图），设了风格锚点时该层生成会被明确拒绝——需要锚点联动的层请换回 qwen-image 系。',
+    '当前默认模型含 wan 系：wan 端点不支持参考图（图生图），设了风格锚点时该层生成会跳过锚点注入——需要锚点联动的层请换回 qwen-image 系。',
 
   // 生成偏好页
   'panel.prefs.fidelity': '保真度偏好',
@@ -109,6 +110,7 @@ export const zh = {
   'panel.history.searchPlaceholder': '按描述搜索…',
   'panel.history.clear': '清空历史',
   'panel.history.confirmClear': '确认清空?',
+  'panel.history.cancelClear': '取消',
   'panel.history.empty': '暂无生成历史; 出一张草图试试。',
   'panel.history.setAnchor': '设为锚点',
   'panel.history.unsetAnchor': '解除锚点',
@@ -216,12 +218,14 @@ export const en = {
   'panel.test.invalidKey':
     'The gateway rejected this key (authentication failed) — check that DASHSCOPE_API_KEY is correct and not expired.',
   'panel.test.gatewayFail': 'Gateway unreachable: {detail}',
+  'panel.test.unknown':
+    'Probe result inconclusive ({detail}) — gateway behavior may have changed; verify by generating a sketch.',
   'panel.models.title': 'Model defaults by fidelity',
   'panel.models.wireframe': 'Wireframe',
   'panel.models.highFidelity': 'High fidelity',
   'panel.models.followDefault': 'Follow provider default',
   'panel.models.nonQwenWarning':
-    'A wan-series model is set as a default: the wan endpoint does not support reference images (I2I), so generations on that tier will be rejected while a style anchor is set — switch that tier back to a qwen-image model to use anchors.',
+    'A wan-series model is set as a default: the wan endpoint does not support reference images (I2I), so generations on that tier will skip style-anchor injection — switch that tier back to a qwen-image model to use anchors.',
 
   'panel.prefs.fidelity': 'Fidelity preference',
   'panel.prefs.fidelityWireframe': 'Wireframe',
@@ -240,6 +244,7 @@ export const en = {
   'panel.history.searchPlaceholder': 'Search by description…',
   'panel.history.clear': 'Clear history',
   'panel.history.confirmClear': 'Confirm clear?',
+  'panel.history.cancelClear': 'Cancel',
   'panel.history.empty': 'No generations yet; ask for a sketch to get started.',
   'panel.history.setAnchor': 'Set as anchor',
   'panel.history.unsetAnchor': 'Unset anchor',

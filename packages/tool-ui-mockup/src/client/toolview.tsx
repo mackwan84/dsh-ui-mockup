@@ -142,7 +142,7 @@ export function UiMockupToolview({ block, inputActions, cwd, t, anchor }: Props)
           variant="primary"
           size="sm"
           onClick={() =>
-            send(t('card.confirmMessage', { name: images[0]!.attachment.name ?? 'mockup.png' }))
+            send(t('card.confirmMessage', { name: images[0]!.attachment.name ?? 'mockup-1.png' }))
           }
         >
           {t('card.confirm')}
@@ -228,7 +228,7 @@ export function UiMockupToolview({ block, inputActions, cwd, t, anchor }: Props)
           ))}
         {/* 图片本体在资产库（不在工作区），打开原图走图片路由新开页 */}
         {(() => {
-          const firstName = images[0]!.attachment.name ?? 'mockup.png'
+          const firstName = images[0]!.attachment.name ?? 'mockup-1.png'
           return (
             <a href={imageUrl(firstName, cwd)} target="_blank" rel="noreferrer">
               <Button variant="ghost" size="sm">
@@ -266,7 +266,7 @@ export function UiMockupToolview({ block, inputActions, cwd, t, anchor }: Props)
               variant="primary"
               size="sm"
               onClick={() => {
-                const name = images[0]!.attachment.name ?? 'mockup.png'
+                const name = images[0]!.attachment.name ?? 'mockup-1.png'
                 send(buildFeedbackMessage(t, name, 0, opinion))
                 setOpinion('')
                 setShowFeedback(false)
