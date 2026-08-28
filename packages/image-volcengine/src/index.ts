@@ -192,10 +192,33 @@ function resolveImagePath(imagePath: string, cwd?: string): string {
   return absolute
 }
 
+/**
+ * 按魔数嗅探图片真实格式：data URL 的 MIME 必须如实声明（方舟按声明格式解码），
+ * 生成图落盘可为 jpeg/webp/gif，编辑这类基准图时硬编码 png 会被网关误判。
+ * 嗅探不出时回退 png（历史生成图绝大多数是 png，且错误声明的代价低于拒绝）。
+ */
+function sniffImageFormat(bytes: Buffer): string {
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return 'jpeg'
+  }
+  if (
+    bytes.length >= 12 &&
+    bytes.subarray(0, 4).toString('latin1') === 'RIFF' &&
+    bytes.subarray(8, 12).toString('latin1') === 'WEBP'
+  ) {
+    return 'webp'
+  }
+  if (bytes.length >= 6) {
+    const head = bytes.subarray(0, 6).toString('latin1')
+    if (head === 'GIF87a' || head === 'GIF89a') return 'gif'
+  }
+  return 'png'
+}
+
 /** 本地图 → base64 data URL（方舟 image 字段接受 data URL，无需先上传）。 */
 async function toDataUrl(imagePath: string, cwd?: string): Promise<string> {
   const bytes = await readFile(resolveImagePath(imagePath, cwd))
-  return `data:image/png;base64,${bytes.toString('base64')}`
+  return `data:image/${sniffImageFormat(bytes)};base64,${bytes.toString('base64')}`
 }
 
 /** 网关错误字段是任意 JSON 值：安全序列化为可读文本，避免 [object Object] 掩盖真实原因。 */

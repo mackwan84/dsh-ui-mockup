@@ -216,6 +216,21 @@ describe('generate request shape', () => {
     }
   })
 
+  it('declares the sniffed media type instead of hardcoding png', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-image-volc-'))
+    try {
+      // JPEG 魔数开头：data URL 必须如实声明 image/jpeg，否则方舟按声明格式误判
+      const bytes = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10])
+      await writeFile(join(dir, 'anchor.jpg'), bytes)
+      const calls = mockFetch(() => new Response(okBody(), { status: 200 }))
+      await provider().generate({ ...wireframeSpec, reference: 'anchor.jpg', cwd: dir })
+      const body = JSON.parse(bodyOf(calls[0]!)) as { image?: string[] }
+      expect(body.image).toEqual([`data:image/jpeg;base64,${bytes.toString('base64')}`])
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   it('rejects reference paths escaping the workspace', async () => {
     mockFetch(() => new Response(okBody(), { status: 200 }))
     await expect(
