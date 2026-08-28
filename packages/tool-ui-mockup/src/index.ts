@@ -694,16 +694,23 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
               : (fidelity === 'high-fidelity' ? prefs.highFidelityModel : prefs.wireframeModel) ||
                 undefined
           // 风格锚点联动：调用未显式传 reference 时自动引用当前锚点（I2I 保持多页风格一致）。
-          // 参考图是 qwen-image 系端点的能力边界：生效模型为 wan 系等非 qwen 模型时跳过注入
-          // 并在结果消息中说明，否则 Provider 必以 INVALID_PARAMETER 拒绝且用户难以归因到锚点。
-          // 模型为空串（交 Provider 自决）时仍注入：分层默认即 qwen-image 系。
+          // 参考图能力按生效提供方分流：dashscope 的参考图是 qwen-image 系端点边界（wan 系等
+          // 模型跳过注入并说明，否则 Provider 必以 INVALID_PARAMETER 拒绝且用户难以归因）；
+          // volcengine 的 seedream 系原生支持 image 参考图，锚点正常注入。
+          // 模型为空串（交 Provider 自决）时仍注入：各提供方分层默认均支持参考图。
           let anchorInjected: string | null = null
           let anchorSkippedForModel: string | null = null
           // 编辑模式不注入锚点：基准图本身就是风格基准，再叠参考图会互相干扰
           if (reference === undefined && !isEdit) {
             const anchorFile = await readAnchor(workspaceRoot)
             if (anchorFile !== null) {
-              if (effectiveModel !== undefined && !effectiveModel.startsWith('qwen-image')) {
+              const activeProviderId = (ctx.get('image') as ImageGenerationServiceFace | undefined)
+                ?.providerId
+              const referenceUnsupported =
+                activeProviderId !== 'volcengine' &&
+                effectiveModel !== undefined &&
+                !effectiveModel.startsWith('qwen-image')
+              if (referenceUnsupported) {
                 anchorSkippedForModel = effectiveModel
               } else {
                 anchorInjected = anchorFile
