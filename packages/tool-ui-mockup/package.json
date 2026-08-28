@@ -41,7 +41,8 @@
     "@deepseek-ai/dsh-credentials": "^0.0.1-rc.1",
     "@deepseek-ai/dsh-launch-environment": "^0.0.1-rc.3",
     "@deepseek-ai/schemastery": "^3.18.1",
-    "@mackwan84/dsh-image": "workspace:^"
+    "@mackwan84/dsh-image": "workspace:^",
+    "js-yaml": "^5.4.1"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
@@ -57,6 +58,7 @@
     "@deepseek-ai/dsh-client-ui-settings": "^0.1.1-rc.2",
     "@deepseek-ai/dsh-client-ui-slots": "^0.1.1-rc.2",
     "@deepseek-ai/dsh-client-ui-tool": "^0.1.1-rc.2",
+    "@types/js-yaml": "^4.0.9",
     "@types/react": "~18.3.1",
     "react": "^18.2.0",
     "tsdown": "^0.22.2",

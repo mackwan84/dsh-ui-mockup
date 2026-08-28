@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import { realpathSync } from 'node:fs'
 import { access, appendFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
-import { basename, resolve } from 'node:path'
+import { basename, join, resolve } from 'node:path'
+import { setTimeout as sleep } from 'node:timers/promises'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { load as loadYaml, dump as dumpYaml } from 'js-yaml'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
 import type { Context } from '@deepseek-ai/cordis'
@@ -1134,6 +1136,70 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
                 active: service?.providerId ?? 'unknown',
               })
             }
+            case 'provider/switch': {
+              // 一键切换：改写 DSH home 用户层 patch（$DSH_HOME/cordis.patch.yml），
+              // launcher 的 HMR watcher 监听该文件并事务性重放组合，image 槽位
+              // 随之热替换（旧 Provider dispose、新 Provider 加载），无需重启。
+              // 只写 id + disabled 两行，不触碰用户层中任何其他内容。
+              const provider = body.provider
+              if (provider !== 'dashscope' && provider !== 'volcengine') {
+                return rpcError(
+                  'INVALID_PARAMETER',
+                  'provider 必须是 "dashscope" 或 "volcengine"。',
+                )
+              }
+              const service = ctx.get('image') as ImageGenerationServiceFace | undefined
+              if (service?.providerId === provider) {
+                return rpcOk({ active: provider })
+              }
+              const patchFile = join(dshHome(), HOME_PATCH_FILENAME)
+              let patches: unknown[] = []
+              try {
+                const content = await readFile(patchFile, 'utf8')
+                const parsed: unknown = loadYaml(content)
+                if (Array.isArray(parsed)) patches = parsed
+              } catch {
+                // 文件不存在 = 空用户层；存在但不可解析时不要吞掉用户的错误——
+                // 直接中止切换并报告，绝不能用空数组覆盖用户写好的 patch。
+                try {
+                  await readFile(patchFile, 'utf8')
+                  return rpcError(
+                    'PROVIDER_SWITCH_FAILED',
+                    `用户层 patch 文件 ${patchFile} 不是合法的 YAML 数组，请先手工修复后再切换。`,
+                  )
+                } catch {
+                  patches = []
+                }
+              }
+              const merged = mergeProviderSwitchRows(patches, provider)
+              // 临时文件 + rename 原子写：watcher 读到半截文件会误判为坏 patch
+              const tmpFile = `${patchFile}.${randomUUID().slice(0, 8)}.tmp`
+              try {
+                await writeFile(tmpFile, dumpYaml(merged, { lineWidth: -1 }), 'utf8')
+                await rename(tmpFile, patchFile)
+              } catch (error) {
+                await rm(tmpFile, { force: true }).catch(() => {})
+                return rpcError(
+                  'PROVIDER_SWITCH_FAILED',
+                  `写入 ${patchFile} 失败: ${error instanceof Error ? error.message : String(error)}`,
+                )
+              }
+              // 等热重载落位：轮询 image 槽位直到目标 providerId 或超时
+              const deadline = Date.now() + 8_000
+              while (Date.now() < deadline) {
+                await sleep(250)
+                const current = (ctx.get('image') as ImageGenerationServiceFace | undefined)
+                  ?.providerId
+                if (current === provider) return rpcOk({ active: current })
+                // 热重载中槽位可能短暂为 undefined（旧实例已卸、新实例未就绪），继续等
+              }
+              const current = (ctx.get('image') as ImageGenerationServiceFace | undefined)
+                ?.providerId
+              return rpcOk({
+                active: current ?? 'unknown',
+                pending: true,
+              })
+            }
             case 'test-connection': {
               // 只回机器可判的 reason + 原始 detail；用户可见文案由客户端按语言渲染。
               // 探测参数随生效提供方分流（网关、凭据引用、探测路径都不同）。
@@ -1294,6 +1360,36 @@ function readProviderConfigString(
   if (service === undefined) return undefined
   const value = (service as { config?: Record<string, unknown> }).config?.[key]
   return typeof value === 'string' && value !== '' ? value : undefined
+}
+
+/** DSH home 用户层 patch 文件（launcher 实时 watch，编辑后组合热重载）。 */
+export const HOME_PATCH_FILENAME = 'cordis.patch.yml'
+
+/**
+ * 生成切换提供方后的用户层 patch 行：对两行 Provider 做 id 定向 disabled 翻转。
+ * 用户层 applied after bundle layers——bundle 插入的行由此覆盖 enabled 状态，
+ * 且只携带 id/disabled 两个字段，不触碰用户可能写在同 id 行上的其他定制；
+ * 已有行原位更新（保留其余字段），缺失行追加在列表尾部。
+ * 纯函数：宿主端点与单测共用同一合并语义。
+ */
+export function mergeProviderSwitchRows(
+  patches: readonly unknown[],
+  target: 'dashscope' | 'volcengine',
+): Record<string, unknown>[] {
+  const rows: Record<string, unknown>[] = [
+    { id: 'image-dashscope', disabled: target !== 'dashscope' },
+    { id: 'image-volcengine', disabled: target !== 'volcengine' },
+  ]
+  type Entry = Record<string, unknown>
+  const merged: Entry[] = patches.filter(
+    (entry): entry is Entry => entry !== null && typeof entry === 'object',
+  )
+  for (const row of rows) {
+    const index = merged.findIndex((entry) => entry['id'] === row.id)
+    if (index >= 0) merged[index] = { ...merged[index]!, disabled: row.disabled }
+    else merged.push(row)
+  }
+  return merged
 }
 
 /** 供单元测试引用的内部实现。 */

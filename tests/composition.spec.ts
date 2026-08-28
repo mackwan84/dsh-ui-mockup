@@ -1237,6 +1237,42 @@ describe('ui-mockup real dynamic composition', () => {
       await rm(dir, { recursive: true, force: true })
     }
   })
+
+  it('writes the provider switch into the home user patch layer and reports pending', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+    try {
+      const booted = await bootComposition(dir)
+      const call = (endpoint: string, payload?: unknown) =>
+        booted.connection.call('/ui-mockup', endpoint, payload)
+
+      // 幂等：已生效提供方的切换直接返回，不写文件
+      const idempotent = valueOf<{ active: string }>(
+        await call('provider/switch', { provider: 'dashscope' }),
+      )
+      expect(idempotent.active).toBe('dashscope')
+
+      // 非法 provider 拒绝
+      const invalid = await call('provider/switch', { provider: 'openai' })
+      expect(invalid.ok).toBe(false)
+
+      // 切到火山：文件写入 home 用户层（DSH_HOME 被隔离为临时目录）；
+      // 组合测试环境没有 launcher 的 HMR watcher，轮询等待落位（8s 上限）超时后
+      // 如实上报 pending 而不是谎报成功。翻转语义由 mergeProviderSwitchRows 单测覆盖。
+      const switched = valueOf<{ active: string; pending?: boolean }>(
+        await call('provider/switch', { provider: 'volcengine' }),
+      )
+      expect(switched.pending).toBe(true)
+      expect(switched.active).toBe('dashscope')
+
+      const homePatch = await readFile(join(process.env['DSH_HOME']!, 'cordis.patch.yml'), 'utf8')
+      expect(homePatch).toContain('id: image-dashscope')
+      expect(homePatch).toContain('disabled: true')
+      expect(homePatch).toContain('id: image-volcengine')
+      expect(homePatch).toContain('disabled: false')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  }, 20_000)
 })
 
 /** 断言 RPC 成功并取出值；给组合测试一个统一的窄化入口。 */

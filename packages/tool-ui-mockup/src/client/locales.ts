@@ -53,8 +53,11 @@ export const zh = {
   'panel.provider.dashscopeName': '阿里云百炼 DashScope',
   'panel.provider.volcengineName': '火山方舟 Volcengine',
   'panel.provider.unknown': '未挂载图像提供方',
+  'panel.provider.fallbackActive': '默认生效（DashScope）',
+  'panel.provider.unknownHint':
+    '面板暂时读不到提供方状态（宿主可能仍是旧版本，请重启 DSH 后再试）；已按安装默认显示为 DashScope 生效。',
   'panel.provider.volcengineDisabled':
-    '已安装未启用。启用方法：在 profile 的 cordis.patch.yml 中把 image-volcengine 行改为 disabled: false，并把 image-dashscope 行改为 disabled: true（两行由插件 bundle 预置）。',
+    '已安装未启用。点击本卡片即可切换——插件会改写 DSH 用户层 patch，组合热重载后立即生效。',
   'panel.provider.inactive': '未启用',
   'panel.credential.title': '凭据（{credential}）',
   'panel.credential.ready': '凭据已配置',
@@ -189,8 +192,11 @@ export const en = {
   'panel.provider.dashscopeName': 'Alibaba DashScope',
   'panel.provider.volcengineName': 'Volcengine Ark',
   'panel.provider.unknown': 'No image provider mounted',
+  'panel.provider.fallbackActive': 'Active by default (DashScope)',
+  'panel.provider.unknownHint':
+    'The panel cannot read the provider status right now (the host may still be an older build; restart DSH and retry). Shown as DashScope active per the install default.',
   'panel.provider.volcengineDisabled':
-    'Installed but disabled. To enable: in the profile cordis.patch.yml, set the image-volcengine row to disabled: false and the image-dashscope row to disabled: true (both rows are pre-seeded by the plugin bundle).',
+    'Installed but disabled. Click this card to switch — the plugin rewrites the home user patch layer and DSH hot-reloads the composition.',
   'panel.provider.inactive': 'Disabled',
   'panel.credential.title': 'Credentials ({credential})',
   'panel.credential.ready': 'API key configured',

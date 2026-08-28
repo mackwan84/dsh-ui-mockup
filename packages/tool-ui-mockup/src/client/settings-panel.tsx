@@ -400,27 +400,53 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
   const [writeError, setWriteError] = useState('')
   // 生效提供方：provider/status 端点的唯一事实源，决定卡片选中态/凭据名/模型 hints
   const [providerId, setProviderId] = useState<ProviderId>('unknown')
+  // 端点不可达（旧宿主/纯内存部署）时置位：面板按安装默认（DashScope）渲染并说明原因，
+  // 而不是把"检测不到"误显示成"未启用"。
+  const [statusUnknown, setStatusUnknown] = useState(true)
+  // 切换请求进行中：期间两张卡禁点，完成后刷新状态
+  const [switching, setSwitching] = useState(false)
   // 凭据状态（configured/source/writable，永不含值）：写入/清除后刷新
   const [credential, setCredential] = useState<PanelCredential | undefined>()
   const [keyDraft, setKeyDraft] = useState('')
   const [keyBusy, setKeyBusy] = useState(false)
   const [keyNotice, setKeyNotice] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
 
-  useEffect(() => {
-    let alive = true
-    callPanel<{ active: ProviderId }>(connection, 'provider/status')
-      .then((value) => {
-        if (alive) setProviderId(value.active)
-      })
-      .catch(() => {
-        // 端点不可达（旧宿主/纯内存部署）保持 unknown：卡片降级只读，不阻塞凭据管理
-      })
-    return () => {
-      alive = false
+  const refreshProviderStatus = useCallback(async (): Promise<ProviderId> => {
+    try {
+      const value = await callPanel<{ active: ProviderId }>(connection, 'provider/status')
+      setProviderId(value.active)
+      setStatusUnknown(false)
+      return value.active
+    } catch {
+      setProviderId('unknown')
+      setStatusUnknown(true)
+      return 'unknown'
     }
   }, [connection])
 
+  useEffect(() => {
+    void refreshProviderStatus()
+  }, [refreshProviderStatus])
+
   const credentialName = PROVIDER_CREDENTIALS[providerId]
+
+  /** 一键切换生效提供方：宿主改写 home 用户层 patch（DSH 热重载），完成后刷新状态。 */
+  const switchProvider = async (target: Exclude<ProviderId, 'unknown'>) => {
+    if (switching) return
+    setSwitching(true)
+    try {
+      await callPanel<{ active: ProviderId }>(connection, 'provider/switch', {
+        provider: target,
+      })
+    } catch (err) {
+      setTestResult(err instanceof Error ? err.message : String(err))
+    } finally {
+      // 热重载是异步落位（宿主端点内已等待到位），刷新拿到最终状态
+      await refreshProviderStatus()
+      await refreshCredential()
+      setSwitching(false)
+    }
+  }
 
   const refreshCredential = useCallback(async (): Promise<PanelCredential | undefined> => {
     try {
@@ -507,7 +533,12 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
           : t('panel.credential.readyWithSource', { source: sourceLabel })
         : t('panel.credential.missing', { credential: credentialName })
 
-  const dashscopeActive = providerId === 'dashscope'
+  // unknown 有两种语义，渲染分流：
+  // - statusUnknown（端点不可达，旧宿主等）：按安装默认把 DashScope 渲染为选中，
+  //   并说明原因——"检测不到"不等于"未启用"；
+  // - 端点可达但 active=unknown：image 服务确实未挂载，两卡都未选中。
+  const statusReadable = !statusUnknown
+  const dashscopeActive = providerId === 'dashscope' || (providerId === 'unknown' && statusUnknown)
   const volcengineActive = providerId === 'volcengine'
   /** 选中卡：中性蓝灰边框 + 浅灰填充（对齐 DSH 原生「外观」选项卡）；未选中：border-l2 实线。 */
   const providerCardStyle = (active: boolean) => ({
@@ -544,19 +575,36 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
       {writeError !== '' && <Notice danger>{writeError}</Notice>}
 
       <Card title={t('panel.provider.title')}>
-        {/* 两张卡是只读状态视图：生效提供方由组合行（cordis.patch.yml 的 disabled 翻转）
-            唯一决定，面板经 provider/status 如实反映，不提供写入口——否则会出现
-            「面板选中了但组合行没切」的两端口径漂移。 */}
+        {/* 提供方卡可点击切换：宿主端点改写 home 用户层 patch（DSH 热重载即时生效），
+            面板不直接写 bundle 层——组合行仍是唯一事实源，这里只是代写它。 */}
+        {statusUnknown && <Notice>{t('panel.provider.unknownHint')}</Notice>}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <label style={providerCardStyle(dashscopeActive)}>
-            <input type="radio" name="ui-mockup-provider" checked={dashscopeActive} readOnly />{' '}
+          <label
+            style={{
+              ...providerCardStyle(dashscopeActive),
+              cursor: dashscopeActive || switching ? 'default' : 'pointer',
+            }}
+            onClick={() => {
+              if (!dashscopeActive) void switchProvider('dashscope')
+            }}
+          >
+            <input
+              type="radio"
+              name="ui-mockup-provider"
+              checked={dashscopeActive}
+              disabled={switching}
+              readOnly
+              aria-label={t('panel.provider.dashscopeName')}
+            />{' '}
             <strong style={{ fontSize: 13 }}>{t('panel.provider.dashscopeName')}</strong>
             <div style={providerMetaStyle}>
               {dashscopeActive ? (
                 <>
                   <div style={providerStatusStyle}>
-                    <StatusDot ok={credential?.configured === true} />
-                    {credentialStatus}
+                    <StatusDot ok={credential?.configured === true} busy={switching} />
+                    {statusUnknown && providerId === 'unknown'
+                      ? t('panel.provider.fallbackActive')
+                      : credentialStatus}
                   </div>
                   {credential?.configured && sourceLabel !== undefined && (
                     <div
@@ -572,17 +620,35 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
                   )}
                 </>
               ) : (
-                <div style={providerStatusStyle}>{t('panel.provider.inactive')}</div>
+                <div style={providerStatusStyle}>
+                  <StatusDot ok={false} busy={switching} />
+                  {t('panel.provider.inactive')}
+                </div>
               )}
             </div>
           </label>
-          <label style={providerCardStyle(volcengineActive)}>
-            <input type="radio" name="ui-mockup-provider" checked={volcengineActive} readOnly />{' '}
+          <label
+            style={{
+              ...providerCardStyle(volcengineActive),
+              cursor: volcengineActive || switching ? 'default' : 'pointer',
+            }}
+            onClick={() => {
+              if (!volcengineActive) void switchProvider('volcengine')
+            }}
+          >
+            <input
+              type="radio"
+              name="ui-mockup-provider"
+              checked={volcengineActive}
+              disabled={switching}
+              readOnly
+              aria-label={t('panel.provider.volcengineName')}
+            />{' '}
             <strong style={{ fontSize: 13 }}>{t('panel.provider.volcengineName')}</strong>
             <div style={providerMetaStyle}>
               {volcengineActive ? (
                 <div style={providerStatusStyle}>
-                  <StatusDot ok={credential?.configured === true} />
+                  <StatusDot ok={credential?.configured === true} busy={switching} />
                   {credentialStatus}
                 </div>
               ) : (
@@ -593,7 +659,9 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
                     color: tokens.labelTertiary,
                   }}
                 >
-                  {t('panel.provider.volcengineDisabled')}
+                  {statusReadable
+                    ? t('panel.provider.volcengineDisabled')
+                    : t('panel.provider.inactive')}
                 </div>
               )}
             </div>
