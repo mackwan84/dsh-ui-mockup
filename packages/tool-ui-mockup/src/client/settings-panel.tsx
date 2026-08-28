@@ -460,14 +460,17 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
       {writeError !== '' && <Notice danger>{writeError}</Notice>}
 
       <Card title={t('panel.provider.title')}>
-        {/* 已确认线框：两张横排单选卡片（选中态加粗边框，另一张置灰「即将支持」） */}
+        {/* 选中态色彩对齐 DSH 原生「外观」选项卡：中性蓝灰边框 + 浅灰填充，
+            而非品牌色；未选中用 border-l2 实线（非虚线），禁用态降透明度。 */}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <label
             style={{
               flex: '1 1 200px',
-              border: `2px solid ${tokens.brand}`,
-              borderRadius: 8,
-              padding: '8px 10px',
+              boxSizing: 'border-box',
+              border: '1px solid var(--dsw-static-neutral-bluish-400)',
+              borderRadius: 16,
+              background: 'var(--dsw-alias-bg-module-platform)',
+              padding: '10px 14px',
               cursor: 'default',
             }}
           >
@@ -512,9 +515,11 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
             aria-disabled
             style={{
               flex: '1 1 200px',
-              border: `1px dashed ${tokens.border}`,
-              borderRadius: 8,
-              padding: '8px 10px',
+              boxSizing: 'border-box',
+              border: `1px solid ${tokens.border}`,
+              borderRadius: 16,
+              background: 'transparent',
+              padding: '10px 14px',
               opacity: 0.45,
             }}
           >
