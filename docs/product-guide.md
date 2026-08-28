@@ -1,6 +1,6 @@
 # dsh-ui-mockup · 产品文档
 
-> 状态：M1 已实现（image 服务 + 百炼 Provider + ui_mockup 工具 + bundle 挂载）；
+> 状态：M1–M4 已实现（image 服务 + 双 Provider + ui_mockup 工具 + 编辑模式 + bundle 挂载 + 设置面板）；
 > M2 已实现（对话内卡片 / 图片路由 / i18n）；M3 已实现（设置面板 4 页 / 生成历史 / 风格锚点）。
 > 面向用户：个人开发者、无专业 UI 设计师的小团队。
 
@@ -86,6 +86,21 @@ DASHSCOPE_API_KEY=sk-xxxx
     rateLimitRetries: 2 # 限流重试次数
 ```
 
+### 4.4 切换提供方（M4）
+
+安装包同时内置阿里云百炼（默认启用）与火山方舟两个 Provider（`ctx.image` 单槽位，
+同时只生效一个）。切换 = 在 profile 的 cordis.patch.yml 中翻转两行 `disabled`：
+
+```yaml
+- id: image-dashscope
+  disabled: true
+- id: image-volcengine
+  disabled: false
+```
+
+火山方舟用 `ARK_API_KEY` 凭据；设置面板「提供方与模型」页会如实显示当前生效方。
+编辑模式（`baseImage` + `editNote` 指令重绘）当前仅火山方舟支持。
+
 ## 5. 使用指南
 
 ### 5.1 触发
@@ -128,19 +143,21 @@ flowchart LR
 
 ## 6. 常见问题
 
-| 问题                              | 说明                                                                               |
-| --------------------------------- | ---------------------------------------------------------------------------------- |
-| 生成很慢                          | pro 模型默认开启思考模式，单张 1~5 分钟属正常；线框图用标准模型会快很多            |
-| 触发限流了怎么办                  | 插件自动退避重试（25s × 2）；仍失败请稍等一两分钟，或减少并行张数                  |
-| 文字乱码                          | 默认模型已是中文文字渲染第一梯队；个别场景可试 `qwen-image-3.0-pro` 或降低标注密度 |
-| qwen-image-3.0-pro 国际网关能用吗 | 国内 key 只能走国内网关（`dashscope.aliyuncs.com`）；国际网关需要国际站账号        |
-| 为什么 Agent 不帮我看图提炼规格   | 该步骤需要多模态模型；纯文本模型会话会降级为"你口述确认 + Agent 转写"              |
-| 生成图在哪                        | 设计资产库 `$DSH_HOME/mockups/<工作区>/images/`；元数据在同目录 `history.jsonl`    |
-| 会读我的会话吗                    | 不会；Key 通过 credentials seam / 环境变量解析，请求仅发往你配置的网关             |
+| 问题                              | 说明                                                                                                                       |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| 生成很慢                          | pro 模型默认开启思考模式，单张 1~5 分钟属正常；线框图用标准模型会快很多                                                    |
+| 触发限流了怎么办                  | 插件自动退避重试（25s × 2）；仍失败请稍等一两分钟，或减少并行张数                                                          |
+| 文字乱码                          | 默认模型已是中文文字渲染第一梯队；个别场景可试 `qwen-image-3.0-pro` 或降低标注密度                                         |
+| qwen-image-3.0-pro 国际网关能用吗 | 国内 key 只能走国内网关（`dashscope.aliyuncs.com`）；国际网关需要国际站账号                                                |
+| 编辑模式和重新生成的区别          | 编辑（`baseImage` + `editNote`）在原图上做指令重绘，快且贴近原稿，仅火山方舟支持；重新生成则整图重画，适合大改布局或换风格 |
+| 为什么 Agent 不帮我看图提炼规格   | 该步骤需要多模态模型；纯文本模型会话会降级为"你口述确认 + Agent 转写"                                                      |
+| 生成图在哪                        | 设计资产库 `$DSH_HOME/mockups/<工作区>/images/`；元数据在同目录 `history.jsonl`                                            |
+| 会读我的会话吗                    | 不会；Key 通过 credentials seam / 环境变量解析，请求仅发往你配置的网关                                                     |
 
 ## 7. 开发与贡献
 
 - 仓库结构、依赖策略与里程碑见 [implementation-plan.md](implementation-plan.md)；
 - 本地开发：`pnpm install && pnpm build && pnpm test`（含 Loader 真实组合测试）；
-- 真实 API 冒烟：`DASHSCOPE_API_KEY=sk-xxx npx tsx scripts/generate-smoke.ts`；
-- 发布顺序：`dsh-image` → `dsh-image-dashscope` → `dsh-tool-ui-mockup` → bundle。
+- 真实 API 冒烟：`DASHSCOPE_API_KEY=sk-xxx npx tsx scripts/generate-smoke.ts`
+  （火山分支：`ARK_API_KEY=ark-xxx npx tsx scripts/generate-smoke.ts --provider volcengine`）；
+- 发布顺序：`dsh-image` → `dsh-image-dashscope` → `dsh-image-volcengine` → `dsh-tool-ui-mockup` → bundle。

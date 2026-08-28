@@ -9,6 +9,10 @@
 - **设计资产库**：生成图 / 锚点 / 历史集中存于 `$DSH_HOME/mockups/<工作区>/`（slug 与 DSH sessions 同款），
   项目工作区不再落运行时产物；`design/spec.md` 等交付物仍留在项目内；
 - **模型分层**：线框图用 `qwen-image-3.0`（快、省），高保真用 `qwen-image-3.0-pro`（质量优先）；
+- **双提供方**：阿里云百炼 DashScope（默认启用）与火山方舟 Volcengine Ark（预置未启用，
+  组合行一键切换）；设置面板如实显示当前生效方；
+- **指令编辑**：对已生成图传 `baseImage` + `editNote` 走整图指令重绘（火山 seededit 3.0，
+  比整体重新生成更快更贴近原稿）；
 - **风格一致**：参考图模式（I2I）以已确认页面为基准图，多页面保持同一品牌视觉；
 - **设计锁定**：用户确认后自动提炼 `design/spec.md`，未确认的页面不进入实现；
 - **限流退避**：接口限流自动重试（Throttling 25s × 2）；
@@ -30,7 +34,8 @@ dsh plugin --profile web add /path/to/dsh-ui-mockup/bundle/ui-mockup
 
 ## 配置
 
-凭据 `DASHSCOPE_API_KEY`（阿里云百炼 API Key）按以下优先级读取，**任选其一即可**：
+凭据按以下优先级读取，**任选其一即可**；生效提供方决定凭据名：
+DashScope 用 `DASHSCOPE_API_KEY`（阿里云百炼），火山方舟用 `ARK_API_KEY`。
 
 1. 进程环境变量：启动 DSH 前 `export DASHSCOPE_API_KEY=sk-xxx`（CI / 容器同理）；
 2. DSH 密钥存储：`~/.dsh/.credentials.yaml`（在 DSH 设置 · 模型页写入，优先生效于 .env）；
@@ -38,8 +43,22 @@ dsh plugin --profile web add /path/to/dsh-ui-mockup/bundle/ui-mockup
 4. DSH 主目录 `.env`：`~/.dsh/.env`。
 
 也可以**不碰任何文件**：直接在 **设置 · UI 草图 · 提供方与模型** 页的凭据卡里填入
-新的 `DASHSCOPE_API_KEY`（写入即覆盖、永不回显，落到方式 2 的密钥存储；该页同时
-显示当前生效来源，进程环境变量存在时写入会被拒绝并提示原因），并可点「测试连接」验证。
+新的密钥（写入即覆盖、永不回显，落到方式 2 的密钥存储；该页同时显示当前生效来源，
+进程环境变量存在时写入会被拒绝并提示原因），并可点「测试连接」验证。
+
+### 切换提供方（M4）
+
+安装包预置两行 Provider，火山方舟默认 `disabled: true`。切换 = 在 profile 的
+`cordis.patch.yml` 中翻转两行 disabled：
+
+```yaml
+- id: image-dashscope
+  disabled: true
+- id: image-volcengine
+  disabled: false
+```
+
+详见 [bundle README](bundle/ui-mockup/README.md)。
 
 ## 使用
 

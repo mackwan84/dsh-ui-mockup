@@ -20,11 +20,12 @@ dsh-ui-mockup/
 ├── packages/
 │   ├── image/                         # @mackwan84/dsh-image · Service Definition（图像生成/编辑契约）
 │   ├── image-dashscope/               # @mackwan84/dsh-image-dashscope · 百炼 Provider（文生图 + I2I 参考图）
-│   ├── image-volcengine/              # @mackwan84/dsh-image-volcengine · 火山方舟 Provider（M4）
+│   ├── image-volcengine/              # @mackwan84/dsh-image-volcengine · 火山方舟 Provider（同步 API + 指令编辑，M4）
 │   └── tool-ui-mockup/                # @mackwan84/dsh-tool-ui-mockup · Consumer
 │                                      #   （ui_mockup 工具 + 提示词 + 客户端卡片 + 设置面板 + i18n）
 ├── bundle/
 │   └── ui-mockup/                     # @mackwan84/dsh-ui-mockup-bundle · dsh.bundle.patch 挂载行
+│                                      #   （两行 Provider：dashscope 启用 / volcengine disabled: true）
 └── docs/
 ```
 
@@ -60,7 +61,7 @@ dsh plugin --profile web add github:mackwan84/dsh-ui-mockup#main   # 需 prepare
 | M1     | 骨架 + image Service + 百炼 Provider + Host 工具                       | `dsh plugin add` 本地装进 web profile，会话里能生成一张图 |
 | M2     | 客户端卡片（tool.call.toolview）+ 图片路由（webServer）+ i18n 双语字典 | 卡片渲染、语言切换实时生效                                |
 | M3 ✅  | 设置面板 4 页 + 资产库生成历史 + 风格锚点联动                          | 按已确认线框实现（design/spec.md），面板功能闭环          |
-| M4     | 火山 Provider + I2I / 掩码编辑模式                                     | 双提供方切换可用                                          |
+| M4 ✅  | 火山 Provider + I2I / 指令编辑模式 + 双提供方组合行切换                | 双提供方切换可用                                          |
 
 每里程碑交付：单元测试、真实组合测试（Loader 真 cordis.yml）、README、invariant、打包发布检查。
 
@@ -77,6 +78,20 @@ dsh plugin --profile web add github:mackwan84/dsh-ui-mockup#main   # 需 prepare
 - Config：credentials ref（默认 `DASHSCOPE_API_KEY`）、model 分层默认（wireframe→`qwen-image-3.0`、high-fidelity→`qwen-image-3.0-pro`）、size 默认、轮询窗口、限流重试策略；
 - HTTP：Node fetch（正式包可用）；**凭据请求拒绝重定向**（等 DSH web 包规范）；
 - 端点（2026 实测，见 §8）。
+
+### 6.2.1 Provider · 火山方舟（image-volcengine，M4）
+
+- Config：credentials ref（默认 `ARK_API_KEY`）、模型默认（生成 `doubao-seedream-4-0-250828`、
+  编辑 `doubao-seededit-3-0-i2i-250628`）、`requestTimeoutMs`（300s，同步 API 无轮询）、限流重试策略；
+- **同步 API**：`POST /api/v3/images/generations` 一次返回；`response_format: 'url'` 固定、
+  `watermark: false`；size 翻译见 Provider README（档位 1K/2K/4K 或显式 WxH 合法域钳制）；
+- 编辑：seededit 同端点（image + prompt）；**mask 不受支持**（方舟无掩码编辑）→ `NOT_IMPLEMENTED`；
+- 多图请求串行拆单图调用（组图参数未在本仓验证）；
+- 限流：HTTP 429（`ModelAccountIpmRateLimitExceeded` 等）→ 25s × 2 退避；
+- 提供方切换：bundle 预置两行 Provider（volcengine 默认 `disabled: true`），用户 patch 翻转
+  disabled；`ctx.image` 单槽位互斥，对齐 DSH `llm-deepseek` 单行语义；
+- 面板：`provider/status` 端点按 `providerId`（契约成员）返回生效方；`test-connection`
+  按生效提供方探测对应网关（空体 POST，401 无效 / 400·429 鉴权已过）。
 
 ### 6.3 Consumer 工具（tool-ui-mockup）
 
@@ -127,6 +142,24 @@ dsh plugin --profile web add github:mackwan84/dsh-ui-mockup#main   # 需 prepare
 - 工具 schema DSL：不支持 minimum/maximum、value schema 不支持 required、参数根 additionalProperties 省略或 true、
   value 对象须显式 additionalProperties 且声明 items 全部字段；
 - 视觉提取依赖多模态模型：Consumer 提炼 spec 时经 `ctx.llm` 指定 image 模态模型（或要求会话用多模态模型）。
+
+### 8.1 火山方舟事实（M4，2026 调研核对）
+
+- 端点 `POST https://ark.cn-beijing.volces.com/api/v3/images/generations`，
+  认证 `Authorization: Bearer $ARK_API_KEY`；**同步 API 无任务轮询**；
+- model 可直接填 Model ID（`doubao-seedream-4-0-250828` / `doubao-seededit-3-0-i2i-250628`），
+  也可填接入点 ID（`ep-xxxx`）；
+- size 双轨制：档位 `1K/2K/4K`（4.0）或显式 `宽x高`（总像素 ≤ 4096x4096，宽高比 [1/16,16]，
+  `1024x1024` 这类低于边长下限的不合法）；seededit 缺省 `adaptive`（跟随基准图）；
+  档位与 WxH 两写法不可混用；
+- 编辑复用同一端点（image + prompt），**无 mask 局部重绘**（老 inpainting 涂抹编辑属
+  旧视觉技术服务 `visual.volcengineapi.com` 且已公告下线，与方舟无关）；
+- 响应 `{model, created, data:[{url|b64_json}], usage}`；URL 24h 失效，须即时下载；
+- 错误包裹顶层 `error:{code,message}`；限流统一 HTTP 429（`ModelAccountIpmRateLimitExceeded`
+  等图像维度错误码）；401 `AuthenticationError`；400 审核类 `SensitiveContentDetected.*` 不可重试；
+- seedream 4.0 无 `seed`/`guidance_scale`（3.0 代参数）；组图走 `sequential_image_generation`
+  （本仓未用，多图串行拆单图）；
+- 网关同步超时上限官方未公布：`requestTimeoutMs` 配置化，默认 300s。
 
 ## 9. 门禁与交付物
 
