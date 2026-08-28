@@ -329,6 +329,5 @@ lib/
 
 dist/
 
-# ui_mockup 工具运行时输出（生成图与生成历史）；设计规格是持久文档，白名单保留
+# ui_mockup 工具运行时输出
 design/*
-!design/spec.md
