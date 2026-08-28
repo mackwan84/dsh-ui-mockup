@@ -80,43 +80,43 @@ afterEach(() => {
 })
 
 describe('toArkGenerateSize', () => {
-  it('defaults to platform-oriented 16:9 pixels at the seedream 4.5+ pixel floor', () => {
-    expect(toArkGenerateSize(undefined, 'web')).toBe('2560x1440')
-    expect(toArkGenerateSize('  ', 'mobile')).toBe('1440x2560')
+  it('defaults to the 2K tier for every platform (product decision: minimum 2K output)', () => {
+    expect(toArkGenerateSize(undefined)).toBe('2K')
+    expect(toArkGenerateSize('  ')).toBe('2K')
   })
 
   it('normalizes tier names case-insensitively', () => {
-    expect(toArkGenerateSize('1K', 'web')).toBe('1K')
-    expect(toArkGenerateSize('2k', 'web')).toBe('2K')
-    expect(toArkGenerateSize('4K', 'web')).toBe('4K')
+    expect(toArkGenerateSize('1K')).toBe('1K')
+    expect(toArkGenerateSize('2k')).toBe('2K')
+    expect(toArkGenerateSize('4K')).toBe('4K')
   })
 
   it('rejects the seededit-only adaptive tier on the generate path', () => {
-    expect(() => toArkGenerateSize('adaptive', 'web')).toThrowError(ImageProviderError)
+    expect(() => toArkGenerateSize('adaptive')).toThrowError(ImageProviderError)
   })
 
   it('translates plugin star syntax and keeps in-domain pixel sizes', () => {
-    expect(toArkGenerateSize('2048x2048', 'web')).toBe('2048x2048')
-    expect(toArkGenerateSize('2560*1440', 'web')).toBe('2560x1440')
-    expect(toArkGenerateSize('1440*2560', 'mobile')).toBe('1440x2560')
+    expect(toArkGenerateSize('2048x2048')).toBe('2048x2048')
+    expect(toArkGenerateSize('2560*1440')).toBe('2560x1440')
+    expect(toArkGenerateSize('1440*2560')).toBe('1440x2560')
   })
 
   it('scales pixel sizes up to the minimum total pixels (seedream 4.5/5.0)', () => {
     // 2026-08 实测网关约束：总像素 ≥ 3,686,400（2560x1440）
-    expect(toArkGenerateSize('1280*720', 'web')).toBe('2560x1440')
-    expect(toArkGenerateSize('720*1280', 'mobile')).toBe('1440x2560')
-    expect(toArkGenerateSize('1024*1024', 'web')).toBe('1920x1920')
+    expect(toArkGenerateSize('1280*720')).toBe('2560x1440')
+    expect(toArkGenerateSize('720*1280')).toBe('1440x2560')
+    expect(toArkGenerateSize('1024*1024')).toBe('1920x1920')
   })
 
   it('scales down pixel sizes exceeding the total-pixel ceiling', () => {
-    const result = toArkGenerateSize('8192*4608', 'web')
+    const result = toArkGenerateSize('8192*4608')
     const [w, h] = result.split('x').map(Number) as [number, number]
     expect(w * h).toBeLessThanOrEqual(4096 * 4096)
   })
 
   it('rejects aspect ratios outside [1/16, 16] and unrecognized input', () => {
-    expect(() => toArkGenerateSize('10000*100', 'web')).toThrowError(ImageProviderError)
-    expect(() => toArkGenerateSize('大图', 'web')).toThrowError(ImageProviderError)
+    expect(() => toArkGenerateSize('10000*100')).toThrowError(ImageProviderError)
+    expect(() => toArkGenerateSize('大图')).toThrowError(ImageProviderError)
   })
 })
 
@@ -165,7 +165,7 @@ describe('generate request shape', () => {
       prompt: '黑白线框图测试',
       response_format: 'url',
       watermark: false,
-      size: '2560x1440',
+      size: '2K',
     })
     expect(body.image).toBeUndefined()
     expect(result).toMatchObject({ model: 'doubao-seedream-4-5-251128' })

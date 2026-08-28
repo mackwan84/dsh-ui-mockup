@@ -175,7 +175,8 @@ export default class DashscopeImageProvider extends ImageGenerationService {
       (spec.fidelity === 'high-fidelity'
         ? this.config.highFidelityModel
         : this.config.wireframeModel)
-    const size = spec.size ?? (spec.platform === 'mobile' ? '720*1280' : '1280*720')
+    // 缺省 2K（2560x1440 = 3,686,400 像素，qwen-image 合法域 [512*512, 2048*2048] 总像素内）
+    const size = spec.size ?? (spec.platform === 'mobile' ? '1440*2560' : '2560*1440')
     const n = Math.min(4, Math.max(1, Math.trunc(spec.n ?? 1)))
     const isQwen = model.startsWith('qwen-image')
 

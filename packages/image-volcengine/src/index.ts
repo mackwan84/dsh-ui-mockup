@@ -121,13 +121,14 @@ function clampArkDimensions(
  * 插件统一 size（"1280*720" 风格或档位名）→ 方舟生成 size 值（seedream 系）。
  * 方舟与百炼的画幅体系不同：档位 "1K/2K/4K" 与显式 "宽x高" 是两种互斥写法
  * （单次请求只传一种，天然不混用）；"adaptive" 是 seededit 专属档位，生成路径不接受。
- * 缺省按平台给 16:9 / 9:16 的显式像素（恰好等于总像素下限，横竖方向即平台方向）；
- * 显式 WxH 低于总像素下限时等比放大（工具文档示例 720*1280 由此保证可用），
+ * 缺省统一 '2K' 档位（产品决策：所有输出最低 2K，分辨率与横竖方向由网关/模型
+ * 按内容自决——2026-08 对话实测 2K 档位出图正常）；档位与像素两种写法由
+ * 调用方显式传入时按原样归一；显式 WxH 低于总像素下限时等比放大，
  * 超出总像素上界时等比缩小，宽高比越界按 INVALID_PARAMETER 拒绝。
  */
-export function toArkGenerateSize(size: string | undefined, platform: 'web' | 'mobile'): string {
+export function toArkGenerateSize(size: string | undefined): string {
   if (size === undefined || size.trim() === '') {
-    return platform === 'mobile' ? '1440x2560' : '2560x1440'
+    return '2K'
   }
   const normalized = size.trim().toLowerCase()
   const tier = ARK_SIZE_TIERS.get(normalized)
@@ -278,7 +279,7 @@ export default class VolcengineImageProvider extends ImageGenerationService {
       (spec.fidelity === 'high-fidelity'
         ? this.config.highFidelityModel
         : this.config.wireframeModel)
-    const size = toArkGenerateSize(spec.size, spec.platform)
+    const size = toArkGenerateSize(spec.size)
     const n = Math.min(4, Math.max(1, Math.trunc(spec.n ?? 1)))
 
     /**
