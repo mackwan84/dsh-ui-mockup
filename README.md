@@ -9,8 +9,8 @@
 - **设计资产库**：生成图 / 锚点 / 历史集中存于 `$DSH_HOME/mockups/<工作区>/`（slug 与 DSH sessions 同款），
   项目工作区不再落运行时产物；`design/spec.md` 等交付物仍留在项目内；
 - **模型分层**：线框图用 `qwen-image-3.0`（快、省），高保真用 `qwen-image-3.0-pro`（质量优先）；
-- **双提供方**：阿里云百炼 DashScope（默认启用）与火山方舟 Volcengine Ark（预置未启用，
-  组合行一键切换）；设置面板如实显示当前生效方；
+- **双提供方**：阿里云百炼 DashScope（默认启用）与火山方舟 Volcengine Ark（预置未启用）；
+  设置面板「提供方与模型」页**点卡片一键切换**——写入 DSH 用户层 patch 并热重载，无需重启；
 - **指令编辑**：对已生成图传 `baseImage` + `editNote` 走整图指令重绘（火山 seededit 3.0，
   比整体重新生成更快更贴近原稿）；
 - **风格一致**：参考图模式（I2I）以已确认页面为基准图，多页面保持同一品牌视觉；
@@ -48,8 +48,10 @@ DashScope 用 `DASHSCOPE_API_KEY`（阿里云百炼），火山方舟用 `ARK_AP
 
 ### 切换提供方（M4）
 
-安装包预置两行 Provider，火山方舟默认 `disabled: true`。切换 = 在 profile 的
-`cordis.patch.yml` 中翻转两行 disabled：
+安装包预置两行 Provider，火山方舟默认 `disabled: true`。在 **设置 · UI 草图 · 提供方与模型**
+页直接**点击提供方卡片**即可切换：插件把两行 id 定向 `disabled` 写入 DSH 用户层
+patch（`~/.dsh/cordis.patch.yml`，只增改这两行、不触碰其他内容），DSH 热重载组合后
+立即生效，无需重启：
 
 ```yaml
 - id: image-dashscope

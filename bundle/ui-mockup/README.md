@@ -8,7 +8,9 @@ dsh-ui-mockup 的安装层：一个声明 `dsh.bundle.patch` 的 npm 包，把
 ## 提供方切换
 
 `ctx.image` 是单槽位服务，同一时刻只允许一个 Provider 生效。bundle 预置两行 Provider，
-切换 = 在用户 patch 中翻转两行的 `disabled`：
+火山方舟行默认 `disabled: true`。切换走设置面板「提供方与模型」页**点卡片**：插件把
+id 定向的 `disabled` 翻转写入 DSH home 用户层（`~/.dsh/cordis.patch.yml`，launcher
+实时 watch 并热重载组合），也可以手工编辑该文件：
 
 ```yaml
 - id: image-dashscope
@@ -17,8 +19,8 @@ dsh-ui-mockup 的安装层：一个声明 `dsh.bundle.patch` 的 npm 包，把
   disabled: false
 ```
 
-设置窗口「UI 草图 · 提供方与模型」页会如实显示当前生效方（`provider/status` 端点），
-面板不提供切换写入口，组合行是唯一事实源。
+设置窗口「UI 草图 · 提供方与模型」页经 `provider/status` 端点如实显示当前生效方
+（端点读 image 槽位的 providerId，不从面板偏好推断）。
 
 ## 安装
 

@@ -89,16 +89,11 @@ DASHSCOPE_API_KEY=sk-xxxx
 ### 4.4 切换提供方（M4）
 
 安装包同时内置阿里云百炼（默认启用）与火山方舟两个 Provider（`ctx.image` 单槽位，
-同时只生效一个）。切换 = 在 profile 的 cordis.patch.yml 中翻转两行 `disabled`：
+同时只生效一个）。在 **设置 · UI 草图 · 提供方与模型** 页**点击提供方卡片**即可切换：
+插件把两行 id 定向 `disabled` 写入 DSH 用户层 patch（`~/.dsh/cordis.patch.yml`），
+组合热重载后立即生效，无需重启。
 
-```yaml
-- id: image-dashscope
-  disabled: true
-- id: image-volcengine
-  disabled: false
-```
-
-火山方舟用 `ARK_API_KEY` 凭据；设置面板「提供方与模型」页会如实显示当前生效方。
+火山方舟用 `ARK_API_KEY` 凭据（面板凭据卡随生效提供方自动切换读写目标）。
 编辑模式（`baseImage` + `editNote` 指令重绘）当前仅火山方舟支持。
 
 ## 5. 使用指南
