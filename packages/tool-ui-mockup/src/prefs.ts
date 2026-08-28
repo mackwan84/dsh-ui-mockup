@@ -13,7 +13,8 @@ export interface MockupPrefs {
   defaultPlatform: 'web' | 'mobile'
   /** 未显式指定时一次生成的方案数量。 */
   defaultCount: number
-  /** 生成图落盘目录（相对会话工作区根）。 */
+  /** 生成图落盘目录：已由设计资产库接管（$DSH_HOME/mockups/<工作区>/images），
+   * 该偏好不再生效；字段保留仅为兼容旧用户层设置数据。 */
   outputDir: string
   /** 任务轮询总时限（分钟），经 spec.pollTimeoutMs 下传 Provider。 */
   pollTimeoutMinutes: number

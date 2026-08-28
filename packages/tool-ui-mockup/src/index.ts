@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { realpathSync } from 'node:fs'
-import { appendFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { access, appendFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { basename, resolve } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
@@ -224,6 +224,7 @@ export interface MockupPluginConfig {
   defaultFidelity?: 'wireframe' | 'high-fidelity'
   defaultPlatform?: 'web' | 'mobile'
   defaultCount?: number
+  /** 已由设计资产库接管，配置不再生效；保留仅为兼容旧用户层数据。 */
   outputDir?: string
   pollTimeoutMinutes?: number
   wireframeModel?: string
@@ -336,17 +337,27 @@ async function readAnchor(workspaceRoot: string, requireExists = true): Promise<
   if (file === null) return null
   if (!requireExists) return file
   try {
-    await readFile(resolve(store.imagesDir, file))
+    await access(resolve(store.imagesDir, file))
     return file
   } catch {
     return null
   }
 }
 
+/**
+ * 原子写：先写同目录临时文件再 rename（POSIX 原子），避免并发写或进程
+ * 中断在 anchor.json / history.jsonl 上留下半截 JSON。
+ */
+async function writeFileAtomic(path: string, content: string): Promise<void> {
+  const tmp = `${path}.tmp-${process.pid}-${randomUUID().slice(0, 8)}`
+  await writeFile(tmp, content)
+  await rename(tmp, path)
+}
+
 async function writeAnchor(workspaceRoot: string, fileName: string): Promise<void> {
   const store = storeOf(workspaceRoot)
   await mkdir(store.root, { recursive: true })
-  await writeFile(
+  await writeFileAtomic(
     store.anchorFile,
     `${JSON.stringify({ file: fileName, time: new Date().toISOString() })}\n`,
   )
@@ -626,13 +637,27 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
               session?.header.cwd ??
               '.',
           )
-          // 风格锚点联动：调用未显式传 reference 时自动引用当前锚点（I2I 保持多页风格一致）
+          const prefs = effectivePrefs(prefsScope, config)
+          const effectiveModel =
+            typeof args.model === 'string' && args.model.trim() !== ''
+              ? args.model
+              : (fidelity === 'high-fidelity' ? prefs.highFidelityModel : prefs.wireframeModel) ||
+                undefined
+          // 风格锚点联动：调用未显式传 reference 时自动引用当前锚点（I2I 保持多页风格一致）。
+          // 参考图是 qwen-image 系端点的能力边界：生效模型为 wan 系等非 qwen 模型时跳过注入
+          // 并在结果消息中说明，否则 Provider 必以 INVALID_PARAMETER 拒绝且用户难以归因到锚点。
+          // 模型为空串（交 Provider 自决）时仍注入：分层默认即 qwen-image 系。
           let anchorInjected: string | null = null
+          let anchorSkippedForModel: string | null = null
           if (reference === undefined) {
             const anchorFile = await readAnchor(workspaceRoot)
             if (anchorFile !== null) {
-              anchorInjected = anchorFile
-              reference = `${IMAGE_DIR}/${anchorFile}`
+              if (effectiveModel !== undefined && !effectiveModel.startsWith('qwen-image')) {
+                anchorSkippedForModel = effectiveModel
+              } else {
+                anchorInjected = anchorFile
+                reference = `${IMAGE_DIR}/${anchorFile}`
+              }
             }
           }
           // reference 语义翻译：design/ 前缀(生成图/锚点)→资产库绝对路径, 其余(用户自备图)保持相对工作区。
@@ -641,7 +666,6 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
             reference === undefined ? undefined : translateReference(reference, workspaceRoot)
           const referenceInStore =
             translatedReference !== undefined && translatedReference !== reference
-          const prefs = effectivePrefs(prefsScope, config)
           const spec: ImageGenerateSpec = {
             prompt: buildPrompt(
               {
@@ -662,11 +686,7 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
                   ? prefs.defaultSize
                   : undefined,
             n: clampCount(args.count ?? prefs.defaultCount),
-            model:
-              typeof args.model === 'string' && args.model.trim() !== ''
-                ? args.model
-                : (fidelity === 'high-fidelity' ? prefs.highFidelityModel : prefs.wireframeModel) ||
-                  undefined,
+            model: effectiveModel,
             // 偏好层缺字段时避免 NaN 下传；缺省让 Provider 走自身配置
             ...(Number.isFinite(prefs.pollTimeoutMinutes) && prefs.pollTimeoutMinutes > 0
               ? { pollTimeoutMs: Math.round(prefs.pollTimeoutMinutes * 60_000) }
@@ -797,6 +817,9 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
           let message = `已用模型 ${generated.model} 生成 ${images.length} 张${label}。图片已保存到 ${paths}, 请在对话中查看并反馈; 需要修改时直接描述要改的地方。确认无误后我会将设计提炼为 design/spec.md 作为实现规格。`
           if (anchorInjected !== null) {
             message += ` 已按风格锚点 ${anchorInjected} 自动注入参考图(可在设置 · UI 草图 · 生成历史中解除)。`
+          }
+          if (anchorSkippedForModel !== null) {
+            message += ` 当前生效模型 ${anchorSkippedForModel} 不支持参考图(I2I), 已跳过风格锚点注入; 如需沿用锚点风格, 请在设置 · UI 草图 · 提供方与模型改回 qwen-image 系, 或在生成历史中解除锚点。`
           }
           if (failures.length > 0) {
             message += ` 注意: 有 ${failures.length} 张下载失败(${failures.join('; ')}), 其余图片已保留。`
@@ -934,10 +957,14 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
               try {
                 await credentials.set(credentialRef('DASHSCOPE_API_KEY'), value)
               } catch (error) {
-                // provider 在只读层（如进程环境变量）遮蔽时会拒绝写入，原样透传原因
+                // 不原样透传上游异常文本：provider message 未来若夹带密钥片段会经
+                // RPC 抵达浏览器，「永不回值」承诺同样适用于错误通道；原文留服务端日志。
+                ctx
+                  .logger('ui-mockup')
+                  .debug(`凭据写入失败: ${error instanceof Error ? error.message : String(error)}`)
                 return rpcError(
                   'CREDENTIAL_WRITE_FAILED',
-                  error instanceof Error ? error.message : String(error),
+                  '凭据写入失败：存储层拒绝了本次写入（可能被环境变量等只读来源遮蔽），详见宿主日志。',
                 )
               }
               // 写入成功后回安全视图（仅 configured/source/writable，永不回值）
@@ -951,9 +978,13 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
               try {
                 await credentials.unset(credentialRef('DASHSCOPE_API_KEY'))
               } catch (error) {
+                // 同 credential/set：不透传上游原文，防错误通道夹带密钥
+                ctx
+                  .logger('ui-mockup')
+                  .debug(`凭据清除失败: ${error instanceof Error ? error.message : String(error)}`)
                 return rpcError(
                   'CREDENTIAL_WRITE_FAILED',
-                  error instanceof Error ? error.message : String(error),
+                  '凭据清除失败：存储层拒绝了本次操作，详见宿主日志。',
                 )
               }
               return rpcOk({ credential: await credentialStatus(ctx) })
@@ -995,7 +1026,10 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
             case 'history/clear': {
               const rootOrError = trustedRoot(ctx, knownRoots, cwd)
               if (!rootOrError.ok) return rootOrError.error
-              await writeFile(storeOf(rootOrError.root).historyFile, '')
+              const store = storeOf(rootOrError.root)
+              // 目录可能尚不存在（从未生成过就点清空），先建目录再原子截断
+              await mkdir(store.root, { recursive: true })
+              await writeFileAtomic(store.historyFile, '')
               // 清空历史后锚点记录指向的行不复存在，按规格一并解除
               await clearAnchor(rootOrError.root)
               return rpcOk({})
@@ -1007,7 +1041,7 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
               if (file === null)
                 return rpcError('INVALID_PARAMETER', `不是合法的生成图文件名: ${String(body.file)}`)
               try {
-                await readFile(resolve(storeOf(rootOrError.root).imagesDir, file))
+                await access(resolve(storeOf(rootOrError.root).imagesDir, file))
               } catch {
                 return rpcError('NOT_FOUND', `工作区中没有这张生成图: ${file}`)
               }
@@ -1053,8 +1087,8 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
                     redirect: 'error',
                   },
                 )
-                const body = (await res.json().catch(() => ({}))) as { code?: unknown }
-                const code = typeof body.code === 'string' ? body.code : ''
+                const respBody = (await res.json().catch(() => ({}))) as { code?: unknown }
+                const code = typeof respBody.code === 'string' ? respBody.code : ''
                 if (
                   res.status === 401 ||
                   code.includes('InvalidApiKey') ||
@@ -1062,7 +1096,18 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
                 ) {
                   return rpcOk({ ok: false, reason: 'invalid-key' })
                 }
-                return rpcOk({ ok: true, reason: 'ok' })
+                // 正向判定鉴权已通过：网关鉴权先于参数与配额校验——
+                // 400 参数错误、429 限流都说明 key 已被网关接受。
+                // 其余未知响应（如未来新增的 403 或前置校验码）归入 unknown 灰态，
+                // 宁可不确定也不误报「连接正常」。
+                if (res.status === 400 || res.status === 429) {
+                  return rpcOk({ ok: true, reason: 'ok' })
+                }
+                return rpcOk({
+                  ok: false,
+                  reason: 'unknown',
+                  detail: `HTTP ${res.status}${code !== '' ? ` ${code}` : ''}`,
+                })
               } catch (error) {
                 return rpcOk({
                   ok: false,
