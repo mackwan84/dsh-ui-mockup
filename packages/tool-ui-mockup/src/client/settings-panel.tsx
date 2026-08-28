@@ -318,10 +318,19 @@ function OverviewPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
       >
         <StatusDot ok={data.credential.configured} />
         {t('panel.overview.statusLine', {
-          provider: t('panel.provider.dashscopeName'),
+          // 生效提供方由宿主端点给出；unknown（未挂载 image 服务）单独措辞
+          provider:
+            data.provider === 'volcengine' || data.provider === 'dashscope'
+              ? t(PROVIDER_NAME_KEYS[data.provider])
+              : t('panel.provider.unknown'),
           credential: data.credential.configured
             ? t('panel.credential.ready')
-            : t('panel.credential.missing'),
+            : t('panel.credential.missing', {
+                credential:
+                  data.provider === 'volcengine'
+                    ? PROVIDER_CREDENTIALS.volcengine
+                    : PROVIDER_CREDENTIALS.dashscope,
+              }),
         })}
       </div>
     </div>
@@ -345,17 +354,37 @@ function sourceLabelText(t: PanelProps['t'], source: string | undefined): string
   return key === undefined ? source : t(key)
 }
 
-const WIREFRAME_MODEL_HINTS = ['', 'qwen-image-3.0', 'qwen-image-2.0', 'wan2.7-image']
-const HIGH_FIDELITY_MODEL_HINTS = [
-  '',
-  'qwen-image-3.0-pro',
-  'qwen-image-2.0-pro',
-  'wan2.7-image-pro',
-]
+const WIREFRAME_MODEL_HINTS: Record<ProviderId, string[]> = {
+  dashscope: ['', 'qwen-image-3.0', 'qwen-image-2.0', 'wan2.7-image'],
+  volcengine: ['', 'doubao-seedream-4-0-250828'],
+  unknown: ['', 'qwen-image-3.0'],
+}
+const HIGH_FIDELITY_MODEL_HINTS: Record<ProviderId, string[]> = {
+  dashscope: ['', 'qwen-image-3.0-pro', 'qwen-image-2.0-pro', 'wan2.7-image-pro'],
+  volcengine: ['', 'doubao-seedream-4-0-250828'],
+  unknown: ['', 'qwen-image-3.0-pro'],
+}
+
+/** 生效提供方 id（宿主 provider/status 端点返回；unknown = 未挂载 image 服务）。 */
+type ProviderId = 'dashscope' | 'volcengine' | 'unknown'
+
+/** 各提供方的凭据引用名（与 Provider Config 默认值一致）。 */
+const PROVIDER_CREDENTIALS: Record<ProviderId, string> = {
+  dashscope: 'DASHSCOPE_API_KEY',
+  volcengine: 'ARK_API_KEY',
+  unknown: 'DASHSCOPE_API_KEY',
+}
+
+/** 生效提供方 id → 本地化名称键；unknown 无名可显，调用方特判。 */
+const PROVIDER_NAME_KEYS: Record<Exclude<ProviderId, 'unknown'>, UiMockupKey> = {
+  dashscope: 'panel.provider.dashscopeName',
+  volcengine: 'panel.provider.volcengineName',
+}
 
 /**
  * 参考图（I2I）模式是 qwen-image 系端点的能力边界：wan 系模型 + 风格锚点
- * 组合会被 Provider 以 INVALID_PARAMETER 明确拒绝。当前默认模型命中时提示。
+ * 组合会被 Provider 以 INVALID_PARAMETER 明确拒绝。当前默认模型命中时提示
+ * （仅 DashScope 生效时提示；火山参考图不受 qwen 系约束）。
  */
 function nonQwenModel(...models: Array<string | undefined>): string | undefined {
   return models.find(
@@ -369,11 +398,29 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
   const [testResult, setTestResult] = useState<string | null>(null)
   const [testing, setTesting] = useState(false)
   const [writeError, setWriteError] = useState('')
+  // 生效提供方：provider/status 端点的唯一事实源，决定卡片选中态/凭据名/模型 hints
+  const [providerId, setProviderId] = useState<ProviderId>('unknown')
   // 凭据状态（configured/source/writable，永不含值）：写入/清除后刷新
   const [credential, setCredential] = useState<PanelCredential | undefined>()
   const [keyDraft, setKeyDraft] = useState('')
   const [keyBusy, setKeyBusy] = useState(false)
   const [keyNotice, setKeyNotice] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    callPanel<{ active: ProviderId }>(connection, 'provider/status')
+      .then((value) => {
+        if (alive) setProviderId(value.active)
+      })
+      .catch(() => {
+        // 端点不可达（旧宿主/纯内存部署）保持 unknown：卡片降级只读，不阻塞凭据管理
+      })
+    return () => {
+      alive = false
+    }
+  }, [connection])
+
+  const credentialName = PROVIDER_CREDENTIALS[providerId]
 
   const refreshCredential = useCallback(async (): Promise<PanelCredential | undefined> => {
     try {
@@ -404,7 +451,7 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
         text:
           endpoint === 'credential/set'
             ? t('panel.credential.savedNotice')
-            : t('panel.credential.clearedNotice'),
+            : t('panel.credential.clearedNotice', { credential: credentialName }),
       })
     } catch (err) {
       setKeyNotice({ kind: 'error', text: err instanceof Error ? err.message : String(err) })
@@ -427,9 +474,9 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
         result.ok
           ? t('panel.test.ok')
           : result.reason === 'missing-key'
-            ? t('panel.test.missingKey')
+            ? t('panel.test.missingKey', { credential: credentialName })
             : result.reason === 'invalid-key'
-              ? t('panel.test.invalidKey')
+              ? t('panel.test.invalidKey', { credential: credentialName })
               : result.reason === 'unknown'
                 ? t('panel.test.unknown', { detail: result.detail ?? '' })
                 : t('panel.test.gatewayFail', { detail: result.detail ?? '' }),
@@ -449,7 +496,7 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
       ? t('panel.credential.checking')
       : credential.configured
         ? t('panel.credential.ready')
-        : t('panel.credential.missing')
+        : t('panel.credential.missing', { credential: credentialName })
 
   const credentialLine =
     credential === undefined
@@ -458,7 +505,36 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
         ? sourceLabel === undefined
           ? t('panel.credential.ready')
           : t('panel.credential.readyWithSource', { source: sourceLabel })
-        : t('panel.credential.missing')
+        : t('panel.credential.missing', { credential: credentialName })
+
+  const dashscopeActive = providerId === 'dashscope'
+  const volcengineActive = providerId === 'volcengine'
+  /** 选中卡：中性蓝灰边框 + 浅灰填充（对齐 DSH 原生「外观」选项卡）；未选中：border-l2 实线。 */
+  const providerCardStyle = (active: boolean) => ({
+    flex: '1 1 200px',
+    boxSizing: 'border-box' as const,
+    border: active
+      ? '1px solid var(--dsw-static-neutral-bluish-400)'
+      : `1px solid ${tokens.border}`,
+    borderRadius: 16,
+    background: active ? 'var(--dsw-alias-bg-module-platform)' : 'transparent',
+    padding: '10px 14px',
+    cursor: 'default',
+  })
+  const providerMetaStyle = {
+    marginTop: 4,
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: 2,
+  }
+  const providerStatusStyle = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    fontSize: 12,
+    lineHeight: '17px',
+    color: tokens.labelSecondary,
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -468,79 +544,64 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
       {writeError !== '' && <Notice danger>{writeError}</Notice>}
 
       <Card title={t('panel.provider.title')}>
-        {/* 选中态色彩对齐 DSH 原生「外观」选项卡：中性蓝灰边框 + 浅灰填充，
-            而非品牌色；未选中用 border-l2 实线（非虚线），禁用态降透明度。 */}
+        {/* 两张卡是只读状态视图：生效提供方由组合行（cordis.patch.yml 的 disabled 翻转）
+            唯一决定，面板经 provider/status 如实反映，不提供写入口——否则会出现
+            「面板选中了但组合行没切」的两端口径漂移。 */}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <label
-            style={{
-              flex: '1 1 200px',
-              boxSizing: 'border-box',
-              border: '1px solid var(--dsw-static-neutral-bluish-400)',
-              borderRadius: 16,
-              background: 'var(--dsw-alias-bg-module-platform)',
-              padding: '10px 14px',
-              cursor: 'default',
-            }}
-          >
-            <input type="radio" name="ui-mockup-provider" checked readOnly />{' '}
+          <label style={providerCardStyle(dashscopeActive)}>
+            <input type="radio" name="ui-mockup-provider" checked={dashscopeActive} readOnly />{' '}
             <strong style={{ fontSize: 13 }}>{t('panel.provider.dashscopeName')}</strong>
-            <div
-              style={{
-                marginTop: 4,
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 2,
-              }}
-            >
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  fontSize: 12,
-                  lineHeight: '17px',
-                  color: tokens.labelSecondary,
-                }}
-              >
-                <StatusDot ok={credential?.configured === true} />
-                {credentialStatus}
-              </div>
-              {credential?.configured && sourceLabel !== undefined && (
+            <div style={providerMetaStyle}>
+              {dashscopeActive ? (
+                <>
+                  <div style={providerStatusStyle}>
+                    <StatusDot ok={credential?.configured === true} />
+                    {credentialStatus}
+                  </div>
+                  {credential?.configured && sourceLabel !== undefined && (
+                    <div
+                      style={{
+                        fontSize: 12,
+                        lineHeight: '17px',
+                        color: tokens.labelTertiary,
+                        paddingLeft: 14,
+                      }}
+                    >
+                      {sourceLabel}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div style={providerStatusStyle}>{t('panel.provider.inactive')}</div>
+              )}
+            </div>
+          </label>
+          <label style={providerCardStyle(volcengineActive)}>
+            <input type="radio" name="ui-mockup-provider" checked={volcengineActive} readOnly />{' '}
+            <strong style={{ fontSize: 13 }}>{t('panel.provider.volcengineName')}</strong>
+            <div style={providerMetaStyle}>
+              {volcengineActive ? (
+                <div style={providerStatusStyle}>
+                  <StatusDot ok={credential?.configured === true} />
+                  {credentialStatus}
+                </div>
+              ) : (
                 <div
                   style={{
                     fontSize: 12,
                     lineHeight: '17px',
                     color: tokens.labelTertiary,
-                    paddingLeft: 14,
                   }}
                 >
-                  {sourceLabel}
+                  {t('panel.provider.volcengineDisabled')}
                 </div>
               )}
-            </div>
-          </label>
-          <label
-            aria-disabled
-            style={{
-              flex: '1 1 200px',
-              boxSizing: 'border-box',
-              border: `1px solid ${tokens.border}`,
-              borderRadius: 16,
-              background: 'transparent',
-              padding: '10px 14px',
-              opacity: 0.45,
-            }}
-          >
-            <input type="radio" name="ui-mockup-provider" disabled />{' '}
-            <span style={{ fontSize: 13 }}>{t('panel.provider.volcengineName')}</span>
-            <div style={{ fontSize: 12, lineHeight: '17px', marginTop: 4 }}>
-              {t('panel.provider.comingSoon')}
             </div>
           </label>
         </div>
       </Card>
 
-      <Card title={t('panel.credential.title')}>
+      <Card title={t('panel.credential.title', { credential: credentialName })}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <span
             style={{
@@ -569,7 +630,7 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
               style={{ flex: '1 1 220px' }}
               value={keyDraft}
               autoComplete="off"
-              placeholder={t('panel.credential.writePlaceholder')}
+              placeholder={t('panel.credential.writePlaceholder', { credential: credentialName })}
               onChange={(event) => setKeyDraft(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === 'Enter' && keyDraft.trim() !== '') void applyKey('credential/set')
@@ -615,10 +676,10 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
             {t('panel.credential.howTitle')}
           </span>
           <ol style={{ margin: 0, paddingLeft: 18 }}>
-            <li>{t('panel.credential.way1')}</li>
+            <li>{t('panel.credential.way1', { credential: credentialName })}</li>
             <li>{t('panel.credential.way2')}</li>
-            <li>{t('panel.credential.way3')}</li>
-            <li>{t('panel.credential.way4')}</li>
+            <li>{t('panel.credential.way3', { credential: credentialName })}</li>
+            <li>{t('panel.credential.way4', { credential: credentialName })}</li>
           </ol>
         </div>
       </Card>
@@ -633,7 +694,7 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
             style={{ ...selectStyle, width: 260 }}
           >
             <option value="">{t('panel.models.followDefault')}</option>
-            {WIREFRAME_MODEL_HINTS.filter(Boolean).map((m) => (
+            {WIREFRAME_MODEL_HINTS[providerId].filter(Boolean).map((m) => (
               <option key={m} value={m}>
                 {m}
               </option>
@@ -649,7 +710,7 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
             style={{ ...selectStyle, width: 260 }}
           >
             <option value="">{t('panel.models.followDefault')}</option>
-            {HIGH_FIDELITY_MODEL_HINTS.filter(Boolean).map((m) => (
+            {HIGH_FIDELITY_MODEL_HINTS[providerId].filter(Boolean).map((m) => (
               <option key={m} value={m}>
                 {m}
               </option>
@@ -657,11 +718,13 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
           </select>
         </FieldRow>
         <Notice>
-          {`${t('panel.models.wireframe')}: ${WIREFRAME_MODEL_HINTS.filter(Boolean).join(', ')} · ${t('panel.models.highFidelity')}: ${HIGH_FIDELITY_MODEL_HINTS.filter(Boolean).join(', ')}`}
+          {`${t('panel.models.wireframe')}: ${WIREFRAME_MODEL_HINTS[providerId].filter(Boolean).join(', ')} · ${t('panel.models.highFidelity')}: ${HIGH_FIDELITY_MODEL_HINTS[providerId].filter(Boolean).join(', ')}`}
         </Notice>
-        {nonQwenModel(snap.value?.wireframeModel, snap.value?.highFidelityModel) !== undefined && (
-          <Notice>{t('panel.models.nonQwenWarning')}</Notice>
-        )}
+        {/* wan 系 + 锚点互斥是 DashScope qwen 端点的约束，火山方舟参考图不受此限 */}
+        {providerId === 'dashscope' &&
+          nonQwenModel(snap.value?.wireframeModel, snap.value?.highFidelityModel) !== undefined && (
+            <Notice>{t('panel.models.nonQwenWarning')}</Notice>
+          )}
       </Card>
     </div>
   )

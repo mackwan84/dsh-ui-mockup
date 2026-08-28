@@ -6,7 +6,11 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
 import type { Context } from '@deepseek-ai/cordis'
-import { ImageProviderError, type ImageGenerateSpec } from '@mackwan84/dsh-image'
+import {
+  ImageProviderError,
+  type ImageEditSpec,
+  type ImageGenerateSpec,
+} from '@mackwan84/dsh-image'
 import {
   DEFAULT_PREFS,
   PrefsSchema,
@@ -209,7 +213,8 @@ const USAGE_SECTION = {
     "- 布局与信息架构待确认: fidelity='wireframe'(默认用 qwen-image-3.0, 速度快)。",
     "- 视觉风格待确认: fidelity='high-fidelity'(默认用 qwen-image-3.0-pro, 质量优先), 建议 count=2~4 一次给多个方向供用户选择。",
     '- 同一个站点的多个页面在高保真阶段应传 reference=已确认页面的图, 保持风格一致(图生图模式)。',
-    '- 用户对生成的图提出修改意见: 再次调用 ui_mockup, 在 description 中写修改后的完整界面描述, 并保持与上一版一致的 style。',
+    '- 用户对生成的图提出修改意见: 优先走编辑模式(同时传 baseImage=上一版生成图路径 与 editNote=修改指令, 只重绘要改的部分, 更快且更贴近原稿); 大改布局或换风格时才在 description 中写修改后的完整描述整体重新生成。',
+    '- 编辑模式当前仅火山方舟 Provider 支持; 生效提供方为阿里云百炼时编辑调用会返回 NOT_IMPLEMENTED, 此时改用整体重新生成。',
     '- 模型分层默认由设置面板管理; 用户没有点名具体模型时不要传 model 参数, 否则会绕过面板配置(面板未配置时才回落 wireframe→qwen-image-3.0 / high-fidelity→qwen-image-3.0-pro)。',
     '',
     '确认与锁定:',
@@ -384,12 +389,27 @@ async function readHistory(workspaceRoot: string): Promise<HistoryEntry[]> {
 }
 
 /**
+ * 当前生效提供方：读 image 槽位的 providerId（唯一事实源，不从偏好/组合文件推断）。
+ * 服务未挂载时 id 为 unknown、凭据名回退 DashScope（安装面默认提供方）。
+ */
+function activeProviderOf(ctx: Context): { id: string; credential: string } {
+  const service = ctx.get('image') as ImageGenerationServiceFace | undefined
+  const id = service?.providerId ?? 'unknown'
+  const fallback = PROBES.dashscope.defaultCredential
+  const credential =
+    id === 'volcengine' || id === 'dashscope'
+      ? (readProviderConfigString(service, 'apiKey') ?? PROBES[id].defaultCredential)
+      : fallback
+  return { id, credential }
+}
+
+/**
  * 面板用的凭据状态：credentials 服务在场时走 describe（拿到来源层与可写性），
  * 缺席时退化为启动环境探测（configured + 来源 ambient + 不可写）。
  * 返回值永不携带密钥本身。
  */
-async function credentialStatus(ctx: Context): Promise<CredentialStatus> {
-  const ref = credentialRef('DASHSCOPE_API_KEY')
+async function credentialStatus(ctx: Context, credentialName: string): Promise<CredentialStatus> {
+  const ref = credentialRef(credentialName)
   const credentials = ctx.get('credentials') as CredentialsFace | undefined
   if (credentials !== undefined) {
     const info = await credentials.describe(ref).catch(() => undefined)
@@ -553,6 +573,16 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
             description:
               '可选: 参考图路径(相对工作区), 图生图模式用它保持风格一致, 例如 design/images/mockup-xxx.png。',
           },
+          baseImage: {
+            type: 'string',
+            description:
+              '可选: 待编辑的基准图路径(相对工作区, 生成图可写 design/images/mockup-xxx.png)。与 editNote 成对出现时走指令编辑(整图重绘), 此时忽略 description 之外的生成参数。',
+          },
+          editNote: {
+            type: 'string',
+            description:
+              '可选: 编辑指令, 描述在基准图上改什么(如"把主按钮改成绿色并加大间距")。与 baseImage 成对出现。',
+          },
         },
         required: ['description', 'fidelity'],
       },
@@ -638,6 +668,24 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
               '.',
           )
           const prefs = effectivePrefs(prefsScope, config)
+          // 编辑模式：baseImage + editNote 成对出现时走指令编辑（整图重绘）。
+          // 单独出现是模型常见的半截调用，显式拒绝并说明，避免静默降级为生成。
+          const baseImageArg =
+            typeof args.baseImage === 'string' && args.baseImage.trim() !== ''
+              ? args.baseImage.trim()
+              : undefined
+          const editNoteArg =
+            typeof args.editNote === 'string' && args.editNote.trim() !== ''
+              ? args.editNote.trim()
+              : undefined
+          if ((baseImageArg === undefined) !== (editNoteArg === undefined)) {
+            return {
+              ok: false,
+              message:
+                'baseImage 与 editNote 必须成对出现: 编辑已有图时同时传基准图路径与编辑指令。',
+            }
+          }
+          const isEdit = baseImageArg !== undefined
           const effectiveModel =
             typeof args.model === 'string' && args.model.trim() !== ''
               ? args.model
@@ -649,7 +697,8 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
           // 模型为空串（交 Provider 自决）时仍注入：分层默认即 qwen-image 系。
           let anchorInjected: string | null = null
           let anchorSkippedForModel: string | null = null
-          if (reference === undefined) {
+          // 编辑模式不注入锚点：基准图本身就是风格基准，再叠参考图会互相干扰
+          if (reference === undefined && !isEdit) {
             const anchorFile = await readAnchor(workspaceRoot)
             if (anchorFile !== null) {
               if (effectiveModel !== undefined && !effectiveModel.startsWith('qwen-image')) {
@@ -701,10 +750,26 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
             return {
               ok: false,
               message:
-                '未挂载图像生成服务(image): 请安装 @mackwan84/dsh-image-dashscope 并加入组合。',
+                '未挂载图像生成服务(image): 请安装 @mackwan84/dsh-image-dashscope 或 @mackwan84/dsh-image-volcengine 并加入组合。',
             }
           }
-          const generated = await service.generate(spec, exec.signal)
+          const generated = isEdit
+            ? await service.edit(
+                {
+                  prompt: editNoteArg ?? '',
+                  // baseImage 与 reference 同语义：design/ 前缀(生成图/锚点)→资产库
+                  // 绝对路径，其余保持相对工作区；cwd 随之分流防逃逸。
+                  baseImage: translateReference(baseImageArg ?? '', workspaceRoot),
+                  platform,
+                  size: spec.size,
+                  model: effectiveModel,
+                  cwd: (baseImageArg ?? '').startsWith('design/')
+                    ? storeOf(workspaceRoot).root
+                    : workspaceRoot,
+                },
+                exec.signal,
+              )
+            : await service.generate(spec, exec.signal)
 
           const attachments = ctx.get('attachments') as AttachmentsFace | undefined
           const maxImageBytes = attachments?.imageLimits?.maxImageBytes
@@ -802,7 +867,7 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
               fidelity,
               platform,
               ...(spec.size !== undefined ? { size: spec.size } : {}),
-              status: 'generated',
+              status: isEdit ? 'edited' : 'generated',
             })}\n`,
           ).catch((error: unknown) => {
             ctx
@@ -814,7 +879,9 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
 
           const label = fidelity === 'wireframe' ? '线框图' : '高保真设计稿'
           const paths = images.map((image) => image.path).join(', ')
-          let message = `已用模型 ${generated.model} 生成 ${images.length} 张${label}。图片已保存到 ${paths}, 请在对话中查看并反馈; 需要修改时直接描述要改的地方。确认无误后我会将设计提炼为 design/spec.md 作为实现规格。`
+          let message = isEdit
+            ? `已用模型 ${generated.model} 按编辑指令在基准图上重绘, 生成 ${images.length} 张新版本。图片已保存到 ${paths}, 请在对话中查看并反馈。`
+            : `已用模型 ${generated.model} 生成 ${images.length} 张${label}。图片已保存到 ${paths}, 请在对话中查看并反馈; 需要修改时直接描述要改的地方。确认无误后我会将设计提炼为 design/spec.md 作为实现规格。`
           if (anchorInjected !== null) {
             message += ` 已按风格锚点 ${anchorInjected} 自动注入参考图(可在设置 · UI 草图 · 生成历史中解除)。`
           }
@@ -936,9 +1003,10 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
             case 'overview': {
               const rootOrError = trustedRoot(ctx, knownRoots, cwd)
               if (!rootOrError.ok) return rootOrError.error
+              const active = activeProviderOf(ctx)
               return rpcOk({
-                provider: 'dashscope',
-                credential: await credentialStatus(ctx),
+                provider: active.id,
+                credential: await credentialStatus(ctx, active.credential),
                 anchor: await readAnchor(rootOrError.root),
               })
             }
@@ -955,7 +1023,7 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
                 return rpcError('INVALID_PARAMETER', '密钥不能为空；如需删除请用清除操作。')
               }
               try {
-                await credentials.set(credentialRef('DASHSCOPE_API_KEY'), value)
+                await credentials.set(credentialRef(activeProviderOf(ctx).credential), value)
               } catch (error) {
                 // 不原样透传上游异常文本：provider message 未来若夹带密钥片段会经
                 // RPC 抵达浏览器，「永不回值」承诺同样适用于错误通道；原文留服务端日志。
@@ -968,7 +1036,9 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
                 )
               }
               // 写入成功后回安全视图（仅 configured/source/writable，永不回值）
-              return rpcOk({ credential: await credentialStatus(ctx) })
+              return rpcOk({
+                credential: await credentialStatus(ctx, activeProviderOf(ctx).credential),
+              })
             }
             case 'credential/unset': {
               const credentials = ctx.get('credentials') as CredentialsFace | undefined
@@ -976,7 +1046,7 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
                 return rpcError('NOT_AVAILABLE', '凭据服务不可用，无存储可清除。')
               }
               try {
-                await credentials.unset(credentialRef('DASHSCOPE_API_KEY'))
+                await credentials.unset(credentialRef(activeProviderOf(ctx).credential))
               } catch (error) {
                 // 同 credential/set：不透传上游原文，防错误通道夹带密钥
                 ctx
@@ -987,7 +1057,9 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
                   '凭据清除失败：存储层拒绝了本次操作，详见宿主日志。',
                 )
               }
-              return rpcOk({ credential: await credentialStatus(ctx) })
+              return rpcOk({
+                credential: await credentialStatus(ctx, activeProviderOf(ctx).credential),
+              })
             }
             case 'history/list': {
               const rootOrError = trustedRoot(ctx, knownRoots, cwd)
@@ -1054,12 +1126,26 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
               await clearAnchor(rootOrError.root)
               return rpcOk({})
             }
+            case 'provider/status': {
+              // 面板「当前生效提供方」的唯一事实源：读 image 槽位的 providerId，
+              // 不从偏好或组合文件推断，避免面板与实际挂载漂移。
+              const service = ctx.get('image') as ImageGenerationServiceFace | undefined
+              return rpcOk({
+                active: service?.providerId ?? 'unknown',
+              })
+            }
             case 'test-connection': {
-              // 只回机器可判的 reason + 原始 detail；用户可见文案由客户端按语言渲染
-              const credentials = ctx.get('credentials') as CredentialsFace | undefined
-              const ref = credentialRef('DASHSCOPE_API_KEY')
+              // 只回机器可判的 reason + 原始 detail；用户可见文案由客户端按语言渲染。
+              // 探测参数随生效提供方分流（网关、凭据引用、探测路径都不同）。
+              const service = ctx.get('image') as ImageGenerationServiceFace | undefined
+              const probe =
+                service?.providerId === 'volcengine' ? PROBES.volcengine : PROBES.dashscope
+              const credentialName =
+                readProviderConfigString(service, 'apiKey') ?? probe.defaultCredential
+              const ref = credentialRef(credentialName)
               // 取值仅用于探测请求的 Authorization 头，永不进入任何响应
               let apiKey: string | undefined
+              const credentials = ctx.get('credentials') as CredentialsFace | undefined
               if (credentials !== undefined) {
                 const hit = await credentials.resolve(ref).catch(() => undefined)
                 apiKey = hit?.value
@@ -1070,29 +1156,28 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
               if (apiKey === undefined || apiKey === '') {
                 return rpcOk({ ok: false, reason: 'missing-key' })
               }
+              const baseUrl = readProviderConfigString(service, 'baseUrl') ?? probe.defaultBaseUrl
               try {
                 // 鉴权探测：向图像生成端点发空体 POST（不消耗生成配额）。
-                // 网关鉴权先于参数校验：无效 key → 401/InvalidApiKey；
+                // 两家网关都是鉴权先于参数校验：无效 key → 401；
                 // 有效 key → 400 参数错误；429 限流也说明鉴权已通过。
-                const res = await fetch(
-                  'https://dashscope.aliyuncs.com/api/v1/services/aigc/image-generation/generation',
-                  {
-                    method: 'POST',
-                    headers: {
-                      Authorization: `Bearer ${apiKey}`,
-                      'content-type': 'application/json',
-                    },
-                    body: '{}',
-                    signal: AbortSignal.timeout(8_000),
-                    redirect: 'error',
+                const res = await fetch(baseUrl + probe.path, {
+                  method: 'POST',
+                  headers: {
+                    Authorization: `Bearer ${apiKey}`,
+                    'content-type': 'application/json',
                   },
-                )
+                  body: '{}',
+                  signal: AbortSignal.timeout(8_000),
+                  redirect: 'error',
+                })
                 const respBody = (await res.json().catch(() => ({}))) as { code?: unknown }
                 const code = typeof respBody.code === 'string' ? respBody.code : ''
                 if (
                   res.status === 401 ||
                   code.includes('InvalidApiKey') ||
-                  code.includes('Unauthorized')
+                  code.includes('Unauthorized') ||
+                  code.includes('AuthenticationError')
                 ) {
                   return rpcOk({ ok: false, reason: 'invalid-key' })
                 }
@@ -1171,10 +1256,44 @@ function trustedRoot(
 
 /** image 服务的结构面（兼容 @mackwan84/dsh-image 的抽象契约）。 */
 interface ImageGenerationServiceFace {
+  /** 提供方稳定标识（契约成员），供面板与探测分流识别生效提供方。 */
+  readonly providerId: string
   generate(
     spec: ImageGenerateSpec,
     signal?: AbortSignal,
   ): Promise<{ model: string; images: readonly { url: string; mediaType?: string }[] }>
+  edit(
+    spec: ImageEditSpec,
+    signal?: AbortSignal,
+  ): Promise<{ model: string; images: readonly { url: string; mediaType?: string }[] }>
+}
+
+/**
+ * 各提供方的鉴权探测参数：网关、凭据引用名与探测路径。
+ * 默认值兜底 Provider config 缺失（服务未挂载）的场景；生效 Provider 的
+ * config.apiKey / config.baseUrl 可被用户改写，优先于默认值。
+ */
+const PROBES = {
+  dashscope: {
+    defaultCredential: 'DASHSCOPE_API_KEY',
+    defaultBaseUrl: 'https://dashscope.aliyuncs.com',
+    path: '/api/v1/services/aigc/image-generation/generation',
+  },
+  volcengine: {
+    defaultCredential: 'ARK_API_KEY',
+    defaultBaseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
+    path: '/images/generations',
+  },
+} as const
+
+/** 从生效 Provider 的 config 读字符串字段；服务缺失或字段非字符串时返回 undefined。 */
+function readProviderConfigString(
+  service: ImageGenerationServiceFace | undefined,
+  key: 'apiKey' | 'baseUrl',
+): string | undefined {
+  if (service === undefined) return undefined
+  const value = (service as { config?: Record<string, unknown> }).config?.[key]
+  return typeof value === 'string' && value !== '' ? value : undefined
 }
 
 /** 供单元测试引用的内部实现。 */
