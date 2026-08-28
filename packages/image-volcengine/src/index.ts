@@ -62,8 +62,8 @@ export interface Config {
 export const Config: z<Config> = z.object({
   apiKey: z.string().default('ARK_API_KEY'),
   baseUrl: z.string().default('https://ark.cn-beijing.volces.com/api/v3'),
-  wireframeModel: z.string().default('doubao-seedream-4-0-250828'),
-  highFidelityModel: z.string().default('doubao-seedream-4-0-250828'),
+  wireframeModel: z.string().default('doubao-seedream-4-5-251128'),
+  highFidelityModel: z.string().default('doubao-seedream-5-0-pro-260628'),
   editModel: z.string().default('doubao-seededit-3-0-i2i-250628'),
   requestTimeoutMs: z.number().default(300_000),
   rateLimitRetries: z.number().default(2),

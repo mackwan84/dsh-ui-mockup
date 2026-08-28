@@ -18,8 +18,8 @@
 | -------------------- | ------------------------------------------ | ---------------------------------- |
 | `apiKey`             | `ARK_API_KEY`                              | 凭据引用（环境变量名）             |
 | `baseUrl`            | `https://ark.cn-beijing.volces.com/api/v3` | 网关（国内；国际站为 bytepluses）  |
-| `wireframeModel`     | `doubao-seedream-4-0-250828`               | 线框图模型                         |
-| `highFidelityModel`  | `doubao-seedream-4-0-250828`               | 高保真模型                         |
+| `wireframeModel`     | `doubao-seedream-4-5-251128`               | 线框图模型                         |
+| `highFidelityModel`  | `doubao-seedream-5-0-pro-260628`           | 高保真模型                         |
 | `editModel`          | `doubao-seededit-3-0-i2i-250628`           | 指令编辑模型                       |
 | `requestTimeoutMs`   | 300000                                     | 同步请求超时（官方未公布网关上限） |
 | `rateLimitRetries`   | 2                                          | 限流重试次数                       |

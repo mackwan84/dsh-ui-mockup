@@ -356,12 +356,12 @@ function sourceLabelText(t: PanelProps['t'], source: string | undefined): string
 
 const WIREFRAME_MODEL_HINTS: Record<ProviderId, string[]> = {
   dashscope: ['', 'qwen-image-3.0', 'qwen-image-2.0', 'wan2.7-image'],
-  volcengine: ['', 'doubao-seedream-4-0-250828'],
+  volcengine: ['', 'doubao-seedream-4-5-251128', 'doubao-seedream-4-0-250828'],
   unknown: ['', 'qwen-image-3.0'],
 }
 const HIGH_FIDELITY_MODEL_HINTS: Record<ProviderId, string[]> = {
   dashscope: ['', 'qwen-image-3.0-pro', 'qwen-image-2.0-pro', 'wan2.7-image-pro'],
-  volcengine: ['', 'doubao-seedream-4-0-250828'],
+  volcengine: ['', 'doubao-seedream-5-0-pro-260628', 'doubao-seedream-5-0-260128'],
   unknown: ['', 'qwen-image-3.0-pro'],
 }
 

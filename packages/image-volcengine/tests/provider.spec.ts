@@ -16,8 +16,8 @@ function makeConfig(overrides: Partial<ConfigType> = {}): ConfigType {
   return {
     apiKey: 'ARK_API_KEY',
     baseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
-    wireframeModel: 'doubao-seedream-4-0-250828',
-    highFidelityModel: 'doubao-seedream-4-0-250828',
+    wireframeModel: 'doubao-seedream-4-5-251128',
+    highFidelityModel: 'doubao-seedream-5-0-pro-260628',
     editModel: 'doubao-seededit-3-0-i2i-250628',
     requestTimeoutMs: 300_000,
     rateLimitRetries: 2,
@@ -66,7 +66,7 @@ function mockFetch(respond: Responder | Responder[]) {
   return calls
 }
 
-function okBody(model = 'doubao-seedream-4-0-250828', url = 'https://ark-cdn/r.png'): string {
+function okBody(model = 'doubao-seedream-4-5-251128', url = 'https://ark-cdn/r.png'): string {
   return JSON.stringify({ model, created: 0, data: [{ url }] })
 }
 
@@ -159,14 +159,14 @@ describe('generate request shape', () => {
     expect(calls[0]!.init.headers).toMatchObject({ Authorization: 'Bearer ark-test-key' })
     const body = JSON.parse(bodyOf(calls[0]!)) as Record<string, unknown>
     expect(body).toMatchObject({
-      model: 'doubao-seedream-4-0-250828',
+      model: 'doubao-seedream-4-5-251128',
       prompt: '黑白线框图测试',
       response_format: 'url',
       watermark: false,
       size: '1920x1080',
     })
     expect(body.image).toBeUndefined()
-    expect(result).toMatchObject({ model: 'doubao-seedream-4-0-250828' })
+    expect(result).toMatchObject({ model: 'doubao-seedream-4-5-251128' })
     expect(result.images).toEqual([{ url: 'https://ark-cdn/r.png' }])
   })
 
@@ -184,12 +184,12 @@ describe('generate request shape', () => {
 
   it('uses high-fidelity model default for high-fidelity spec', async () => {
     const calls = mockFetch(() => new Response(okBody(), { status: 200 }))
-    await provider({ highFidelityModel: 'doubao-seedream-4-5-251128' }).generate({
+    await provider({ highFidelityModel: 'doubao-seedream-5-0-260128' }).generate({
       ...wireframeSpec,
       fidelity: 'high-fidelity',
     })
     const body = JSON.parse(bodyOf(calls[0]!)) as Record<string, unknown>
-    expect(body.model).toBe('doubao-seedream-4-5-251128')
+    expect(body.model).toBe('doubao-seedream-5-0-260128')
   })
 
   it('serializes n>1 into sequential single-image calls', async () => {
@@ -409,11 +409,11 @@ describe('edit', () => {
 })
 
 describe('Config defaults', () => {
-  it('keeps the ARK product defaults for credentials and models', () => {
+  it('keeps the ARK product defaults for credentials and model tiering', () => {
     const parsed = Config()
     expect(parsed.apiKey).toBe('ARK_API_KEY')
-    expect(parsed.wireframeModel).toBe('doubao-seedream-4-0-250828')
-    expect(parsed.highFidelityModel).toBe('doubao-seedream-4-0-250828')
+    expect(parsed.wireframeModel).toBe('doubao-seedream-4-5-251128')
+    expect(parsed.highFidelityModel).toBe('doubao-seedream-5-0-pro-260628')
     expect(parsed.editModel).toBe('doubao-seededit-3-0-i2i-250628')
     expect(parsed.requestTimeoutMs).toBe(300_000)
     expect(parsed.rateLimitRetries).toBe(2)
