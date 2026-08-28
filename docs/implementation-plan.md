@@ -59,7 +59,7 @@ dsh plugin --profile web add github:mackwan84/dsh-ui-mockup#main   # 需 prepare
 | ------ | ---------------------------------------------------------------------- | --------------------------------------------------------- |
 | M1     | 骨架 + image Service + 百炼 Provider + Host 工具                       | `dsh plugin add` 本地装进 web profile，会话里能生成一张图 |
 | M2     | 客户端卡片（tool.call.toolview）+ 图片路由（webServer）+ i18n 双语字典 | 卡片渲染、语言切换实时生效                                |
-| M3 ✅  | 设置面板 4 页 + `design/history.jsonl` 历史 + 风格锚点联动             | 按已确认线框实现（design/spec.md），面板功能闭环          |
+| M3 ✅  | 设置面板 4 页 + 资产库生成历史 + 风格锚点联动                          | 按已确认线框实现（design/spec.md），面板功能闭环          |
 | M4     | 火山 Provider + I2I / 掩码编辑模式                                     | 双提供方切换可用                                          |
 
 每里程碑交付：单元测试、真实组合测试（Loader 真 cordis.yml）、README、invariant、打包发布检查。
@@ -83,7 +83,7 @@ dsh plugin --profile web add github:mackwan84/dsh-ui-mockup#main   # 需 prepare
 - 工具 `ui_mockup`（参数/模板/结果呈现沿用 MVP 验证实现）：
   - 参数：description（必填）、fidelity（用户选）、platform、style、count、model、size、reference、apiKey（仅后备，正常走 credentials）；
   - 模板：wireframe Balsamiq 风黑白线框 + 中文区块标注；high-fidelity 风格词 + 中文文案完整性；reference 时加"与基准图一致"约束；
-  - 结果：落盘 `design/images/` → `attachments.saveImage` → 工具结果图片块呈现；
+  - 结果：落盘资产库 `$DSH_HOME/mockups/<工作区>/images/` → `attachments.saveImage` → 工具结果图片块呈现；
   - **限流自动退避重试**（Throttling/RateQuota → 25s × 2 次）。
 - 提示词注入（systemPrompt section）：何时主动提议草图、fidelity 选择、确认后写 `design/spec.md`、spec 未确认不写前端代码；
 - 设计锁定：用户确认后提炼 `design/spec.md`（配色、字体、间距、组件清单、页面清单）。
@@ -91,7 +91,7 @@ dsh plugin --profile web add github:mackwan84/dsh-ui-mockup#main   # 需 prepare
 ### 6.4 客户端 UI
 
 - **工具卡片**：`tool.call.toolview` keyed `ui_mockup`——图片内嵌、确认/选用/修改意见按钮（消息带文件名）、打开原图；
-- **图片路由**：webServer prefix `/ui-mockup/images` 服务 `design/images/`；
+- **图片路由**：webServer prefix `/ui-mockup/images` 服务资产库图片（cwd 经信任源全集校验）；
 - **设置面板 4 页**（已确认线框）：概览 / 提供方与模型 / 生成偏好 / 生成历史；
   视觉跟随 DSH 主题（主题令牌 + 原生控件，浅/深色自适应），不做独立风格探索；
   「快速使用」文案以修正版为准（见 §6.4.1）。
