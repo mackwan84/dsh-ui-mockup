@@ -15,6 +15,16 @@
   box-sizing: border-box;
 }
 
+.ui-mockup-card,
+.ui-mockup-provider-card,
+.ui-mockup-overview,
+.ui-mockup-overview-status,
+.ui-mockup-quick-step {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+}
+
 .ui-mockup-tabs {
   gap: 22px;
   max-width: 100%;
@@ -45,6 +55,17 @@
   min-width: 0;
 }
 
+.ui-mockup-history-pagination,
+.ui-mockup-history-pages,
+.ui-mockup-history-anchor-nav {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.ui-mockup-history-page-number {
+  min-width: 28px;
+}
+
 @media (max-width: 640px) {
   .ui-mockup-tabs {
     gap: 16px;
@@ -55,10 +76,80 @@
     min-width: 0;
   }
 
+  .ui-mockup-card,
+  .ui-mockup-provider-card,
+  .ui-mockup-preferences-footer,
+  .ui-mockup-overview,
+  .ui-mockup-overview-status,
+  .ui-mockup-quick-step {
+    overflow: hidden;
+    overflow-wrap: anywhere;
+  }
+
+  .ui-mockup-overview-status,
+  .ui-mockup-quick-step {
+    flex-wrap: wrap;
+  }
+
+  .ui-mockup-field-row > *,
+  .ui-mockup-preferences-footer > *,
+  .ui-mockup-preferences-actions > *,
+  .ui-mockup-preferences-actions button {
+    box-sizing: border-box;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .ui-mockup-preferences-footer button,
+  .ui-mockup-preferences-actions button {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
   .ui-mockup-preferences-footer,
   .ui-mockup-history-toolbar,
-  .ui-mockup-history-row {
+  .ui-mockup-history-row,
+  .ui-mockup-history-anchor-nav {
     flex-wrap: wrap;
+  }
+
+  .ui-mockup-history-toolbar,
+  .ui-mockup-history-row,
+  .ui-mockup-history-actions,
+  .ui-mockup-history-pagination,
+  .ui-mockup-history-pages,
+  .ui-mockup-history-anchor-nav {
+    overflow: hidden;
+  }
+
+  .ui-mockup-history-pages {
+    flex-wrap: wrap;
+  }
+
+  .ui-mockup-history-toolbar > *,
+  .ui-mockup-history-actions > *,
+  .ui-mockup-history-actions button,
+  .ui-mockup-history-anchor-nav > * {
+    box-sizing: border-box;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .ui-mockup-history-toolbar button,
+  .ui-mockup-history-actions button,
+  .ui-mockup-history-pages button,
+  .ui-mockup-history-anchor-nav button {
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .ui-mockup-history-row > img {
+    max-width: 100%;
+    height: auto;
   }
 
   .ui-mockup-preferences-actions,

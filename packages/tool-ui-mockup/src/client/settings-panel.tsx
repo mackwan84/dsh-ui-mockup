@@ -227,6 +227,7 @@ function StatusDot({ ok, busy }: { ok: boolean; busy?: boolean }) {
 function Card({ title, children }: { title?: string; children: ReactNode }) {
   return (
     <div
+      className="ui-mockup-card"
       style={{
         display: 'flex',
         flexDirection: 'column',
@@ -357,13 +358,16 @@ function OverviewPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
     return <div style={{ color: tokens.labelTertiary }}>{t('panel.loading')}</div>
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+    <div
+      className="ui-mockup-overview"
+      style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
+    >
       <p style={{ margin: 0, fontSize: 13, lineHeight: '20px', color: tokens.labelTertiary }}>
         {t('panel.overview.intro')}
       </p>
       <Card title={t('panel.overview.quickTitle')}>
         {QUICK_STEPS.map(({ Icon, title, body }) => (
-          <div key={title} style={{ display: 'flex', gap: 8 }}>
+          <div key={title} className="ui-mockup-quick-step" style={{ display: 'flex', gap: 8 }}>
             <span aria-hidden style={{ flex: 'none', color: tokens.labelSecondary, marginTop: 2 }}>
               <Icon size={16} />
             </span>
@@ -376,6 +380,7 @@ function OverviewPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
         ))}
       </Card>
       <div
+        className="ui-mockup-overview-status"
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -662,6 +667,7 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
         {providerNotice !== null && <Notice>{providerNotice}</Notice>}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <label
+            className="ui-mockup-provider-card"
             style={{
               ...providerCardStyle(dashscopeActive),
               cursor: dashscopeActive || switching ? 'default' : 'pointer',
@@ -710,6 +716,7 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
             </div>
           </label>
           <label
+            className="ui-mockup-provider-card"
             style={{
               ...providerCardStyle(volcengineActive),
               cursor: volcengineActive || switching ? 'default' : 'pointer',
@@ -1343,6 +1350,7 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
       })}
       {anchorPage !== null && anchorPage !== page && (
         <div
+          className="ui-mockup-history-anchor-nav"
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -1361,6 +1369,7 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
 
       {totalPages > 1 && (
         <div
+          className="ui-mockup-history-pagination"
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -1372,7 +1381,10 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
           <span style={{ fontSize: 12, color: tokens.labelTertiary }}>
             {t('panel.history.totalCount', { n: total })}
           </span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <div
+            className="ui-mockup-history-pages"
+            style={{ display: 'flex', alignItems: 'center', gap: 4 }}
+          >
             <Button
               variant="ghost"
               size="sm"
@@ -1386,8 +1398,8 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
                 key={p}
                 variant={p === page ? 'primary' : 'ghost'}
                 size="sm"
+                className="ui-mockup-history-page-number"
                 onClick={() => void reload(appliedQuery, p)}
-                style={p === page ? { minWidth: 28 } : { minWidth: 28 }}
               >
                 {p}
               </Button>
