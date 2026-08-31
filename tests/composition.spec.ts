@@ -1170,7 +1170,7 @@ describe('ui-mockup real dynamic composition', () => {
           editBodies.push(JSON.parse(init?.body as string) as Record<string, unknown>)
           return new Response(
             JSON.stringify({
-              model: 'doubao-seededit-3-0-i2i-250628',
+              model: 'doubao-seedream-5-0-pro-260628',
               created: 0,
               data: [{ url: 'https://ark-cdn.example/edited.png' }],
             }),
@@ -1200,12 +1200,13 @@ describe('ui-mockup real dynamic composition', () => {
       )
 
       expect(value.ok, String(value.message)).toBe(true)
-      // 编辑请求直达方舟同步端点：seededit 模型 + 基准图 data URL + 编辑指令
+      // 编辑请求直达方舟同步端点：Seedream 模型 + 基准图 data URL + 编辑指令
       expect(editBodies).toHaveLength(1)
       expect(editBodies[0]).toMatchObject({
-        model: 'doubao-seededit-3-0-i2i-250628',
+        model: 'doubao-seedream-5-0-pro-260628',
         prompt: '把主按钮改成绿色',
         response_format: 'url',
+        size: '2K',
         watermark: false,
       })
       const image = editBodies[0]!.image as string[]
@@ -1216,7 +1217,7 @@ describe('ui-mockup real dynamic composition', () => {
       expect(booted.attachments.saved).toHaveLength(1)
       const history = await readFile(join(store, 'history.jsonl'), 'utf8')
       expect(history).toContain('"status":"edited"')
-      expect(history).toContain('doubao-seededit-3-0-i2i-250628')
+      expect(history).toContain('doubao-seedream-5-0-pro-260628')
     } finally {
       await rm(dir, { recursive: true, force: true })
     }

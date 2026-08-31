@@ -18,7 +18,7 @@ function makeConfig(overrides: Partial<ConfigType> = {}): ConfigType {
     baseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
     wireframeModel: 'doubao-seedream-4-5-251128',
     highFidelityModel: 'doubao-seedream-5-0-pro-260628',
-    editModel: 'doubao-seededit-3-0-i2i-250628',
+    editModel: 'doubao-seedream-5-0-pro-260628',
     requestTimeoutMs: 300_000,
     rateLimitRetries: 2,
     rateLimitBackoffMs: 25_000,
@@ -121,15 +121,19 @@ describe('toArkGenerateSize', () => {
 })
 
 describe('toArkEditSize', () => {
-  it('defaults to adaptive which follows the base image ratio', () => {
-    expect(toArkEditSize(undefined)).toBe('adaptive')
-    expect(toArkEditSize('')).toBe('adaptive')
+  it('defaults to the 2K tier accepted by Seedream edit mode', () => {
+    expect(toArkEditSize(undefined)).toBe('2K')
+    expect(toArkEditSize('')).toBe('2K')
   })
 
   it('passes tiers and pixel sizes through with format normalization only', () => {
     expect(toArkEditSize('2k')).toBe('2K')
     expect(toArkEditSize('1280*720')).toBe('1280x720')
     expect(() => toArkEditSize('宽x高')).toThrowError(ImageProviderError)
+  })
+
+  it('rejects the retired SeedEdit-only adaptive tier', () => {
+    expect(() => toArkEditSize('adaptive')).toThrowError(ImageProviderError)
   })
 })
 
@@ -397,18 +401,18 @@ describe('edit', () => {
     expect(calls).toHaveLength(0)
   })
 
-  it('posts base image and edit note on the seededit model with adaptive size', async () => {
+  it('posts base image and edit note on the Seedream model with 2K size', async () => {
     const calls = mockFetch(
-      () => new Response(okBody('doubao-seededit-3-0-i2i-250628'), { status: 200 }),
+      () => new Response(okBody('doubao-seedream-5-0-pro-260628'), { status: 200 }),
     )
     const result = await provider().edit(editSpec())
     expect(calls[0]!.url).toBe('https://ark.cn-beijing.volces.com/api/v3/images/generations')
     const body = JSON.parse(bodyOf(calls[0]!)) as Record<string, unknown>
     expect(body.prompt).toBe('把主按钮改成绿色')
-    expect(body.model).toBe('doubao-seededit-3-0-i2i-250628')
-    expect(body.size).toBe('adaptive')
+    expect(body.model).toBe('doubao-seedream-5-0-pro-260628')
+    expect(body.size).toBe('2K')
     expect(body.image).toEqual([`data:image/png;base64,${pngBytes.toString('base64')}`])
-    expect(result.model).toBe('doubao-seededit-3-0-i2i-250628')
+    expect(result.model).toBe('doubao-seedream-5-0-pro-260628')
   })
 
   it('lets an explicit model override the edit model default', async () => {
@@ -432,7 +436,7 @@ describe('Config defaults', () => {
     expect(parsed.apiKey).toBe('ARK_API_KEY')
     expect(parsed.wireframeModel).toBe('doubao-seedream-4-5-251128')
     expect(parsed.highFidelityModel).toBe('doubao-seedream-5-0-pro-260628')
-    expect(parsed.editModel).toBe('doubao-seededit-3-0-i2i-250628')
+    expect(parsed.editModel).toBe('doubao-seedream-5-0-pro-260628')
     expect(parsed.requestTimeoutMs).toBe(300_000)
     expect(parsed.rateLimitRetries).toBe(2)
   })

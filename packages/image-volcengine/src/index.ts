@@ -49,7 +49,7 @@ export interface Config {
   wireframeModel: string
   /** 高保真默认模型。 */
   highFidelityModel: string
-  /** 指令编辑默认模型（seededit 3.0 i2i，与生成共用同一端点）。 */
+  /** 指令编辑默认模型（Seedream 5.0 Pro，与生成共用同一端点）。 */
   editModel: string
   /** 同步请求超时（毫秒）；官方未公布网关上限，4K 长耗时建议 ≥300s。 */
   requestTimeoutMs: number
@@ -64,7 +64,7 @@ export const Config: z<Config> = z.object({
   baseUrl: z.string().default('https://ark.cn-beijing.volces.com/api/v3'),
   wireframeModel: z.string().default('doubao-seedream-4-5-251128'),
   highFidelityModel: z.string().default('doubao-seedream-5-0-pro-260628'),
-  editModel: z.string().default('doubao-seededit-3-0-i2i-250628'),
+  editModel: z.string().default('doubao-seedream-5-0-pro-260628'),
   requestTimeoutMs: z.number().default(300_000),
   rateLimitRetries: z.number().default(2),
   rateLimitBackoffMs: z.number().default(25_000),
@@ -120,7 +120,7 @@ function clampArkDimensions(
 /**
  * 插件统一 size（"1280*720" 风格或档位名）→ 方舟生成 size 值（seedream 系）。
  * 方舟与百炼的画幅体系不同：档位 "1K/2K/4K" 与显式 "宽x高" 是两种互斥写法
- * （单次请求只传一种，天然不混用）；"adaptive" 是 seededit 专属档位，生成路径不接受。
+ * （单次请求只传一种，天然不混用）；"adaptive" 是已下线 SeedEdit 的旧档位，生成路径不接受。
  * 缺省统一 '2K' 档位（产品决策：所有输出最低 2K，分辨率与横竖方向由网关/模型
  * 按内容自决——2026-08 对话实测 2K 档位出图正常）；档位与像素两种写法由
  * 调用方显式传入时按原样归一；显式 WxH 低于总像素下限时等比放大，
@@ -136,7 +136,7 @@ export function toArkGenerateSize(size: string | undefined): string {
     if (tier === 'adaptive') {
       throw new ImageProviderError(
         'INVALID_PARAMETER',
-        'adaptive 画幅仅用于编辑模式（seededit）; 生成请用 1K/2K/4K 或 宽x高',
+        'adaptive 是已下线 SeedEdit 的旧画幅；请用 1K/2K/4K 或 宽x高',
       )
     }
     return tier
@@ -159,20 +159,29 @@ export function toArkGenerateSize(size: string | undefined): string {
 }
 
 /**
- * 编辑（seededit）size：缺省 "adaptive"（跟随基准图比例，编辑场景最稳）；
+ * 编辑（Seedream）size：缺省 "2K"（模型按基准图比例决定实际宽高）；
  * 显式值只做格式归一（* → x、档位大小写），不套生成的边长钳制——
- * seededit 显式像素的合法域官方未确认，交由网关校验并经错误映射如实上报。
+ * Seedream 编辑的显式像素合法域交由网关校验并经错误映射如实上报。
+ * 已下线 SeedEdit 使用的 "adaptive" 不再下发，避免 Seedream 5.0 Pro 返回参数错误。
  */
 export function toArkEditSize(size: string | undefined): string {
-  if (size === undefined || size.trim() === '') return 'adaptive'
+  if (size === undefined || size.trim() === '') return '2K'
   const normalized = size.trim().toLowerCase()
   const tier = ARK_SIZE_TIERS.get(normalized)
-  if (tier !== undefined) return tier
+  if (tier !== undefined) {
+    if (tier === 'adaptive') {
+      throw new ImageProviderError(
+        'INVALID_PARAMETER',
+        'adaptive 是已下线 SeedEdit 的旧画幅；Seedream 编辑请用 1K/2K/4K 或 宽x高',
+      )
+    }
+    return tier
+  }
   if (/^\d+x\d+$/.test(normalized)) return normalized
   if (/^\d+\*\d+$/.test(normalized)) return normalized.replace('*', 'x')
   throw new ImageProviderError(
     'INVALID_PARAMETER',
-    `画幅 ${size} 不是方舟接受的格式（adaptive/1K/2K/4K 或 宽x高）`,
+    `画幅 ${size} 不是方舟接受的格式（1K/2K/4K 或 宽x高）`,
   )
 }
 
@@ -347,7 +356,7 @@ export default class VolcengineImageProvider extends ImageGenerationService {
       )
     }
     const apiKey = await this.resolveApiKey()
-    // 编辑默认走 seededit 3.0 i2i（指令编辑专用），显式 spec.model 覆盖
+    // 编辑默认走 Seedream 5.0 Pro，显式 spec.model 仍可覆盖接入点或模型 ID
     const model = spec.model ?? this.config.editModel
     const body: JsonObject = {
       model,

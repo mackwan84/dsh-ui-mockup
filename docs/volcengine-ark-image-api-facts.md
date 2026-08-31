@@ -1,7 +1,12 @@
 # 火山方舟(Volcengine Ark)图像 API 事实清单
 
-> 调研日期:2025 年(以官方文档当前版本为准)。主要事实来自官方文档原文(已抓取并解析正文),
-> 少数点通过高可信镜像/国际站文档交叉验证,不确定处均标注「未确认」。
+> 初始调研日期：2025 年；迁移复核日期：2026-08-28。主要事实来自官方文档，
+> 少数点通过真实浏览器调用交叉验证，不确定处均标注「未确认」。
+>
+> **迁移结论**：SeedEdit 系列已停止服务，`doubao-seededit-3-0-i2i-250628`
+> 实测返回 `InvalidEndpointOrModel.NotFound`。当前指令编辑默认使用
+> `doubao-seedream-5-0-pro-260628`；`size=2K` 与显式 `2048x1152` 已真实出图，
+> 旧 `adaptive` 值会被 Seedream 5.0 Pro 以 `InvalidParameter` 拒绝。
 
 ## 1. 端点与认证
 
@@ -12,19 +17,21 @@
   来源:同上「Base URL 及鉴权」文档(原文:"在 HTTP 请求 header 中添加 Authorization: Bearer $ARK_API_KEY"、"通过 Access Key 鉴权,model 字段需配置为 Endpoint ID")。
 - **国际站(BytePlus ModelArk)**:数据面 Base URL 为 `https://ark.ap-southeast.bytepluses.com/api/v3`,认证同样为 `Authorization: Bearer $ARK_API_KEY`。
   来源:[BytePlus ModelArk「Base URL and authentication」](https://docs.byteplus.com/en/docs/ModelArk/1298459)。
-- **方舟没有独立的 `/images/edits` 端点**:图像编辑(SeedEdit)与文生图/图生图复用同一个 `POST /api/v3/images/generations`。部分第三方网关(如 cometapi)自行提供 OpenAI 风格 `/images/edits`,那不是方舟官方接口。
-  来源:[Generations(SeedEdit 3.0)— 302.AI 镜像(复制自官方文档)](https://share.apifox.cn/apidoc/docs-site/4012774/ru/324771671e0)、[gptproto「official-format」SeedEdit 文档](https://docs.gptproto.com/docs/api/Doubao/seededit-3-0-i2i-250628/official-format/image-edit)(均显示 `POST /api/v3/images/generations`)。
+- **方舟没有独立的 `/images/edits` 端点**：Seedream 的生成、参考图 I2I 与指令编辑
+  复用 `POST /api/v3/images/generations`。部分第三方网关提供的 OpenAI 风格
+  `/images/edits` 不是方舟官方接口。来源：[Seedream 4.0–5.0 教程](https://www.volcengine.com/docs/82379/1824121?lang=zh)、[图片生成 API](https://www.volcengine.com/docs/82379/1666946)。
 
 ## 2. 模型与 Model ID / Endpoint ID
 
 - **`model` 参数既可直接填 Model ID(模型名),也可填 Endpoint ID(`ep-xxxx`)**。官方原文:
   "您需要调用的模型的 ID(Model ID)……您也可通过 Endpoint ID 来调用模型,获得限流、计费类型、运行状态查询、监控、安全等高级能力"。
   来源:[图片生成 API 文档 Body 参数 model 字段](https://www.volcengine.com/docs/82379/1541523)。
-- 关键模型 ID:
-  - `doubao-seedream-4-0-250828`:Seedream 4.0,文生图 + 单图/多图参考图生图 + 组图生成。
-  - `doubao-seededit-3-0-i2i-250628`:SeedEdit 3.0,指令式图像编辑(i2i),按 prompt 对输入图做增删改替。
-    来源:[BytePlus ModelArk SeedEdit 3.0 模型页](https://docs.byteplus.com/en/docs/ModelArk/1729477)(模型版本 `seededit-3-0-i2i-250628`,按张计费,IPM 限流 500 张/分钟)、上述 SeedEdit Generations 镜像文档。
-  - 同文档还覆盖更新的 `doubao-seedream-4-5-251128`、`doubao-seedream-5-0-*`(实现时可先只支持 4.0/seededit 3.0)。
+- 当前实现使用的关键模型 ID：
+  - `doubao-seedream-4-5-251128`：默认线框生成与参考图 I2I；
+  - `doubao-seedream-5-0-pro-260628`：默认高保真生成与指令编辑，主打精准图像编辑；
+  - `doubao-seedream-4-0-250828`：仍可作为显式模型覆盖使用。
+- `doubao-seededit-3-0-i2i-250628` 仅作为历史迁移记录保留，不得继续设为默认值。
+  当前模型说明来源：[Seedream 4.0–5.0 教程](https://www.volcengine.com/docs/82379/1824121?lang=zh)。
 - Model ID 查询入口:[方舟「模型列表」文档](https://www.volcengine.com/docs/82379/1330310)。
 
 ## 3. 文生图请求体(Seedream 4.0)
@@ -45,7 +52,8 @@
 | `optimize_prompt_options`                        | object,可选                 | 提示词优化(`mode: standard/fast`)                                                                                                                                                                                                                                                                                                    |
 | `tools`                                          | object[],可选               | 联网搜索等(4.5+ 能力)                                                                                                                                                                                                                                                                                                                |
 
-- **`seed`、`guidance_scale` 在 Seedream 4.0/4.5/5.0 的图片生成 API 中不存在**(原文参数表无此字段);它们属于 Seedream 3.0 / SeedEdit 3.0 一代的参数。实现时不要给 seedream-4-0 传这两个字段。
+- **`seed`、`guidance_scale` 在 Seedream 4.0/4.5/5.0 的图片生成 API 中不存在**
+  （原文参数表无此字段）；实现不得向当前 Seedream 请求追加这两个历史参数。
 
 ## 4. 参考图生图(I2I)
 
@@ -56,17 +64,22 @@
   (注:早期资料中 seedream 4.0 写「最多 10 张」,现官方文档已更新为 14 张;组图场景另受「参考图 + 生成图 ≤ 15」约束。)
 - 单图约束:格式 jpeg/png/webp/bmp/tiff/gif/heic/heif;宽高比 [1/16,16];宽高 >14px;≤30MB;总像素 [196, 6000×6000]。
 
-## 5. 图像编辑(SeedEdit 3.0)与 mask 局部重绘
+## 5. 图像编辑（Seedream 5.0 Pro）与 mask 局部重绘
 
-- **端点**:复用 `POST /api/v3/images/generations`,无独立 edits 端点(见第 1 点)。
-- **请求体**(来源:[Generations(SeedEdit 3.0)官方文档镜像](https://share.apifox.cn/apidoc/docs-site/4012774/ru/324771671e0),与 [gptproto official-format](https://docs.gptproto.com/docs/api/Doubao/seededit-3-0-i2i-250628/official-format/image-edit) 一致):
-  - 必选:`model`(`doubao-seededit-3-0-i2i-250628`)、`prompt`(编辑指令,如"改成爱心形状的泡泡")、`image`(**单张**待编辑图,URL 或 base64);
-  - 可选:`response_format`(url/b64_json)、`size`(示例/默认 `"adaptive"`;显式像素的合法范围**未确认**,疑为总像素 [512x512, 2048x2048])、`seed`(integer,[-1, 2147483647],-1/缺省为随机)、`guidance_scale`(number,[1,10],示例 5.5,值越大越贴 prompt)、`watermark`(boolean,默认 true)。
-- **mask 局部重绘:方舟 API 不支持**。Seedream 4.0–5.0 与 SeedEdit 3.0 的请求参数中均无 `mask` 字段;局部编辑只能靠指令式编辑(SeedEdit)或 Seedream 5.0 pro 的"交互编辑"(坐标/框选写在 prompt 里)。
+- **端点**：复用 `POST /api/v3/images/generations`，无独立 edits 端点（见第 1 点）。
+- **当前请求体**：`model=doubao-seedream-5-0-pro-260628`、`prompt` 为编辑指令、
+  `image` 为基准图 data URL 数组、`size=2K`（缺省）或显式 `宽x高`、
+  `response_format=url`、`watermark=false`。
+- **尺寸迁移约束**：不能继续发送 SeedEdit 的 `adaptive`。2026-08-28 真实调用结果为：
+  不传 size（旧实现下发 `adaptive`）返回 HTTP 400；`2K` 预设成功并保持基准图画幅；
+  显式 `2048x1152` 也成功。
+- **mask 局部重绘：方舟 API 不支持**。当前参数中无 `mask` 字段；局部编辑通过
+  Seedream 5.0 Pro 的指令或在 prompt 中描述坐标/框选完成。
 - **「inpainting 涂抹编辑(下线中)」不是方舟 API**:该页面属于「图像生成大模型(智能视觉 CV 服务)」文档(产品 ID 86081),端点为
   `https://visual.volcengineapi.com?Action=CVSync2AsyncSubmitTask&Version=2022-08-31`(查询用 `CVSync2AsyncGetResult`),Header 固定 `Region=cn-north-1, Service=cv`,Body 用 `req_json` 包裹,是**异步任务(提交+轮询)**风格,与方舟 OpenAI 兼容 API 完全不同。
   来源:[inpainting涂抹编辑(下线中)](https://www.volcengine.com/docs/86081/1804490)(已解析原文确认上述 Action/Version/Region/Service)。
-- **对实现的影响**:无需理睬该下线页面;方舟 Provider 不提供 mask inpainting,局部编辑走 SeedEdit 3.0 指令编辑即可。
+- **对实现的影响**：方舟 Provider 不调用旧视觉服务，不提供 mask inpainting；
+  指令编辑统一走 Seedream 5.0 Pro。
 
 ## 6. 响应结构
 
@@ -83,7 +96,7 @@
   - `data[]` 每项:`url`(response_format=url 时,24h 失效)或 `b64_json`;Seedream 4.0+ 还含 `size`(如 `2048x2048`)、`output_format`;**组图模式下某张图失败时该项含 `error:{code,message}`,不影响其他图**(审核失败继续后续生成,500 内部错误则中止)。
   - `usage`:`generated_images`(成功张数,按成功张数计费)、`output_tokens`(= sum(长×宽)/256 取整)、`total_tokens`(当前= output_tokens)。
   - 整请求失败时顶层含 `error: { code, message }`。
-    来源:[图片生成 API 文档响应参数](https://www.volcengine.com/docs/82379/1541523);SeedEdit 3.0 响应结构相同(model/created/data/usage.generated_images/error),见 [SeedEdit 镜像文档响应节](https://share.apifox.cn/apidoc/docs-site/4012774/ru/324771671e0)。
+    来源：[图片生成 API](https://www.volcengine.com/docs/82379/1666946)。
 - 错误响应:HTTP 状态码 + 结构化错误体 `{"error": {"code": "...", "message": "..."}}`(方舟错误码文档按 HTTP 状态码组织,见下点)。
 
 ## 7. 限流与错误码
@@ -98,12 +111,13 @@
   - `RequestBurstTooFast`:流量突增触发系统保护(应放缓增速);
   - `SetLimitExceeded`:达到「安心体验模式」推理限额,模型服务被暂停(需控制台调整)。
 - 其他常见码:`401 AuthenticationError`(API Key 缺失/非法/过期)、`403 AccessDenied`、`400 MissingParameter` / `InvalidParameter`、`400 SensitiveContentDetected.*`(输入文本审核)、`400 OutputImageSensitiveContentDetected.*`(输出图审核)、`500 InternalServerError`。
-- 图像模型的并发/限流默认值示例:SeedEdit 3.0 IPM=500 张/分钟(来源:[BytePlus SeedEdit 3.0 模型页](https://docs.byteplus.com/en/docs/ModelArk/1729477));具体额度以控制台接入点配置为准。
+- 图像模型的具体并发与限流以账号控制台接入点配置为准，不沿用已下线模型的历史额度。
 - 「FlowLimit」「AccountLimitLimitExceeded」均为**旧 CV 服务/误传**,方舟侧未见到这两个 code(**未确认其存在于方舟**,按官方错误码文档为准)。
 
 ## 8. 超时与时延
 
-- **未确认(官方文档未给出数字)**:方舟图片生成 API 的网关同步超时上限、以及 seedream 4.0/seededit 3.0 的官方典型耗时,在本次调研的官方文档中均未找到明确数值。
+- **未确认（官方文档未给出数字）**：方舟图片生成 API 的网关同步超时上限，
+  以及 Seedream 4.0–5.0 的官方典型耗时，在本次调研的官方文档中均未找到明确数值。
 - 可确认的事实:
   - 接口是**同步**的(非流式时需等服务端生成完毕才返回),Seedream 4.0+ 支持 `stream:true` 用 SSE 降低首图等待(来源:图片生成 API 文档)。
   - 文档建议对时延敏感业务用 `optimize_prompt_options.mode=fast` 或减少组图数量(原文:"如您的业务对生成时延较为敏感,推荐使用 fast 模式")。
@@ -115,10 +129,16 @@
 
 1. **单端点**:只需 `POST {base_url}/images/generations`,文生图/图生图/指令编辑全部复用;不需要 `/images/edits`,没有 mask 能力。
 2. **认证**:`Authorization: Bearer <API Key>` 一个头即可;base_url 国内 `https://ark.cn-beijing.volces.com/api/v3`,国际站 `https://ark.ap-southeast.bytepluses.com/api/v3`(做成可配置项)。
-3. **model 直填模型名**:`doubao-seedream-4-0-250828` / `doubao-seededit-3-0-i2i-250628` 可直接作为 model 参数,无需用户创建接入点;但也应允许填 `ep-xxxx`。
-4. **size 双轨制**:seedream 4.0 支持 `"1K"/"2K"/"4K"` 档位或显式 `"WxH"`(总像素 [1280x720, 4096x4096],宽高比 [1/16,16],默认 2048x2048);**不要传 "1024x1024"**(低于下限)。seededit 3.0 用 `"adaptive"` 最稳。
-5. **参数按模型分流**:`seed`/`guidance_scale` 只给 seededit 3.0 传;`sequential_image_generation(+max_images)`/`stream` 只给 seedream 4.0+ 传;`watermark`、`response_format` 通用。
-6. **参考图**:`image` 字段接受 URL 或 `data:image/<fmt>;base64,...`(格式名小写),seedream 4.0 最多 14 张,seededit 仅 1 张。
+3. **model 直填模型名**：生成可使用 `doubao-seedream-4-0-250828` /
+   `doubao-seedream-4-5-251128`，高保真与编辑默认
+   `doubao-seedream-5-0-pro-260628`；也允许填 `ep-xxxx`。
+4. **size 双轨制**：支持 `"1K"/"2K"/"4K"` 档位或显式 `"WxH"`；生成与编辑
+   缺省均为 `2K`。不得向 Seedream 5.0 Pro 发送历史 `adaptive` 值。
+5. **参数按模型能力发送**：当前实现不传 `seed`/`guidance_scale`；
+   `sequential_image_generation(+max_images)`/`stream` 尚未启用；`watermark`、
+   `response_format` 通用。
+6. **参考图**：`image` 字段接受 URL 或 `data:image/<fmt>;base64,...`（格式名小写）；
+   当前 Provider 单次只内联 1 张参考图或基准图。
 7. **同步响应**:无需轮询;解析 `data[].url`/`data[].b64_json` 即可,url 24h 失效应立即下载;整请求失败看顶层 `error.code/message`,组图部分失败看 `data[].error`。
 8. **错误处理**:按 HTTP 状态码 + `error.code` 分类;429 即限流(图像场景重点看 `ModelAccountIpmRateLimitExceeded` 与各 `RateLimitExceeded.*`),可指数退避重试;400 审核类(`SensitiveContentDetected.*`)不应重试,应把 message 透传给用户。
 9. **超时**:官方未公布网关上限;建议可配置超时,默认 ≥120s,组图/多参考图场景建议 300s+,或启用 `stream: true`。

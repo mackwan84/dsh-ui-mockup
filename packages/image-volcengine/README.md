@@ -5,7 +5,7 @@
 
 - **doubao-seedream 4.0 系列**：`/api/v3/images/generations` 同步调用（文生图 + 参考图
   I2I，参考图最多 14 张、本 Provider 取 1 张内联 data URL）；
-- **doubao-seededit 3.0 i2i**：同端点指令编辑（基准图 + 编辑指令，默认编辑模型）；
+- **doubao-seedream 5.0 pro**：同端点指令编辑（基准图 + 编辑指令，默认编辑模型）；
 - **同步 API**：无任务轮询；配置化请求超时（`AbortSignal.any` 组合调用方取消）；
 - **限流自动退避重试**（HTTP 429，`ModelAccountIpmRateLimitExceeded` 等错误码 → 25s × 2）；
 - 固定 `response_format: 'url'`、`watermark: false`（草图不加水印）；
@@ -20,7 +20,7 @@
 | `baseUrl`            | `https://ark.cn-beijing.volces.com/api/v3` | 网关（国内；国际站为 bytepluses）  |
 | `wireframeModel`     | `doubao-seedream-4-5-251128`               | 线框图模型                         |
 | `highFidelityModel`  | `doubao-seedream-5-0-pro-260628`           | 高保真模型                         |
-| `editModel`          | `doubao-seededit-3-0-i2i-250628`           | 指令编辑模型                       |
+| `editModel`          | `doubao-seedream-5-0-pro-260628`           | 指令编辑模型                       |
 | `requestTimeoutMs`   | 300000                                     | 同步请求超时（官方未公布网关上限） |
 | `rateLimitRetries`   | 2                                          | 限流重试次数                       |
 | `rateLimitBackoffMs` | 25000                                      | 限流退避间隔                       |
@@ -33,8 +33,9 @@
   网关按内容自决）；档位 `1K/2K/4K`，或显式 `宽x高`（合法域实测：总像素
   ≥ 2560x1440=3,686,400 且 ≤ 4096x4096，宽高比 [1/16, 16]；低于下限等比放大，
   超上界等比缩小）；
-- 编辑（seededit）：缺省 `adaptive`（跟随基准图比例）；显式值只做格式归一，
-  交由网关校验。
+- 编辑（Seedream）：**缺省 `2K` 档位**，由模型按基准图比例确定实际宽高；显式值只做格式
+  归一并交由网关校验。已下线 SeedEdit 的 `adaptive` 档位会在本地以
+  `INVALID_PARAMETER` 拒绝。
 
 ## Model Experience
 

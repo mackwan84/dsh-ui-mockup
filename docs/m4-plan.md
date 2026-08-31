@@ -32,7 +32,7 @@
    vitest alias 需为新包加映射；`pnpm pack:all` 需追加新包；
    组合测试的 modules Map 需注册 volcengine 包名。
 8. **方舟 API 与百炼的 size 体系不同**：百炼用 `"1280*720"` 像素串；方舟用
-   `adaptive / "1024x1024" / "2K" / "4K"` 档位（另有宽高像素写法，见 §3），
+   `"1K" / "2K" / "4K"` 档位（另有宽高像素写法，见 §3），
    Provider 层必须做格式翻译，不能透传。
 
 ## 3. 方舟（Volcengine Ark）API 关键事实
@@ -53,7 +53,7 @@
 | `model`                       | string   | `doubao-seedream-4-0-250828`（文生图 + 参考图 + 编辑一体）等 |
 | `prompt`                      | string   | 生成/编辑描述                                                |
 | `image`                       | string[] | 参考图（URL 或 base64 data URL），I2I / 编辑时传入           |
-| `size`                        | string   | `adaptive`（默认）/ `"1024x1024"` / `"2K"` / `"4K"`          |
+| `size`                        | string   | `"1K" / "2K"（默认）/ "4K"`，或显式 `"宽x高"`                |
 | `response_format`             | string   | 固定传 `url`（契约要求返回 URL）                             |
 | `watermark`                   | boolean  | 固定传 `false`（草图不加水印）                               |
 | `seed` / `guidance_scale`     | -        | 不透传，保持默认                                             |
@@ -92,8 +92,10 @@
 - [x] 国际站：BytePlus ModelArk `https://ark.ap-southeast.bytepluses.com/api/v3`
       （baseUrl 可配置，非必选项）。
 
-> 未确认项（实现已防御）：seededit 显式像素 size 的合法范围（编辑缺省 `adaptive`
-> 规避）、网关同步超时上限（`requestTimeoutMs` 默认 300s 可配置）。
+> 2026-08-28 迁移补充：SeedEdit 系列已下线；编辑默认迁移到
+> `doubao-seedream-5-0-pro-260628`。真实浏览器验证表明缺省 `adaptive` 会被拒绝，
+> `2K` 预设和显式 `2048x1152` 均可成功编辑。网关同步超时上限仍未确认
+> （`requestTimeoutMs` 默认 300s 可配置）。
 
 ## 4. 架构决策与依据
 
@@ -128,7 +130,7 @@ Config 键面：`apiKey`（默认 `ARK_API_KEY`）、`baseUrl`、`wireframeModel
 size 翻译规则（插件统一 `"宽*高"` → 方舟）：
 
 - `"数字*数字"` → 像素串 `"数字x数字"` 原样传（API 接受具体像素，见 §3.6 核对项）；
-- 命中档位名（`adaptive/2K/4K`，大小写不敏感）→ 归一为大写档位传；
+- 命中档位名（`1K/2K/4K`，大小写不敏感）→ 归一为大写档位传；
 - 缺省 → `2K`（web/mobile 同档位，方向由 prompt 内容表达）。
 
 ### D3 工具编辑入口：`baseImage` + `editNote`（最小面）
