@@ -44,17 +44,24 @@ function deferred<T>() {
 
 function createPrefs(
   initial: PanelPrefs = DEFAULT_PREFS,
-  options: { applyWrites?: boolean; firstWriteGate?: Promise<void> } = {},
+  options: {
+    applyWrites?: boolean
+    base?: PanelPrefs
+    firstWriteGate?: Promise<void>
+    user?: Partial<PanelPrefs>
+  } = {},
 ): PrefScope<PanelPrefs> {
-  let value = initial
+  const base = options.base ?? initial
+  let user: Partial<PanelPrefs> = { ...options.user }
+  let value = { ...base, ...user }
   let revision = 1
   let firstWrite = true
   const listeners = new Set<() => void>()
   const snapshot = (): ScopeSnapshot<PanelPrefs> => ({
     status: 'ready',
     value,
-    user: value,
-    base: undefined,
+    user: Object.keys(user).length === 0 ? undefined : user,
+    base,
     revision,
     writable: true,
     mode: 'host',
@@ -73,7 +80,10 @@ function createPrefs(
     },
     unset(field) {
       if (options.applyWrites === false) return Promise.resolve()
-      value = { ...value, [field]: DEFAULT_PREFS[field as keyof PanelPrefs] }
+      const nextUser = { ...user }
+      delete nextUser[field as keyof PanelPrefs]
+      user = nextUser
+      value = { ...base, ...user }
       revision += 1
       for (const listener of listeners) listener()
       return Promise.resolve()
@@ -82,7 +92,8 @@ function createPrefs(
 
   function apply(field: string, next: unknown): Promise<void> {
     if (options.applyWrites === false) return Promise.resolve()
-    value = { ...value, [field]: next }
+    user = { ...user, [field]: next }
+    value = { ...base, ...user }
     revision += 1
     for (const listener of listeners) listener()
     return Promise.resolve()
@@ -273,12 +284,33 @@ describe('PreferencesPage dirty state', () => {
   })
 
   it('恢复默认未落盘时保留当前草稿并报告失败', async () => {
-    const customized = { ...DEFAULT_PREFS, defaultPlatform: 'mobile' as const, defaultCount: 3 }
-    mountPanel({ prefs: createPrefs(customized, { applyWrites: false }) })
+    mountPanel({
+      prefs: createPrefs(DEFAULT_PREFS, {
+        applyWrites: false,
+        base: DEFAULT_PREFS,
+        user: { defaultPlatform: 'mobile', defaultCount: 3 },
+      }),
+    })
     fireEvent.click(screen.getByRole('tab', { name: '生成偏好' }))
     fireEvent.click(screen.getByRole('button', { name: '恢复默认' }))
 
     await screen.findByText('设置存储未确认本次更改，请重试。')
+    expect(screen.getByRole<HTMLInputElement>('radio', { name: 'Mobile' }).checked).toBe(true)
+    expect(screen.getByRole<HTMLInputElement>('radio', { name: '3' }).checked).toBe(true)
+  })
+
+  it('恢复默认成功后采用配置层 base 而不是内置默认', async () => {
+    const customBase = { ...DEFAULT_PREFS, defaultPlatform: 'mobile' as const, defaultCount: 3 }
+    mountPanel({
+      prefs: createPrefs(DEFAULT_PREFS, {
+        base: customBase,
+        user: { defaultPlatform: 'web', defaultCount: 2 },
+      }),
+    })
+    fireEvent.click(screen.getByRole('tab', { name: '生成偏好' }))
+    fireEvent.click(screen.getByRole('button', { name: '恢复默认' }))
+
+    expect((await screen.findByRole('status')).textContent).toBe('已保存 ✓')
     expect(screen.getByRole<HTMLInputElement>('radio', { name: 'Mobile' }).checked).toBe(true)
     expect(screen.getByRole<HTMLInputElement>('radio', { name: '3' }).checked).toBe(true)
   })
@@ -334,6 +366,9 @@ describe('HistoryPage search', () => {
     await waitFor(() => {
       expect(call.mock.calls.filter((args) => args[1] === 'history/list')).toHaveLength(2)
     })
+
+    fireEvent.change(search, { target: { value: '仪表盘' } })
+    expect(screen.getByRole('status').textContent).toContain('搜索条件已更改')
 
     fireEvent.click(screen.getByRole('button', { name: '清空历史' }))
     fireEvent.click(screen.getByRole('button', { name: '确认清空?' }))

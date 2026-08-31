@@ -889,6 +889,14 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
 
 /* ---------------- 生成偏好 ---------------- */
 
+const EDITABLE_PREF_FIELDS = [
+  'defaultFidelity',
+  'defaultPlatform',
+  'defaultCount',
+  'pollTimeoutMinutes',
+  'defaultSize',
+] as const
+
 /** 只比较本页可编辑字段；Provider 模型偏好不应影响本页保存按钮。 */
 function editablePrefsEqual(left: PanelPrefs, right: PanelPrefs): boolean {
   return (
@@ -898,6 +906,13 @@ function editablePrefsEqual(left: PanelPrefs, right: PanelPrefs): boolean {
     left.pollTimeoutMinutes === right.pollTimeoutMinutes &&
     left.defaultSize === right.defaultSize
   )
+}
+
+/** unset 成功以用户层字段消失为准；resolved value 可以来自自定义 composition base。 */
+function editableUserOverridesCleared(user: unknown): boolean {
+  if (user === undefined) return true
+  if (typeof user !== 'object' || user === null || Array.isArray(user)) return false
+  return EDITABLE_PREF_FIELDS.every((field) => !Object.prototype.hasOwnProperty.call(user, field))
 }
 
 function PreferencesPage({ t, prefs }: Omit<PanelProps, 'connection'>) {
@@ -947,6 +962,14 @@ function PreferencesPage({ t, prefs }: Omit<PanelProps, 'connection'>) {
     return actual
   }
 
+  const confirmResetApplied = (): PanelPrefs => {
+    const current = prefs.getSnapshot()
+    if (current.value === undefined || !editableUserOverridesCleared(current.user)) {
+      throw new Error(t('panel.prefs.writeNotApplied'))
+    }
+    return current.value
+  }
+
   const save = async () => {
     if (!beginMutation()) return
     try {
@@ -974,16 +997,10 @@ function PreferencesPage({ t, prefs }: Omit<PanelProps, 'connection'>) {
   const resetDefaults = async () => {
     if (!beginMutation()) return
     try {
-      for (const field of [
-        'defaultFidelity',
-        'defaultPlatform',
-        'defaultCount',
-        'pollTimeoutMinutes',
-        'defaultSize',
-      ] as const) {
+      for (const field of EDITABLE_PREF_FIELDS) {
         await prefs.unset(field)
       }
-      const applied = confirmApplied(PANEL_DEFAULTS)
+      const applied = confirmResetApplied()
       setDraft(applied)
       setBaseline(applied)
       setSavedAt(Date.now())
