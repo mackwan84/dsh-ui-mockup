@@ -150,3 +150,46 @@ describe('OverviewPage visuals', () => {
     expect(container.querySelectorAll('svg').length).toBeGreaterThanOrEqual(3)
   })
 })
+
+describe('Settings form accessibility', () => {
+  it('可通过可见字段名定位模型选择控件和凭据输入', async () => {
+    mountPanel()
+    fireEvent.click(screen.getByRole('tab', { name: '提供方与模型' }))
+
+    expect(await screen.findByRole('combobox', { name: '线框图' })).toBeTruthy()
+    expect(screen.getByRole('combobox', { name: '高保真' })).toBeTruthy()
+    expect(await screen.findByLabelText('DASHSCOPE_API_KEY 密钥')).toBeTruthy()
+  })
+
+  it('可通过可见字段名定位轮询超时和默认尺寸', () => {
+    mountPanel()
+    fireEvent.click(screen.getByRole('tab', { name: '生成偏好' }))
+
+    expect(screen.getByRole('spinbutton', { name: '轮询超时' })).toBeTruthy()
+    expect(screen.getByRole('combobox', { name: '默认尺寸' })).toBeTruthy()
+  })
+})
+
+describe('PreferencesPage dirty state', () => {
+  it('草稿恢复为保存值后立即重新禁用保存按钮', () => {
+    mountPanel()
+    fireEvent.click(screen.getByRole('tab', { name: '生成偏好' }))
+    const save = screen.getByRole<HTMLButtonElement>('button', { name: '保存' })
+    expect(save.disabled).toBe(true)
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Mobile' }))
+    expect(save.disabled).toBe(false)
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Web' }))
+    expect(save.disabled).toBe(true)
+  })
+
+  it('保存成功通过礼貌状态区播报', async () => {
+    mountPanel()
+    fireEvent.click(screen.getByRole('tab', { name: '生成偏好' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'Mobile' }))
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+
+    expect((await screen.findByRole('status')).textContent).toBe('已保存 ✓')
+  })
+})

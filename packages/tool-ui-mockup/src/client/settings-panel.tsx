@@ -767,6 +767,7 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
             <Input
               type="password"
+              aria-label={t('panel.credential.keyInputLabel', { credential: credentialName })}
               style={{ flex: '1 1 220px' }}
               value={keyDraft}
               autoComplete="off"
@@ -827,6 +828,7 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
       <Card title={t('panel.models.title')}>
         <FieldRow first label={t('panel.models.wireframe')}>
           <select
+            aria-label={t('panel.models.wireframe')}
             value={snap.value?.wireframeModel ?? ''}
             onChange={(event) =>
               void writePref(prefs, 'wireframeModel', event.target.value.trim(), setWriteError)
@@ -843,6 +845,7 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
         </FieldRow>
         <FieldRow label={t('panel.models.highFidelity')}>
           <select
+            aria-label={t('panel.models.highFidelity')}
             value={snap.value?.highFidelityModel ?? ''}
             onChange={(event) =>
               void writePref(prefs, 'highFidelityModel', event.target.value.trim(), setWriteError)
@@ -867,34 +870,54 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
 
 /* ---------------- 生成偏好 ---------------- */
 
+/** 只比较本页可编辑字段；Provider 模型偏好不应影响本页保存按钮。 */
+function editablePrefsEqual(left: PanelPrefs, right: PanelPrefs): boolean {
+  return (
+    left.defaultFidelity === right.defaultFidelity &&
+    left.defaultPlatform === right.defaultPlatform &&
+    left.defaultCount === right.defaultCount &&
+    left.pollTimeoutMinutes === right.pollTimeoutMinutes &&
+    left.defaultSize === right.defaultSize
+  )
+}
+
 function PreferencesPage({ t, prefs }: Omit<PanelProps, 'connection'>) {
   const snap = prefs.getSnapshot()
   usePrefSync(prefs)
   const initial = useMemo(() => snap.value ?? PANEL_DEFAULTS, [snap.value])
   const [draft, setDraft] = useState<PanelPrefs>(initial)
-  const [dirty, setDirty] = useState(false)
+  const [baseline, setBaseline] = useState<PanelPrefs>(initial)
   const [savedAt, setSavedAt] = useState(0)
   const [error, setError] = useState('')
+  const dirty = !editablePrefsEqual(draft, baseline)
 
   useEffect(() => {
     // 外部值到达/变化且本地没有未保存修改时回填草稿；避免覆盖正在编辑的内容
-    if (!dirty && snap.value !== undefined) setDraft(snap.value)
+    if (!dirty && snap.value !== undefined) {
+      setDraft(snap.value)
+      setBaseline(snap.value)
+    }
   }, [dirty, snap.value])
 
   const patch = (part: Partial<PanelPrefs>) => {
     setDraft((prev) => ({ ...prev, ...part }))
-    setDirty(true)
   }
 
   const save = async () => {
     setError('')
     try {
-      await prefs.set('defaultFidelity', draft.defaultFidelity)
-      await prefs.set('defaultPlatform', draft.defaultPlatform)
-      await prefs.set('defaultCount', Math.min(4, Math.max(1, Math.round(draft.defaultCount))))
-      await prefs.set('pollTimeoutMinutes', Math.max(1, Math.round(draft.pollTimeoutMinutes)))
-      await prefs.set('defaultSize', draft.defaultSize)
-      setDirty(false)
+      const saved = {
+        ...draft,
+        defaultCount: Math.min(4, Math.max(1, Math.round(draft.defaultCount))),
+        pollTimeoutMinutes: Math.max(1, Math.round(draft.pollTimeoutMinutes)),
+      }
+      await prefs.set('defaultFidelity', saved.defaultFidelity)
+      await prefs.set('defaultPlatform', saved.defaultPlatform)
+      await prefs.set('defaultCount', saved.defaultCount)
+      await prefs.set('pollTimeoutMinutes', saved.pollTimeoutMinutes)
+      await prefs.set('defaultSize', saved.defaultSize)
+      setDraft(saved)
+      setBaseline(saved)
       setSavedAt(Date.now())
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -914,7 +937,7 @@ function PreferencesPage({ t, prefs }: Omit<PanelProps, 'connection'>) {
         await prefs.unset(field)
       }
       setDraft(PANEL_DEFAULTS)
-      setDirty(false)
+      setBaseline(PANEL_DEFAULTS)
       setSavedAt(Date.now())
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -976,6 +999,7 @@ function PreferencesPage({ t, prefs }: Omit<PanelProps, 'connection'>) {
         <FieldRow label={t('panel.prefs.pollTimeout')}>
           <Input
             type="number"
+            aria-label={t('panel.prefs.pollTimeout')}
             min={1}
             max={60}
             style={{ width: 100 }}
@@ -994,6 +1018,7 @@ function PreferencesPage({ t, prefs }: Omit<PanelProps, 'connection'>) {
         </FieldRow>
         <FieldRow label={t('panel.prefs.size')}>
           <select
+            aria-label={t('panel.prefs.size')}
             value={draft.defaultSize}
             onChange={(event) => patch({ defaultSize: event.target.value })}
             disabled={readonlyNote}
@@ -1017,7 +1042,11 @@ function PreferencesPage({ t, prefs }: Omit<PanelProps, 'connection'>) {
         </Button>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
           {savedAt > 0 && !dirty && (
-            <span style={{ fontSize: 12, color: tokens.labelTertiary }}>
+            <span
+              role="status"
+              aria-live="polite"
+              style={{ fontSize: 12, color: tokens.labelTertiary }}
+            >
               {t('panel.prefs.saved')}
             </span>
           )}
