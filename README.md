@@ -6,12 +6,25 @@
 ## 功能特性
 
 - **内嵌展示**：生成图直接以卡片形式显示在对话中（带确认 / 选用 / 修改意见按钮），无需访问文件目录；
-- **模型分层**：线框图用 `qwen-image-3.0`（快、省），高保真用 `qwen-image-3.0-pro`（质量优先）；
+- **设计资产库**：生成图 / 锚点 / 历史集中存于 `$DSH_HOME/mockups/<工作区>/`（slug 与 DSH sessions 同款），
+  项目工作区不再落运行时产物；`design/spec.md` 等交付物仍留在项目内；
+- **模型分层**：按保真度分层，默认随生效提供方（百炼：线框 `qwen-image-3.0` / 高保真
+  `qwen-image-3.0-pro`；火山：线框 `doubao-seedream-4-5` / 高保真 `doubao-seedream-5-0-pro`）；
+- **当前万相能力**：百炼仅支持 `wan2.7-image` / `wan2.7-image-pro`，使用新版异步图像端点，
+  支持文生图与单参考图 I2I；Wan 2.2/2.6 与旧 `text2image` 端点已废弃；
+- **双提供方**：阿里云百炼 DashScope（默认启用）与火山方舟 Volcengine Ark（预置未启用）；
+  设置面板「提供方与模型」页**点卡片一键切换**——写入 DSH 用户层 patch 并热重载，无需重启；
+- **指令编辑**：对已生成图传 `baseImage` + `editNote` 走整图指令重绘（火山 Seedream 5.0 Pro，
+  比整体重新生成更快更贴近原稿）；
 - **风格一致**：参考图模式（I2I）以已确认页面为基准图，多页面保持同一品牌视觉；
 - **设计锁定**：用户确认后自动提炼 `design/spec.md`，未确认的页面不进入实现；
 - **限流退避**：接口限流自动重试（Throttling 25s × 2）；
 - **多语言**：客户端 UI 完整支持 DSH 语言切换（zh / en）；
-- **设置面板**：概览 / 提供方与模型 / 生成偏好 / 生成历史 四页（跟随 DSH 主题）。
+- **设置面板**：设置窗口「UI 草图」入口下四页——概览（快速使用三步）、提供方与模型
+  （凭据状态 + 测试连接 + 模型分层默认）、生成偏好（持久化到 settings 命名空间，
+  cordis.yml 为组合 base 层）、生成历史（搜索/清空/缩略图回看）；
+- **风格锚点**：历史页把某张生成图设为锚点后，`ui_mockup` 未显式传 reference 时
+  自动引用该图走 I2I，多页面风格保持一致；清空历史会一并解除锚点。
 
 ## 安装（未发布，开发方式）
 
@@ -24,8 +37,33 @@ dsh plugin --profile web add /path/to/dsh-ui-mockup/bundle/ui-mockup
 
 ## 配置
 
-- `.env`：`DASHSCOPE_API_KEY=sk-xxx`（阿里云百炼 API Key）；
-- 或使用设置面板填写/测试连接。
+凭据按以下优先级读取，**任选其一即可**；生效提供方决定凭据名：
+DashScope 用 `DASHSCOPE_API_KEY`（阿里云百炼），火山方舟用 `ARK_API_KEY`。
+
+1. 进程环境变量：启动 DSH 前 `export DASHSCOPE_API_KEY=sk-xxx`（CI / 容器同理）；
+2. DSH 密钥存储：`~/.dsh/.credentials.yaml`（在 DSH 设置 · 模型页写入，优先生效于 .env）；
+3. 项目 `.env`：在启动目录（通常是项目根）的 `.env` 中写 `DASHSCOPE_API_KEY=sk-xxx`；
+4. DSH 主目录 `.env`：`~/.dsh/.env`。
+
+也可以**不碰任何文件**：直接在 **设置 · UI 草图 · 提供方与模型** 页的凭据卡里填入
+新的密钥（写入即覆盖、永不回显，落到方式 2 的密钥存储；该页同时显示当前生效来源，
+进程环境变量存在时写入会被拒绝并提示原因），并可点「测试连接」验证。
+
+### 切换提供方（M4）
+
+安装包预置两行 Provider，火山方舟默认 `disabled: true`。在 **设置 · UI 草图 · 提供方与模型**
+页直接**点击提供方卡片**即可切换：插件把两行 id 定向 `disabled` 写入 DSH 用户层
+patch（`~/.dsh/cordis.patch.yml`，只增改这两行、不触碰其他内容），DSH 热重载组合后
+立即生效，无需重启：
+
+```yaml
+- id: image-dashscope
+  disabled: true
+- id: image-volcengine
+  disabled: false
+```
+
+详见 [bundle README](bundle/ui-mockup/README.md)。
 
 ## 使用
 
@@ -37,7 +75,21 @@ dsh plugin --profile web add /path/to/dsh-ui-mockup/bundle/ui-mockup
 
 ## 开发
 
-见 [docs/implementation-plan.md](docs/implementation-plan.md)（架构、里程碑 M1–M4、依赖策略、关键 API 事实）。
+- [docs/product-guide.md](docs/product-guide.md) — 产品文档（是什么 / 怎么用 / FAQ，含 mermaid 流程图与时序图）
+- [docs/implementation-plan.md](docs/implementation-plan.md) — 实施计划（架构、里程碑 M1–M4、依赖策略、关键 API 事实）
+
+常用命令：
+
+```sh
+pnpm test          # 单元 + 组合测试（无需先构建）
+pnpm typecheck     # 全仓 TypeScript 检查（根 tsconfig 统一入口）
+pnpm lint          # ESLint（js/ts 推荐 + 类型感知规则）
+pnpm lint:fix      # ESLint 自动修复
+pnpm format        # Prettier 全仓格式化
+pnpm format:check  # Prettier 格式检查
+pnpm build         # 构建四个包的 lib/
+pnpm run pack:all  # 打包 5 个 tarball 到 dist/
+```
 
 ## License
 

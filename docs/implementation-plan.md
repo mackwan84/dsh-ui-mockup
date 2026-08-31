@@ -20,11 +20,12 @@ dsh-ui-mockup/
 ├── packages/
 │   ├── image/                         # @mackwan84/dsh-image · Service Definition（图像生成/编辑契约）
 │   ├── image-dashscope/               # @mackwan84/dsh-image-dashscope · 百炼 Provider（文生图 + I2I 参考图）
-│   ├── image-volcengine/              # @mackwan84/dsh-image-volcengine · 火山方舟 Provider（M4）
+│   ├── image-volcengine/              # @mackwan84/dsh-image-volcengine · 火山方舟 Provider（同步 API + 指令编辑，M4）
 │   └── tool-ui-mockup/                # @mackwan84/dsh-tool-ui-mockup · Consumer
 │                                      #   （ui_mockup 工具 + 提示词 + 客户端卡片 + 设置面板 + i18n）
 ├── bundle/
 │   └── ui-mockup/                     # @mackwan84/dsh-ui-mockup-bundle · dsh.bundle.patch 挂载行
+│                                      #   （两行 Provider：dashscope 启用 / volcengine disabled: true）
 └── docs/
 ```
 
@@ -55,12 +56,12 @@ dsh plugin --profile web add github:mackwan84/dsh-ui-mockup#main   # 需 prepare
 
 ## 5. 里程碑
 
-| 里程碑 | 内容 | 验收 |
-| --- | --- | --- |
-| M1 | 骨架 + image Service + 百炼 Provider + Host 工具 | `dsh plugin add` 本地装进 web profile，会话里能生成一张图 |
-| M2 | 客户端卡片（tool.call.toolview）+ 图片路由（webServer）+ i18n 双语字典 | 卡片渲染、语言切换实时生效 |
-| M3 | 设置面板 4 页 + `design/history.jsonl` 历史 + 风格锚点联动 | 按已确认线框实现，面板功能闭环 |
-| M4 | 火山 Provider + I2I / 掩码编辑模式 | 双提供方切换可用 |
+| 里程碑 | 内容                                                                   | 验收                                                      |
+| ------ | ---------------------------------------------------------------------- | --------------------------------------------------------- |
+| M1     | 骨架 + image Service + 百炼 Provider + Host 工具                       | `dsh plugin add` 本地装进 web profile，会话里能生成一张图 |
+| M2     | 客户端卡片（tool.call.toolview）+ 图片路由（webServer）+ i18n 双语字典 | 卡片渲染、语言切换实时生效                                |
+| M3 ✅  | 设置面板 4 页 + 资产库生成历史 + 风格锚点联动                          | 按已确认线框实现（design/spec.md），面板功能闭环          |
+| M4 ✅  | 火山 Provider + I2I / 指令编辑模式 + 双提供方组合行切换                | 双提供方切换可用                                          |
 
 每里程碑交付：单元测试、真实组合测试（Loader 真 cordis.yml）、README、invariant、打包发布检查。
 
@@ -78,12 +79,27 @@ dsh plugin --profile web add github:mackwan84/dsh-ui-mockup#main   # 需 prepare
 - HTTP：Node fetch（正式包可用）；**凭据请求拒绝重定向**（等 DSH web 包规范）；
 - 端点（2026 实测，见 §8）。
 
+### 6.2.1 Provider · 火山方舟（image-volcengine，M4）
+
+- Config：credentials ref（默认 `ARK_API_KEY`）、模型分层默认（线框 `doubao-seedream-4-5-251128`、
+  高保真与编辑 `doubao-seedream-5-0-pro-260628`）、
+  `requestTimeoutMs`（300s，同步 API 无轮询）、限流重试策略；
+- **同步 API**：`POST /api/v3/images/generations` 一次返回；`response_format: 'url'` 固定、
+  `watermark: false`；size 翻译见 Provider README（档位 1K/2K/4K 或显式 WxH 合法域钳制）；
+- 编辑：Seedream 同端点（image + prompt）；**mask 不受支持**（方舟无掩码编辑）→ `NOT_IMPLEMENTED`；
+- 多图请求串行拆单图调用（组图参数未在本仓验证）；
+- 限流：HTTP 429（`ModelAccountIpmRateLimitExceeded` 等）→ 25s × 2 退避；
+- 提供方切换：bundle 预置两行 Provider（volcengine 默认 `disabled: true`），用户 patch 翻转
+  disabled；`ctx.image` 单槽位互斥，对齐 DSH `llm-deepseek` 单行语义；
+- 面板：`provider/status` 端点按 `providerId`（契约成员）返回生效方；`test-connection`
+  按生效提供方探测对应网关（空体 POST，401 无效 / 400·429 鉴权已过）。
+
 ### 6.3 Consumer 工具（tool-ui-mockup）
 
 - 工具 `ui_mockup`（参数/模板/结果呈现沿用 MVP 验证实现）：
   - 参数：description（必填）、fidelity（用户选）、platform、style、count、model、size、reference、apiKey（仅后备，正常走 credentials）；
   - 模板：wireframe Balsamiq 风黑白线框 + 中文区块标注；high-fidelity 风格词 + 中文文案完整性；reference 时加"与基准图一致"约束；
-  - 结果：落盘 `design/images/` → `attachments.saveImage` → 工具结果图片块呈现；
+  - 结果：落盘资产库 `$DSH_HOME/mockups/<工作区>/images/` → `attachments.saveImage` → 工具结果图片块呈现；
   - **限流自动退避重试**（Throttling/RateQuota → 25s × 2 次）。
 - 提示词注入（systemPrompt section）：何时主动提议草图、fidelity 选择、确认后写 `design/spec.md`、spec 未确认不写前端代码；
 - 设计锁定：用户确认后提炼 `design/spec.md`（配色、字体、间距、组件清单、页面清单）。
@@ -91,7 +107,7 @@ dsh plugin --profile web add github:mackwan84/dsh-ui-mockup#main   # 需 prepare
 ### 6.4 客户端 UI
 
 - **工具卡片**：`tool.call.toolview` keyed `ui_mockup`——图片内嵌、确认/选用/修改意见按钮（消息带文件名）、打开原图；
-- **图片路由**：webServer prefix `/ui-mockup/images` 服务 `design/images/`；
+- **图片路由**：webServer prefix `/ui-mockup/images` 服务资产库图片（cwd 经信任源全集校验）；
 - **设置面板 4 页**（已确认线框）：概览 / 提供方与模型 / 生成偏好 / 生成历史；
   视觉跟随 DSH 主题（主题令牌 + 原生控件，浅/深色自适应），不做独立风格探索；
   「快速使用」文案以修正版为准（见 §6.4.1）。
@@ -117,9 +133,13 @@ dsh plugin --profile web add github:mackwan84/dsh-ui-mockup#main   # 需 prepare
 
 ## 8. 已验证的关键事实与陷阱（来自 MVP 实测）
 
-- 百炼新旧两条链路：
-  - wanx 系列：`POST /api/v1/services/aigc/text2image/image-synthesis`（async 头）→ `GET /api/v1/tasks/{id}` → `output.results[].url`；
-  - qwen-image 3.0 系列：`POST /api/v1/services/aigc/image-generation/generation`（async 头）→ 同任务查询 → `output.choices[].message.content[].image`；`input.messages[].content` 结构（纯文本 `{text}`；I2I 加 1-3 张 `{image}`，URL 或 base64 data URL）；
+- 百炼当前图像链路：
+  - qwen-image 3.0 与 Wan 2.7：`POST /api/v1/services/aigc/image-generation/generation`
+    （async 头）→ `GET /api/v1/tasks/{id}` →
+    `output.choices[].message.content[].image`；`input.messages[].content` 结构（纯文本
+    `{text}`；I2I 加 `{image}`，URL 或 base64 data URL）；
+  - Wan 仅保留 `wan2.7-image` / `wan2.7-image-pro`；旧 Wan 2.2/2.6 与
+    `/text2image/image-synthesis` 不再支持；
 - qwen-image-3.0-pro 默认思考模式、耗时可 >5 分钟：轮询窗口 ≥10 分钟；
 - 限流错误：`Throttling.RateQuota` → 25s×2 退避；
 - 国际网关 `dashscope-us.aliyuncs.com` 与国内 key 不通；火山走 `ARK_API_KEY`；
@@ -127,6 +147,24 @@ dsh plugin --profile web add github:mackwan84/dsh-ui-mockup#main   # 需 prepare
 - 工具 schema DSL：不支持 minimum/maximum、value schema 不支持 required、参数根 additionalProperties 省略或 true、
   value 对象须显式 additionalProperties 且声明 items 全部字段；
 - 视觉提取依赖多模态模型：Consumer 提炼 spec 时经 `ctx.llm` 指定 image 模态模型（或要求会话用多模态模型）。
+
+### 8.1 火山方舟事实（M4，2026 调研核对）
+
+- 端点 `POST https://ark.cn-beijing.volces.com/api/v3/images/generations`，
+  认证 `Authorization: Bearer $ARK_API_KEY`；**同步 API 无任务轮询**；
+- model 可直接填 Model ID（`doubao-seedream-4-0-250828` / `doubao-seedream-5-0-pro-260628`），
+  也可填接入点 ID（`ep-xxxx`）；
+- size 双轨制：档位 `1K/2K/4K`（4.0）或显式 `宽x高`（总像素 ≤ 4096x4096，宽高比 [1/16,16]，
+  `1024x1024` 这类低于边长下限的不合法）；Seedream 编辑缺省 `2K`（模型按基准图比例出图）；
+  档位与 WxH 两写法不可混用；
+- 编辑复用同一端点（image + prompt），**无 mask 局部重绘**（老 inpainting 涂抹编辑属
+  旧视觉技术服务 `visual.volcengineapi.com` 且已公告下线，与方舟无关）；
+- 响应 `{model, created, data:[{url|b64_json}], usage}`；URL 24h 失效，须即时下载；
+- 错误包裹顶层 `error:{code,message}`；限流统一 HTTP 429（`ModelAccountIpmRateLimitExceeded`
+  等图像维度错误码）；401 `AuthenticationError`；400 审核类 `SensitiveContentDetected.*` 不可重试；
+- seedream 4.0 无 `seed`/`guidance_scale`（3.0 代参数）；组图走 `sequential_image_generation`
+  （本仓未用，多图串行拆单图）；
+- 网关同步超时上限官方未公布：`requestTimeoutMs` 配置化，默认 300s。
 
 ## 9. 门禁与交付物
 

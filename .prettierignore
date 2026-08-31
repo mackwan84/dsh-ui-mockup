@@ -1,0 +1,7 @@
+# 锁文件由包管理器维护, 不做格式化
+pnpm-lock.yaml
+
+# 构建产物
+dist/
+coverage/
+**/lib/

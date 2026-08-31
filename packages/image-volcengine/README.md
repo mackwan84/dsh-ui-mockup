@@ -1,0 +1,56 @@
+# @mackwan84/dsh-image-volcengine
+
+火山方舟（Volcengine Ark）图像生成 Provider，实现 `@mackwan84/dsh-image` 的
+`ImageGenerationService`：
+
+- **doubao-seedream 4.0 系列**：`/api/v3/images/generations` 同步调用（文生图 + 参考图
+  I2I，参考图最多 14 张、本 Provider 取 1 张内联 data URL）；
+- **doubao-seedream 5.0 pro**：同端点指令编辑（基准图 + 编辑指令，默认编辑模型）；
+- **同步 API**：无任务轮询；配置化请求超时（`AbortSignal.any` 组合调用方取消）；
+- **限流自动退避重试**（HTTP 429，`ModelAccountIpmRateLimitExceeded` 等错误码 → 25s × 2）；
+- 固定 `response_format: 'url'`、`watermark: false`（草图不加水印）；
+- 凭据解析：`ctx.credentials` seam → 启动环境（`.env`/进程环境）→ `MISSING_CREDENTIAL`；
+- 凭据请求 `redirect: 'error'`（凭据不跟随重定向）。
+
+## 配置（cordis.yml `config` 块）
+
+| 键                   | 默认                                       | 说明                               |
+| -------------------- | ------------------------------------------ | ---------------------------------- |
+| `apiKey`             | `ARK_API_KEY`                              | 凭据引用（环境变量名）             |
+| `baseUrl`            | `https://ark.cn-beijing.volces.com/api/v3` | 网关（国内；国际站为 bytepluses）  |
+| `wireframeModel`     | `doubao-seedream-4-5-251128`               | 线框图模型                         |
+| `highFidelityModel`  | `doubao-seedream-5-0-pro-260628`           | 高保真模型                         |
+| `editModel`          | `doubao-seedream-5-0-pro-260628`           | 指令编辑模型                       |
+| `requestTimeoutMs`   | 300000                                     | 同步请求超时（官方未公布网关上限） |
+| `rateLimitRetries`   | 2                                          | 限流重试次数                       |
+| `rateLimitBackoffMs` | 25000                                      | 限流退避间隔                       |
+
+## size 翻译
+
+方舟与百炼的画幅体系不同，本包把插件统一 size（`"宽*高"` 或档位名）翻译为方舟格式：
+
+- 生成（seedream）：**缺省 `2K` 档位**（产品决策：所有输出最低 2K，分辨率与方向由
+  网关按内容自决）；档位 `1K/2K/4K`，或显式 `宽x高`（合法域实测：总像素
+  ≥ 2560x1440=3,686,400 且 ≤ 4096x4096，宽高比 [1/16, 16]；低于下限等比放大，
+  超上界等比缩小）；
+- 编辑（Seedream）：**缺省 `2K` 档位**，由模型按基准图比例确定实际宽高；显式值只做格式
+  归一并交由网关校验（实测 `2048x1152` 低于生成下限仍成功，故不套生成钳制；更低尺寸
+  未确认，被拒时经错误映射如实上报）。已下线 SeedEdit 的 `adaptive` 档位会在本地以
+  `INVALID_PARAMETER` 拒绝。
+
+## Model Experience
+
+本包无模型可见内容；错误以 `ImageProviderError.code` 区分可重试、限流、凭据与参数问题：
+401/`AuthenticationError` → `MISSING_CREDENTIAL`，429 → `RATE_LIMITED`（退避重试），
+400/`InvalidParameter` → `INVALID_PARAMETER`，其余非 2xx → `HTTP_ERROR`。
+
+## Known Limitations
+
+- **掩码（mask）局部重绘不受支持**：方舟 API 无掩码编辑能力（老 inpainting 涂抹编辑
+  属视觉技术服务且已公告下线），`ImageEditSpec.mask` 传参时返回 `NOT_IMPLEMENTED`，
+  编辑以整图指令重绘进行；
+- 多图请求串行拆为多次单图调用（方舟组图参数 `sequential_image_generation` 语义与
+  百炼 `parameters.n` 不同，未在本仓验证）；
+- `reference`/`baseImage` 路径会被限制在 `cwd`（缺省为进程工作目录）之内，
+  逃逸路径直接以 `INVALID_PARAMETER` 拒绝；
+- 同步长请求的网关超时上限官方未公布，`requestTimeoutMs` 默认 300s，可按需调大。

@@ -1,0 +1,28 @@
+{
+  "name": "@mackwan84/dsh-image",
+  "version": "0.1.0",
+  "description": "图像生成 capability 的 Service Definition：UI 草图生成/编辑的抽象契约与错误码",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    }
+  },
+  "files": [
+    "lib"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "typescript": "^5.7.0"
+  }
+}
