@@ -1,16 +1,16 @@
-# dsh-ui-mockup 浏览器验收报告（执行中）
+# dsh-ui-mockup 浏览器验收报告（复核完成版）
 
 > 执行周期：2026-08-28～2026-08-31
 >
-> 被测提交：`2d622a57e1b5f0f6bb2c926daa7fb1f0d423b3a5`
+> 被测提交：`bde150466c73c00e93cf0ffe76e1c7aed60658a8`
 >
-> 迁移回归：当前工作区未提交改动
+> UI 缺陷修复提交：`49017ad`、`a0c6c1f`、`e39ad71`、`3999a47`、`bde1504`
 >
 > DSH Web：Local Build `141eb6f`，`http://127.0.0.1:3080/`
 >
 > 浏览器：Codex 内置浏览器
 >
-> 当前结论：**不通过（阶段性）**——两家 Provider 的 Qwen、Wan 2.7 与 Seedream 真实主链路均已覆盖，ACC-008/009 已修复；仍有 1 项 P0/S1 响应式缺陷及未完成的异常、跨浏览器与读屏矩阵。
+> 当前结论：**插件范围通过；整机移动端有条件不通过**——`dsh-ui-mockup` 仓库内的 ACC-002/003/004/005/007 已修复并回归，插件四页在 320px/375px 下不再额外制造横向溢出；但宿主设置弹窗仍保留 188px 固定导航，320px/375px 时只给插件约 28px/83px 内容宽度，ACC-001 的宿主侧部分继续开放。异常、跨浏览器与真实读屏矩阵仍未完成。
 
 ## 1. 执行范围与限制
 
@@ -20,10 +20,10 @@
 - 概览、Provider/凭据只读状态、模型分层、偏好默认值；
 - 历史分页、搜索、锚点跨页提示、原图路由；
 - 中文/英文、浅色/跟随系统主题；
-- 375px 响应式、焦点可见性、页签方向键、控件尺寸与文本对比度抽样；
+- 320px/375px 响应式、焦点可见性、页签方向键、控件尺寸与文本对比度抽样；
 - 浏览器控制台错误检查。
 
-已获得用户授权并补充执行两家 Provider 真实连接与生成。Volcengine 覆盖线框、高保真双图、Seedream 指令编辑和锚点 I2I；DashScope 覆盖 Qwen 线框、高保真双图、Qwen 锚点 I2I、Wan 旧端点与锚点跳过、异步等待、Provider 热切换后立即生成，以及编辑不支持路径。尚未执行：专用工作区清空历史、凭据写入/清除、真实 401/403/429/超时、跨浏览器兼容矩阵和真实 200% 浏览器缩放。
+已获得用户授权并补充执行两家 Provider 真实连接与生成。Volcengine 覆盖线框、高保真双图、Seedream 指令编辑和锚点 I2I；DashScope 覆盖 Qwen 线框、高保真双图、Qwen 锚点 I2I、Wan 旧端点与锚点跳过、异步等待、Provider 热切换后立即生成，以及编辑不支持路径。尚未执行：专用工作区清空历史、凭据写入/清除、真实 401/403/429/超时、跨浏览器兼容矩阵、真实 200%/400% 浏览器缩放和 VoiceOver。
 
 Codex 内置浏览器会主动阻止访问包含编码路径穿越或不存在图片的测试 URL，返回 `ERR_BLOCKED_BY_CLIENT`；因此 ROB-09 的服务端 400/404 结论尚未形成，只确认了浏览器侧阻断。有效原图路由已通过。
 
@@ -37,7 +37,7 @@ DSH Web 可打开；工作区加载后“UI 草图”设置入口可发现，设
 
 ![设置入口](screenshots/02-settings-general-dark.png)
 
-### Step 2：UI 草图概览——基本健康
+### Step 2：UI 草图概览——修复前基本健康
 
 四个页签、产品说明、三步快速使用、当前 Provider 与凭据状态可见；状态显示为 Volcengine + 凭据已配置，与 Provider 页一致。
 
@@ -49,13 +49,13 @@ Volcengine 唯一选中，凭据名为 `ARK_API_KEY`，凭据仅显示状态与�
 
 ![Provider 与模型](screenshots/04-provider-models-dark.png)
 
-### Step 4：偏好设置——有 UX 风险
+### Step 4：偏好设置——修复前发现 UX 风险
 
 默认值显示为线框图、Web、2 张、10 分钟、跟随 Provider 默认尺寸。把数量改为 3 后保存按钮正确启用；改回原值 2 后保存按钮仍保持启用，说明 dirty 状态只记录“发生过编辑”，没有比较当前草稿与已保存值。
 
 ![偏好未保存状态](screenshots/20-preferences-unsaved-change.png)
 
-### Step 5：历史、分页、搜索和原图——基本健康
+### Step 5：历史、分页、搜索和原图——修复前基本健康
 
 每页 5 条、共 19 条，页码切换与锚点跨页提示正常；“前往”入口可见。搜索必须按 Enter 才生效，输入期间列表保持旧结果，且界面没有搜索按钮或 Enter 提示，存在明显误解风险。原图路由成功打开 1280×720 图片。
 
@@ -67,19 +67,19 @@ Volcengine 唯一选中，凭据名为 `ARK_API_KEY`，凭据仅显示状态与�
 
 ![打开原图](screenshots/10-open-original.png)
 
-### Step 6：375px 重排——失败
+### Step 6：375px 重排——修复前失败
 
 设置弹窗在 375px 下仍保留约 164px 左侧导航，主内容被压缩到约 83px；页签逐字换行、历史卡片文本变成竖排、操作区不可正常阅读，内部出现横向滚动。VIS-12 与 A11Y-10 失败。
 
 ![375px 失败状态](screenshots/11-history-375px.png)
 
-### Step 7：键盘与焦点——部分失败
+### Step 7：键盘与焦点——修复前部分失败
 
 焦点指示清晰可见，Tab 键可以聚焦页签；但在聚焦“概览”页签后按 ArrowRight，焦点与选中页仍停留在“概览”，不符合标准 tab 交互预期。A11Y-05 失败。
 
 ![页签焦点](screenshots/12-tab-arrow-key.png)
 
-### Step 8：主题与语言——基本健康
+### Step 8：主题与语言——修复前基本健康
 
 中文/英文切换后，设置导航、UI 草图四页、状态、占位、按钮与说明文案均更新；浅色/深色主题主要结构和文字可读。概览的快速使用图标直接使用系统 emoji，其中“鼠标”图标在浅色主题下接近白色、对比度明显不足，且不同 OS 的表现不可控。
 
@@ -177,7 +177,7 @@ Volcengine → DashScope 约 10.6 秒完成热重载；页面唯一选中 DashSc
 
 ![DashScope 编辑明确不支持](screenshots/40-dashscope-edit-not-implemented.jpg)
 
-### Step 19：键盘与辅助语义复测——部分失败
+### Step 19：键盘与辅助语义复测——修复前部分失败
 
 方向键问题稳定复现：聚焦“概览”页签后按 ArrowRight，`active` 和 `selected` 仍停在“概览”；当前辅助树中存在 tablist/tab，但整页没有 `tabpanel`。生成偏好中的轮询超时 spinbutton、默认尺寸 combobox，以及 Provider 页两层模型 combobox 均显示视觉标签，但无法按标签名称查询到对应控件，说明标签没有形成程序化可访问名称。Provider 两卡保持原生 radio 语义；生成期间 loading 使用 `status` 角色，这是正向结果。保存成功“已保存 ✓”仅为 generic，是否能被读屏及时宣告仍需真实读屏验证。
 
@@ -185,9 +185,9 @@ Volcengine → DashScope 约 10.6 秒完成热重载；页面唯一选中 DashSc
 
 ![Provider 辅助语义检查界面](screenshots/37-provider-accessibility-surface.jpg)
 
-### Step 20：浏览器能力边界——阻塞项
+### Step 20：浏览器能力边界——部分解除
 
-2026-08-28 执行时的 Codex 内置浏览器控制面未暴露真实 viewport resize 或浏览器 zoom 操作，因此当日无法新增 320px 和 200% 缩放证据。2026-08-31 浏览器能力已新增 viewport 控制，但本轮补测范围聚焦 DashScope，尚未重新执行该矩阵。此前 375px 已确认失败，320px/200% 不得据此直接外推。用户明确指定 Codex 内置浏览器，本轮没有切换 Chrome、Edge、Safari 或 Firefox；跨浏览器矩阵继续标记阻塞。
+2026-08-28 执行时的 Codex 内置浏览器控制面未暴露真实 viewport resize 或浏览器 zoom 操作。2026-08-31 浏览器能力新增 viewport 控制后，已补测 320px 和 375px，并分别形成截图与 DOM 尺寸证据；浏览器 zoom/200%/400% 仍未暴露。用户明确指定 Codex 内置浏览器，本轮没有切换 Chrome、Edge、Safari 或 Firefox；跨浏览器矩阵继续标记阻塞。
 
 ### Step 21：DashScope 热切换后立即生成与 Qwen 线框单图——通过
 
@@ -273,19 +273,48 @@ Volcengine → DashScope 约 10.6 秒完成热重载；页面唯一选中 DashSc
 
 ![Wan 2.7 回归后状态恢复](screenshots/61-wan27-state-restored.jpg)
 
+### Step 28：设置面板缺陷修复回归——插件范围通过
+
+基于验收发现完成五类插件侧修复，并通过真实浏览器复测：
+
+1. **Tabs 与辅助语义**：四个 tab 具备 roving `tabIndex`、`aria-controls` 与 `tabpanel/aria-labelledby` 双向关联；ArrowLeft/ArrowRight 循环切换，Home/End 跳到首尾。浏览器实测 ArrowRight 后“提供方与模型”同时获得焦点和选中态。
+2. **表单名称与状态播报**：线框/高保真模型、`ARK_API_KEY` 输入、轮询超时和默认尺寸均可按可见名称查询；保存成功使用礼貌状态区播报。
+3. **偏好 dirty 状态**：从 Web 临时改为 Mobile 时 Save 启用，改回 Web 后立即禁用，未写入持久化数据。
+4. **历史搜索**：增加明确“搜索”按钮、搜索框可访问名称与“条件已更改”提示；按钮和 Enter 均提交，翻页继续使用已提交条件。实测“发布”从 5 条当前页结果过滤为 1 条，“Wanderly”经 Enter 得到 2 条。
+5. **视觉与窄屏**：概览三枚系统 emoji 已替换为 UI primitives SVG；桌面 DOM 中无旧 emoji、存在 3 枚矢量图标。响应式 CSS 以 `?inline` 打入 `client.js`，避免动态插件只加载 JS 时丢失样式。
+
+响应式定量结果：
+
+|  视口 | 宿主弹窗宽度 | 插件可用宽度 | 插件根/tabpanel                     | Tab 容器                   | 结论                               |
+| ----: | -----------: | -----------: | ----------------------------------- | -------------------------- | ---------------------------------- |
+| 375px |        327px |         83px | `scrollWidth=clientWidth=83`        | `83/264`，仅容器内横向滚动 | 插件无额外溢出；宿主可用宽度仍不足 |
+| 320px |        272px |         28px | 四页均 `scrollWidth=clientWidth=28` | `28/264`，仅容器内横向滚动 | 插件无额外溢出；宿主内容区已不可用 |
+
+自动化门禁新增 9 项设置面板组件测试，最终为 **113/113**；`typecheck`、`lint`、`format:check`、全仓 `build` 均通过。浏览器控制台无 error/warn。
+
+![修复后桌面概览](screenshots/62-settings-overview-desktop.png)
+
+![偏好恢复原值后 Save 禁用](screenshots/63-preferences-reverted.png)
+
+![历史搜索按钮提交](screenshots/64-history-search-button.png)
+
+![375px 插件侧无额外溢出](screenshots/65-history-375px.png)
+
+![320px 插件侧无额外溢出](screenshots/66-history-320px.png)
+
 ## 3. 缺陷清单
 
-| 缺陷 ID | 等级    | 关联用例                | 结论                                                                                     | 证据                                                                                                  |
-| ------- | ------- | ----------------------- | ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| ACC-001 | S1 / P0 | VIS-12、A11Y-10、UI-05  | 375px 下设置弹窗未重排，主内容压缩为窄列并出现不可用横向滚动                             | `screenshots/11-history-375px.png`                                                                    |
-| ACC-002 | S2 / P1 | A11Y-05、UI-10          | `role=tab` 页签不支持左右方向键切换，且未观察到 tabpanel/aria-controls 关系              | `screenshots/12-tab-arrow-key.png`                                                                    |
-| ACC-003 | S2 / P1 | HIS-04、UX-11           | 历史搜索必须按 Enter 才提交，但没有按钮或提示；输入时保留旧结果                          | `screenshots/08-history-search.png`、`09-history-search-enter.png`                                    |
-| ACC-004 | S2 / P1 | VIS-04、VIS-08、A11Y-02 | 概览使用系统 emoji 作为流程图标；浅色主题“鼠标”图标接近不可见，跨系统不稳定              | `screenshots/14-ui-mockup-overview-light.png`                                                         |
-| ACC-005 | S3 / P1 | PREF-01、UX-08          | 偏好改回已保存值后 Save 仍启用，造成“是否有未保存修改”的错误暗示                         | `screenshots/20-preferences-unsaved-change.png`                                                       |
-| ACC-006 | S1 / P1 | EDT-01、EDT-02          | **已修复并回归**：默认模型迁移至 Seedream 5.0 Pro，缺省尺寸改为 `2K`，默认编辑成功       | 404/400 会话错误、`screenshots/25-seedream5-edit-success.png`、`27-default-seedream-edit-success.jpg` |
-| ACC-007 | S2 / P1 | A11Y-05、A11Y-07        | 设置页存在视觉标签但缺少程序化可访问名称；页签也没有 `tabpanel` 关系                     | 当前辅助树、`screenshots/36-tab-arrow-key-regression.jpg`、`37-provider-accessibility-surface.jpg`    |
-| ACC-008 | S2 / P1 | GEN-13、PRV-14          | **已修复并回归**：Wan 2.7 改走新版异步端点，标准版/Pro/T2I/I2I 真实请求均成功            | 迁移前 `screenshots/49-dashscope-wan27-endpoint-failure.jpg`；修复后 `54`～`60` 证据                  |
-| ACC-009 | S2 / P1 | GEN-05、GEN-14          | **已修复并回归**：旧 Wan 本地拒绝；Wan 2.7 Web/Mobile 缺省尺寸改为 2048×1152 / 1152×2048 | 迁移前 `screenshots/50-dashscope-wan22-default-size-failure.jpg`；修复后 `55`、`57`、`58`             |
+| 缺陷 ID | 等级    | 关联用例                | 状态                    | 结论                                                                                | 证据                                                                                                  |
+| ------- | ------- | ----------------------- | ----------------------- | ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| ACC-001 | S1 / P0 | VIS-12、A11Y-10、UI-05  | **插件已修复/宿主开放** | 插件四页在 320/375px 无额外溢出；宿主固定导航仍把内容区压缩为 28/83px，整机仍不可用 | `screenshots/11-history-375px.png`、`65-history-375px.png`、`66-history-320px.png`                    |
+| ACC-002 | S2 / P1 | A11Y-05、UI-10          | **已修复并回归**        | Tabs 支持 ArrowLeft/Right、Home/End、roving focus 和完整 tabpanel 关系              | 9 项组件测试、浏览器 DOM/焦点检查                                                                     |
+| ACC-003 | S2 / P1 | HIS-04、UX-11           | **已修复并回归**        | 搜索按钮、Enter、待提交提示和 draft/applied 条件隔离均通过                          | `screenshots/64-history-search-button.png`                                                            |
+| ACC-004 | S2 / P1 | VIS-04、VIS-08、A11Y-02 | **已修复并回归**        | 三枚系统 emoji 替换为 primitives SVG，浅/深色使用主题色                             | `screenshots/62-settings-overview-desktop.png`                                                        |
+| ACC-005 | S3 / P1 | PREF-01、UX-08          | **已修复并回归**        | dirty 改为草稿与基线比较，恢复原值后 Save 立即禁用                                  | `screenshots/63-preferences-reverted.png`                                                             |
+| ACC-006 | S1 / P1 | EDT-01、EDT-02          | **已修复并回归**        | 默认模型迁移至 Seedream 5.0 Pro，缺省尺寸改为 `2K`，默认编辑成功                    | 404/400 会话错误、`screenshots/25-seedream5-edit-success.png`、`27-default-seedream-edit-success.jpg` |
+| ACC-007 | S2 / P1 | A11Y-05、A11Y-07        | **已修复并回归**        | 模型、密钥、轮询超时、尺寸和搜索控件均有程序化名称；保存/搜索提示可播报             | 组件测试与浏览器可访问名称查询                                                                        |
+| ACC-008 | S2 / P1 | GEN-13、PRV-14          | **已修复并回归**        | Wan 2.7 改走新版异步端点，标准版/Pro/T2I/I2I 真实请求均成功                         | 迁移前 `screenshots/49-dashscope-wan27-endpoint-failure.jpg`；修复后 `54`～`60` 证据                  |
+| ACC-009 | S2 / P1 | GEN-05、GEN-14          | **已修复并回归**        | 旧 Wan 本地拒绝；Wan 2.7 Web/Mobile 缺省尺寸改为 2048×1152 / 1152×2048              | 迁移前 `screenshots/50-dashscope-wan22-default-size-failure.jpg`；修复后 `55`、`57`、`58`             |
 
 ## 4. 已确认的正向结果
 
@@ -293,11 +322,15 @@ Volcengine → DashScope 约 10.6 秒完成热重载；页面唯一选中 DashSc
 - 概览、Provider、凭据名、凭据来源和模型候选相互一致；
 - 有效原图路由可打开，图片尺寸与内容正常；
 - 历史页每页 5 条、分页与锚点所在页提示正常；
-- 历史搜索按 Enter 后能按描述过滤；
+- 历史搜索按钮与 Enter 均能按描述过滤，输入未提交时会明确提示当前结果尚未更新；
 - 中文/英文界面字典覆盖本插件可见 UI；
 - 浅色/深色下主要文字和控件可读；
 - 抽样普通文本未发现低于 4.5:1 的计算结果；页签和普通按钮点击高度达到 24px；
-- 当前桌面布局下焦点轮廓清晰。
+- 当前桌面布局下焦点轮廓清晰；四个设置子页支持标准 Tabs 键盘模型和完整 tabpanel 关系。
+- 模型、凭据、轮询超时、默认尺寸和历史搜索均具备程序化可访问名称；保存与搜索提示使用礼貌状态区。
+- 偏好草稿恢复到已保存值后 Save 立即禁用，不再误报未保存修改。
+- 概览快速使用图标已改为主题色 SVG，不再依赖系统 emoji。
+- 320px/375px 下插件四页均不再额外制造横向溢出；Tab 超宽内容限制在自身可滚动容器内。
 - Volcengine 真实连接测试通过；单张线框图从会话触发到图片卡片、附件、资产落盘的链路通过。
 - Provider 双向热切换、模型默认重置、两套凭据状态与连接测试通过；最终状态已恢复 Volcengine。
 - 卡片设锚与历史同步通过，原锚点已恢复；显式使用 Seedream 5.0 Pro + `2048*1152` 与 `2K` 两种尺寸的原生编辑能力均验证成功。
@@ -310,7 +343,7 @@ Volcengine → DashScope 约 10.6 秒完成热重载；页面唯一选中 DashSc
 - DashScope `qwen-image-3.0-pro` 真实高保真 Mobile 双图通过，一条历史正确关联两个文件。
 - DashScope Qwen 锚点自动 I2I 通过，原始工具结果确认自动注入本地参考图。
 - Wan 2.7 标准版、Pro 双图和 Pro 锚点 I2I 真实回归通过；旧 Wan 本地拒绝且无历史副作用。
-- 最新完整工程门禁为 104 项测试，typecheck、lint、format 与 build 全部通过。
+- 最新完整工程门禁为 113 项测试，typecheck、lint、format 与 build 全部通过。
 
 以上正向结果仅适用于本轮 Codex 内置浏览器和当前运行数据，不代表 Edge、Safari、Firefox 或全部异常状态已通过。
 
@@ -319,7 +352,7 @@ Volcengine → DashScope 约 10.6 秒完成热重载；页面唯一选中 DashSc
 1. 在专用隔离工作区执行清空历史、锚点解除、历史损坏行和只读/磁盘失败；
 2. 使用专用测试 Key 执行凭据写入/清除与真实 401/403/429/超时测试；
 3. Edge、Safari、Firefox 兼容矩阵；
-4. 能控制真实 viewport/zoom 的浏览器下补测 320px、200%/400% 等效重排；
+4. 在支持真实浏览器 zoom 的环境下补测 200%/400% 等效重排；
 5. 使用 VoiceOver 等真实读屏验证动态状态宣告、字段说明和焦点顺序。
 
 ## 6. 双供应商真实能力对照
