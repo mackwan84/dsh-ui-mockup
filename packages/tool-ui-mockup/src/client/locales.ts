@@ -114,7 +114,10 @@ export const zh = {
   'panel.prefs.saved': '已保存 ✓',
 
   // 生成历史页
+  'panel.history.search': '搜索',
+  'panel.history.searchLabel': '搜索生成历史',
   'panel.history.searchPlaceholder': '按描述搜索…',
+  'panel.history.pendingSearch': '搜索条件已更改，点击“搜索”更新结果。',
   'panel.history.clear': '清空历史',
   'panel.history.confirmClear': '确认清空?',
   'panel.history.cancelClear': '取消',
@@ -254,7 +257,10 @@ export const en = {
   'panel.prefs.save': 'Save',
   'panel.prefs.saved': 'Saved ✓',
 
+  'panel.history.search': 'Search',
+  'panel.history.searchLabel': 'Search generation history',
   'panel.history.searchPlaceholder': 'Search by description…',
+  'panel.history.pendingSearch': 'Search criteria changed. Select Search to update the results.',
   'panel.history.clear': 'Clear history',
   'panel.history.confirmClear': 'Confirm clear?',
   'panel.history.cancelClear': 'Cancel',

@@ -32,6 +32,7 @@ import {
   type PrefScope,
 } from './shared.js'
 import type { NS, UiMockupKey } from './locales.js'
+import panelCss from './settings-panel.css?inline'
 
 /** 偏好形状的客户端本地副本（不引入宿主 prefs 模块，避免把 schemastery 打进浏览器包）。 */
 export interface PanelPrefs {
@@ -109,9 +110,10 @@ export function UiMockupSection({ t, prefs, connection }: PanelProps) {
   const activeTabId = `${tabsId}-tab-${page}`
   const activePanelId = `${tabsId}-panel-${page}`
   return (
-    <div style={sectionStyle}>
+    <div className="ui-mockup-section" style={sectionStyle}>
+      <style data-ui-mockup-styles>{panelCss}</style>
       {/* 子页切换：对齐原生 Plugins 设置区的 tab 范式（底边线 + active 下划线） */}
-      <div role="tablist" aria-label={t('panel.nav')} style={tabsStyle}>
+      <div role="tablist" aria-label={t('panel.nav')} className="ui-mockup-tabs" style={tabsStyle}>
         {SUBPAGES.map((key, index) => (
           <button
             key={key}
@@ -121,6 +123,7 @@ export function UiMockupSection({ t, prefs, connection }: PanelProps) {
             }}
             type="button"
             role="tab"
+            className="ui-mockup-tab"
             aria-selected={page === key}
             aria-controls={`${tabsId}-panel-${key}`}
             tabIndex={page === key ? 0 : -1}
@@ -133,7 +136,13 @@ export function UiMockupSection({ t, prefs, connection }: PanelProps) {
           </button>
         ))}
       </div>
-      <div id={activePanelId} role="tabpanel" aria-labelledby={activeTabId} tabIndex={0}>
+      <div
+        id={activePanelId}
+        role="tabpanel"
+        aria-labelledby={activeTabId}
+        className="ui-mockup-tabpanel"
+        tabIndex={0}
+      >
         {page === 'overview' && <OverviewPage t={t} connection={connection} />}
         {page === 'provider' && <ProviderPage t={t} prefs={prefs} connection={connection} />}
         {page === 'preferences' && <PreferencesPage t={t} prefs={prefs} />}
@@ -173,7 +182,6 @@ const sectionStyle = {
 const tabsStyle = {
   display: 'flex',
   alignItems: 'flex-end',
-  gap: 22,
   borderBottom: `1px solid ${tokens.border}`,
   marginTop: 2,
 } as const
@@ -258,6 +266,7 @@ function FieldRow({
     <div
       role="group"
       aria-labelledby={labelId}
+      className="ui-mockup-field-row"
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -270,7 +279,8 @@ function FieldRow({
     >
       <span
         id={labelId}
-        style={{ minWidth: 96, fontSize: 13, lineHeight: '20px', color: tokens.labelSecondary }}
+        className="ui-mockup-field-label"
+        style={{ fontSize: 13, lineHeight: '20px', color: tokens.labelSecondary }}
       >
         {label}
       </span>
@@ -829,11 +839,12 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
         <FieldRow first label={t('panel.models.wireframe')}>
           <select
             aria-label={t('panel.models.wireframe')}
+            className="ui-mockup-model-select"
             value={snap.value?.wireframeModel ?? ''}
             onChange={(event) =>
               void writePref(prefs, 'wireframeModel', event.target.value.trim(), setWriteError)
             }
-            style={{ ...selectStyle, width: 260 }}
+            style={{ ...selectStyle, width: 'min(260px, 100%)' }}
           >
             <option value="">{t('panel.models.followDefault')}</option>
             {WIREFRAME_MODEL_HINTS[providerId].filter(Boolean).map((m) => (
@@ -846,11 +857,12 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
         <FieldRow label={t('panel.models.highFidelity')}>
           <select
             aria-label={t('panel.models.highFidelity')}
+            className="ui-mockup-model-select"
             value={snap.value?.highFidelityModel ?? ''}
             onChange={(event) =>
               void writePref(prefs, 'highFidelityModel', event.target.value.trim(), setWriteError)
             }
-            style={{ ...selectStyle, width: 260 }}
+            style={{ ...selectStyle, width: 'min(260px, 100%)' }}
           >
             <option value="">{t('panel.models.followDefault')}</option>
             {HIGH_FIDELITY_MODEL_HINTS[providerId].filter(Boolean).map((m) => (
@@ -1031,7 +1043,10 @@ function PreferencesPage({ t, prefs }: Omit<PanelProps, 'connection'>) {
           </select>
         </FieldRow>
       </Card>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div
+        className="ui-mockup-preferences-footer"
+        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+      >
         <Button
           variant="ghost"
           size="sm"
@@ -1040,7 +1055,10 @@ function PreferencesPage({ t, prefs }: Omit<PanelProps, 'connection'>) {
         >
           {t('panel.prefs.reset')}
         </Button>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+        <div
+          className="ui-mockup-preferences-actions"
+          style={{ display: 'flex', gap: 10, alignItems: 'center' }}
+        >
           {savedAt > 0 && !dirty && (
             <span
               role="status"
@@ -1087,7 +1105,8 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
   const [anchorIndex, setAnchorIndex] = useState(-1)
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
-  const [query, setQuery] = useState('')
+  const [queryDraft, setQueryDraft] = useState('')
+  const [appliedQuery, setAppliedQuery] = useState('')
   const [error, setError] = useState('')
   const [confirmingClear, setConfirmingClear] = useState(false)
   // 并发防护：连续翻页/搜索时多个 history/list 在飞，单调序号丢弃过期响应，
@@ -1129,9 +1148,14 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
   )
 
   useEffect(() => {
-    void reload(query, 1)
-    // 列表仅在 cwd/连接变化(reload 标识)时自动重载；query/翻页由交互显式触发, 故不列入依赖
+    void reload('', 1)
+    // 列表仅在 cwd/连接变化(reload 标识)时自动重载；搜索/翻页由交互显式触发。
   }, [reload])
+
+  const submitSearch = () => {
+    setAppliedQuery(queryDraft)
+    void reload(queryDraft, 1)
+  }
 
   const totalPages = Math.max(1, Math.ceil(total / HISTORY_PAGE_SIZE))
   const anchorPage = anchorPageOf(anchorIndex, HISTORY_PAGE_SIZE)
@@ -1139,7 +1163,7 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
   const act = async (endpoint: string, payload: Record<string, unknown>, stayPage = page) => {
     try {
       await callPanel(connection, endpoint, payload)
-      await reload(query, stayPage)
+      await reload(appliedQuery, stayPage)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
@@ -1151,16 +1175,29 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      <div style={{ display: 'flex', gap: 8 }}>
+      <div
+        role="search"
+        aria-label={t('panel.history.searchLabel')}
+        className="ui-mockup-history-toolbar"
+        style={{ display: 'flex', gap: 8 }}
+      >
         <Input
+          type="search"
+          aria-label={t('panel.history.searchLabel')}
+          className="ui-mockup-history-search"
           style={{ flex: 1 }}
           placeholder={t('panel.history.searchPlaceholder')}
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
+          value={queryDraft}
+          onChange={(event) => setQueryDraft(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === 'Enter') void reload(query, 1)
+            if (event.key !== 'Enter') return
+            event.preventDefault()
+            submitSearch()
           }}
         />
+        <Button variant="outline" size="sm" onClick={submitSearch}>
+          {t('panel.history.search')}
+        </Button>
         {/* 两段确认拆为确认/取消双按钮：同按钮 onBlur 重置会让键盘用户
             Tab 离开时意外丢失确认态，双按钮语义明确且无障碍友好 */}
         {confirmingClear ? (
@@ -1185,6 +1222,15 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
           </Button>
         )}
       </div>
+      {queryDraft !== appliedQuery && (
+        <span
+          role="status"
+          aria-live="polite"
+          style={{ fontSize: 12, lineHeight: '17px', color: tokens.labelTertiary }}
+        >
+          {t('panel.history.pendingSearch')}
+        </span>
+      )}
 
       {rows.length === 0 && (
         <div
@@ -1208,6 +1254,7 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
              key 用 time+首图文件名：同秒多条 / 翻页过滤后 index 会错位，不能作 key */
           <div
             key={`${row.time}:${row.files[0] ?? index}`}
+            className="ui-mockup-history-row"
             style={{
               display: 'flex',
               gap: 10,
@@ -1252,7 +1299,10 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
                 }}
               />
             )}
-            <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <div
+              className="ui-mockup-history-summary"
+              style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}
+            >
               <div
                 style={{
                   whiteSpace: 'nowrap',
@@ -1270,7 +1320,10 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
                 {t('panel.history.fileCount', { n: row.files.length })}
               </div>
             </div>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <div
+              className="ui-mockup-history-actions"
+              style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}
+            >
               {/* 设锚入口在对话卡片（点哪张设哪张）；历史页只保留解除与查看 */}
               {row.anchored && (
                 <Button variant="ghost" size="sm" onClick={() => void act('anchor/unset', { cwd })}>
@@ -1300,7 +1353,7 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
           }}
         >
           <span>🚩 {t('panel.history.anchorOnPage', { n: anchorPage })}</span>
-          <Button variant="ghost" size="sm" onClick={() => void reload(query, anchorPage)}>
+          <Button variant="ghost" size="sm" onClick={() => void reload(appliedQuery, anchorPage)}>
             {t('panel.history.goToAnchor')}
           </Button>
         </div>
@@ -1324,7 +1377,7 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
               variant="ghost"
               size="sm"
               disabled={page <= 1}
-              onClick={() => void reload(query, page - 1)}
+              onClick={() => void reload(appliedQuery, page - 1)}
             >
               {t('panel.history.prev')}
             </Button>
@@ -1333,7 +1386,7 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
                 key={p}
                 variant={p === page ? 'primary' : 'ghost'}
                 size="sm"
-                onClick={() => void reload(query, p)}
+                onClick={() => void reload(appliedQuery, p)}
                 style={p === page ? { minWidth: 28 } : { minWidth: 28 }}
               >
                 {p}
@@ -1343,7 +1396,7 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
               variant="ghost"
               size="sm"
               disabled={page >= totalPages}
-              onClick={() => void reload(query, page + 1)}
+              onClick={() => void reload(appliedQuery, page + 1)}
             >
               {t('panel.history.next')}
             </Button>

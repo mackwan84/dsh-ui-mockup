@@ -1,0 +1,76 @@
+.ui-mockup-section,
+.ui-mockup-tabpanel,
+.ui-mockup-history-toolbar,
+.ui-mockup-history-row,
+.ui-mockup-history-summary {
+  min-width: 0;
+}
+
+.ui-mockup-history-summary {
+  flex: 1 1 0;
+  overflow-wrap: anywhere;
+}
+
+.ui-mockup-section {
+  box-sizing: border-box;
+}
+
+.ui-mockup-tabs {
+  gap: 22px;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+
+.ui-mockup-tab {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.ui-mockup-field-label {
+  min-width: 96px;
+}
+
+.ui-mockup-model-select {
+  max-width: 100%;
+}
+
+.ui-mockup-field-row > * {
+  max-width: 100%;
+}
+
+.ui-mockup-history-search {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+@media (max-width: 640px) {
+  .ui-mockup-tabs {
+    gap: 16px;
+  }
+
+  .ui-mockup-field-label {
+    flex: 1 0 100%;
+    min-width: 0;
+  }
+
+  .ui-mockup-preferences-footer,
+  .ui-mockup-history-toolbar,
+  .ui-mockup-history-row {
+    flex-wrap: wrap;
+  }
+
+  .ui-mockup-preferences-actions,
+  .ui-mockup-history-actions {
+    width: 100%;
+  }
+
+  .ui-mockup-preferences-actions {
+    justify-content: flex-end;
+  }
+
+  .ui-mockup-history-summary {
+    flex-basis: calc(100% - 70px);
+  }
+}

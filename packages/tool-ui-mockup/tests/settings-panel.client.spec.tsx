@@ -66,9 +66,13 @@ function createPrefs(initial: PanelPrefs = DEFAULT_PREFS): PrefScope<PanelPrefs>
   }
 }
 
-function createConnection() {
+function createConnection({ historyTotal = 0 }: { historyTotal?: number } = {}) {
   const call = vi.fn(
-    async (_channel: string, endpoint: string): Promise<RpcResultLike<unknown>> => {
+    async (
+      _channel: string,
+      endpoint: string,
+      _payload?: unknown,
+    ): Promise<RpcResultLike<unknown>> => {
       const value =
         endpoint === 'overview'
           ? {
@@ -82,10 +86,20 @@ function createConnection() {
               ? {
                   anchorFile: null,
                   anchorIndex: -1,
-                  total: 0,
+                  total: historyTotal,
                   page: 1,
                   pageSize: 5,
-                  entries: [],
+                  entries:
+                    historyTotal === 0
+                      ? []
+                      : [
+                          {
+                            time: '2026-08-31T00:00:00.000Z',
+                            description: '移动端登录页',
+                            files: [],
+                            anchored: false,
+                          },
+                        ],
                 }
               : {}
       return { ok: true, value }
@@ -95,8 +109,8 @@ function createConnection() {
   return { connection, call }
 }
 
-function mountPanel() {
-  const { connection, call } = createConnection()
+function mountPanel(options?: { historyTotal?: number }) {
+  const { connection, call } = createConnection(options)
   const view = render(<UiMockupSection t={t} prefs={createPrefs()} connection={connection} />)
   return { ...view, call }
 }
@@ -191,5 +205,47 @@ describe('PreferencesPage dirty state', () => {
     fireEvent.click(screen.getByRole('button', { name: '保存' }))
 
     expect((await screen.findByRole('status')).textContent).toBe('已保存 ✓')
+  })
+})
+
+describe('HistoryPage search', () => {
+  it('输入草稿时保留当前结果并提示，点击搜索后从第 1 页提交', async () => {
+    const { call } = mountPanel({ historyTotal: 6 })
+    fireEvent.click(screen.getByRole('tab', { name: '生成历史' }))
+    const search = await screen.findByRole('searchbox', { name: '搜索生成历史' })
+    await waitFor(() => {
+      expect(call.mock.calls.filter((args) => args[1] === 'history/list')).toHaveLength(1)
+    })
+
+    fireEvent.change(search, { target: { value: '登录' } })
+    expect(call.mock.calls.filter((args) => args[1] === 'history/list')).toHaveLength(1)
+    expect(screen.getByRole('status').textContent).toContain('搜索条件已更改')
+
+    fireEvent.click(screen.getByRole('button', { name: '搜索' }))
+    await waitFor(() => {
+      const historyCalls = call.mock.calls.filter((args) => args[1] === 'history/list')
+      expect(historyCalls).toHaveLength(2)
+      expect(historyCalls[1]?.[2]).toMatchObject({ query: '登录', page: 1 })
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '下一页' }))
+    await waitFor(() => {
+      const historyCalls = call.mock.calls.filter((args) => args[1] === 'history/list')
+      expect(historyCalls.at(-1)?.[2]).toMatchObject({ query: '登录', page: 2 })
+    })
+  })
+
+  it('按 Enter 与搜索按钮使用相同的提交语义', async () => {
+    const { call } = mountPanel()
+    fireEvent.click(screen.getByRole('tab', { name: '生成历史' }))
+    const search = await screen.findByRole('searchbox', { name: '搜索生成历史' })
+
+    fireEvent.change(search, { target: { value: '仪表盘' } })
+    fireEvent.keyDown(search, { key: 'Enter', code: 'Enter' })
+
+    await waitFor(() => {
+      const historyCalls = call.mock.calls.filter((args) => args[1] === 'history/list')
+      expect(historyCalls.at(-1)?.[2]).toMatchObject({ query: '仪表盘', page: 1 })
+    })
   })
 })
