@@ -241,7 +241,7 @@ git commit -m "fix(ui-mockup): 改进历史搜索与窄屏布局"
 **Files:**
 
 - Modify: `docs/test-evidence/2026-08-28-browser-acceptance/acceptance-report.md`
-- Create: `docs/test-evidence/2026-08-28-browser-acceptance/screenshots/62-*.png`
+- Create: `docs/test-evidence/2026-08-28-browser-acceptance/screenshots/62-*.jpg`
 
 **Interfaces:**
 
@@ -271,6 +271,6 @@ pnpm build
 - [ ] **Step 4: 最终报告提交**
 
 ```bash
-git add docs/test-evidence/2026-08-28-browser-acceptance/acceptance-report.md docs/test-evidence/2026-08-28-browser-acceptance/screenshots/62-*.png
+git add docs/test-evidence/2026-08-28-browser-acceptance/acceptance-report.md docs/test-evidence/2026-08-28-browser-acceptance/screenshots/62-*.jpg
 git commit -m "test(acceptance): 回归设置面板缺陷修复"
 ```

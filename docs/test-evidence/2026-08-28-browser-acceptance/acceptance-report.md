@@ -294,25 +294,25 @@ Volcengine → DashScope 约 10.6 秒完成热重载；页面唯一选中 DashSc
 
 自动化门禁新增 15 项设置面板组件测试，最终为 **119/119**；`typecheck`、`lint`、`format:check`、全仓 `build` 均通过。浏览器控制台无 error/warn。
 
-![修复后桌面概览](screenshots/62-settings-overview-desktop.png)
+![修复后桌面概览](screenshots/62-settings-overview-desktop.jpg)
 
-![偏好恢复原值后 Save 禁用](screenshots/63-preferences-reverted.png)
+![偏好恢复原值后 Save 禁用](screenshots/63-preferences-reverted.jpg)
 
-![历史搜索按钮提交](screenshots/64-history-search-button.png)
+![历史搜索按钮提交](screenshots/64-history-search-button.jpg)
 
-![375px 插件侧无额外溢出](screenshots/65-history-375px.png)
+![375px 插件侧无额外溢出](screenshots/65-history-375px.jpg)
 
-![320px 插件侧无额外溢出](screenshots/66-history-320px.png)
+![320px 插件侧无额外溢出](screenshots/66-history-320px.jpg)
 
 ## 3. 缺陷清单
 
 | 缺陷 ID | 等级    | 关联用例                | 状态                    | 结论                                                                                | 证据                                                                                                  |
 | ------- | ------- | ----------------------- | ----------------------- | ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| ACC-001 | S1 / P0 | VIS-12、A11Y-10、UI-05  | **插件已修复/宿主开放** | 插件四页在 320/375px 无额外溢出；宿主固定导航仍把内容区压缩为 28/83px，整机仍不可用 | `screenshots/11-history-375px.png`、`65-history-375px.png`、`66-history-320px.png`                    |
+| ACC-001 | S1 / P0 | VIS-12、A11Y-10、UI-05  | **插件已修复/宿主开放** | 插件四页在 320/375px 无额外溢出；宿主固定导航仍把内容区压缩为 28/83px，整机仍不可用 | `screenshots/11-history-375px.png`、`65-history-375px.jpg`、`66-history-320px.jpg`                    |
 | ACC-002 | S2 / P1 | A11Y-05、UI-10          | **已修复并回归**        | Tabs 支持 ArrowLeft/Right、Home/End、roving focus 和完整 tabpanel 关系              | 15 项组件测试、浏览器 DOM/焦点检查                                                                    |
-| ACC-003 | S2 / P1 | HIS-04、UX-11           | **已修复并回归**        | 搜索按钮、Enter、待提交提示和 draft/applied 条件隔离均通过                          | `screenshots/64-history-search-button.png`                                                            |
-| ACC-004 | S2 / P1 | VIS-04、VIS-08、A11Y-02 | **已修复并回归**        | 三枚系统 emoji 替换为 primitives SVG，浅/深色使用主题色                             | `screenshots/62-settings-overview-desktop.png`                                                        |
-| ACC-005 | S3 / P1 | PREF-01、UX-08          | **已修复并回归**        | dirty 改为草稿与基线比较，恢复原值后 Save 立即禁用                                  | `screenshots/63-preferences-reverted.png`                                                             |
+| ACC-003 | S2 / P1 | HIS-04、UX-11           | **已修复并回归**        | 搜索按钮、Enter、待提交提示和 draft/applied 条件隔离均通过                          | `screenshots/64-history-search-button.jpg`                                                            |
+| ACC-004 | S2 / P1 | VIS-04、VIS-08、A11Y-02 | **已修复并回归**        | 三枚系统 emoji 替换为 primitives SVG，浅/深色使用主题色                             | `screenshots/62-settings-overview-desktop.jpg`                                                        |
+| ACC-005 | S3 / P1 | PREF-01、UX-08          | **已修复并回归**        | dirty 改为草稿与基线比较，恢复原值后 Save 立即禁用                                  | `screenshots/63-preferences-reverted.jpg`                                                             |
 | ACC-006 | S1 / P1 | EDT-01、EDT-02          | **已修复并回归**        | 默认模型迁移至 Seedream 5.0 Pro，缺省尺寸改为 `2K`，默认编辑成功                    | 404/400 会话错误、`screenshots/25-seedream5-edit-success.png`、`27-default-seedream-edit-success.jpg` |
 | ACC-007 | S2 / P1 | A11Y-05、A11Y-07        | **已修复并回归**        | 模型、密钥、轮询超时、尺寸和搜索控件均有程序化名称；保存/搜索提示可播报             | 组件测试与浏览器可访问名称查询                                                                        |
 | ACC-008 | S2 / P1 | GEN-13、PRV-14          | **已修复并回归**        | Wan 2.7 改走新版异步端点，标准版/Pro/T2I/I2I 真实请求均成功                         | 迁移前 `screenshots/49-dashscope-wan27-endpoint-failure.jpg`；修复后 `54`～`60` 证据                  |
