@@ -25,8 +25,7 @@ id 定向的 `disabled` 翻转写入 DSH home 用户层（`~/.dsh/cordis.patch.y
 ## 安装
 
 ```sh
-# 发布后
-dsh plugin --profile web add @mackwan84/dsh-ui-mockup-bundle
+dsh plugin --profile web add @mackwan84/dsh-ui-mockup-bundle@0.1.2
 
 # 开发期（本仓库 checkout）
 dsh plugin --profile web add /path/to/dsh-ui-mockup/bundle/ui-mockup
@@ -36,6 +35,6 @@ dsh plugin --profile web add /path/to/dsh-ui-mockup/bundle/ui-mockup
 
 ## 发布注意
 
-发布时 `dependencies` 中的 `workspace:^` 需替换为版本号范围（如 `^0.1.0-rc.0`），
-并先发布 `@mackwan84/dsh-image`、`@mackwan84/dsh-image-dashscope`、
-`@mackwan84/dsh-image-volcengine` 与 `@mackwan84/dsh-tool-ui-mockup`。
+运行根目录的 `pnpm run publish:all`：脚本先用 `pnpm pack` 将 `workspace:^` 转换为正式版本范围，
+再按依赖顺序发布 `@mackwan84/dsh-image`、两个 Provider、`@mackwan84/dsh-tool-ui-mockup`
+与本 bundle。不要直接对源码目录运行 `npm publish`。
