@@ -10,9 +10,11 @@
   项目工作区不再落运行时产物；`design/spec.md` 等交付物仍留在项目内；
 - **模型分层**：按保真度分层，默认随生效提供方（百炼：线框 `qwen-image-3.0` / 高保真
   `qwen-image-3.0-pro`；火山：线框 `doubao-seedream-4-5` / 高保真 `doubao-seedream-5-0-pro`）；
+- **当前万相能力**：百炼仅支持 `wan2.7-image` / `wan2.7-image-pro`，使用新版异步图像端点，
+  支持文生图与单参考图 I2I；Wan 2.2/2.6 与旧 `text2image` 端点已废弃；
 - **双提供方**：阿里云百炼 DashScope（默认启用）与火山方舟 Volcengine Ark（预置未启用）；
   设置面板「提供方与模型」页**点卡片一键切换**——写入 DSH 用户层 patch 并热重载，无需重启；
-- **指令编辑**：对已生成图传 `baseImage` + `editNote` 走整图指令重绘（火山 seededit 3.0，
+- **指令编辑**：对已生成图传 `baseImage` + `editNote` 走整图指令重绘（火山 Seedream 5.0 Pro，
   比整体重新生成更快更贴近原稿）；
 - **风格一致**：参考图模式（I2I）以已确认页面为基准图，多页面保持同一品牌视觉；
 - **设计锁定**：用户确认后自动提炼 `design/spec.md`，未确认的页面不进入实现；

@@ -82,11 +82,11 @@ dsh plugin --profile web add github:mackwan84/dsh-ui-mockup#main   # 需 prepare
 ### 6.2.1 Provider · 火山方舟（image-volcengine，M4）
 
 - Config：credentials ref（默认 `ARK_API_KEY`）、模型分层默认（线框 `doubao-seedream-4-5-251128`、
-  高保真 `doubao-seedream-5-0-pro-260628`、编辑 `doubao-seededit-3-0-i2i-250628`）、
+  高保真与编辑 `doubao-seedream-5-0-pro-260628`）、
   `requestTimeoutMs`（300s，同步 API 无轮询）、限流重试策略；
 - **同步 API**：`POST /api/v3/images/generations` 一次返回；`response_format: 'url'` 固定、
   `watermark: false`；size 翻译见 Provider README（档位 1K/2K/4K 或显式 WxH 合法域钳制）；
-- 编辑：seededit 同端点（image + prompt）；**mask 不受支持**（方舟无掩码编辑）→ `NOT_IMPLEMENTED`；
+- 编辑：Seedream 同端点（image + prompt）；**mask 不受支持**（方舟无掩码编辑）→ `NOT_IMPLEMENTED`；
 - 多图请求串行拆单图调用（组图参数未在本仓验证）；
 - 限流：HTTP 429（`ModelAccountIpmRateLimitExceeded` 等）→ 25s × 2 退避；
 - 提供方切换：bundle 预置两行 Provider（volcengine 默认 `disabled: true`），用户 patch 翻转
@@ -133,9 +133,13 @@ dsh plugin --profile web add github:mackwan84/dsh-ui-mockup#main   # 需 prepare
 
 ## 8. 已验证的关键事实与陷阱（来自 MVP 实测）
 
-- 百炼新旧两条链路：
-  - wanx 系列：`POST /api/v1/services/aigc/text2image/image-synthesis`（async 头）→ `GET /api/v1/tasks/{id}` → `output.results[].url`；
-  - qwen-image 3.0 系列：`POST /api/v1/services/aigc/image-generation/generation`（async 头）→ 同任务查询 → `output.choices[].message.content[].image`；`input.messages[].content` 结构（纯文本 `{text}`；I2I 加 1-3 张 `{image}`，URL 或 base64 data URL）；
+- 百炼当前图像链路：
+  - qwen-image 3.0 与 Wan 2.7：`POST /api/v1/services/aigc/image-generation/generation`
+    （async 头）→ `GET /api/v1/tasks/{id}` →
+    `output.choices[].message.content[].image`；`input.messages[].content` 结构（纯文本
+    `{text}`；I2I 加 `{image}`，URL 或 base64 data URL）；
+  - Wan 仅保留 `wan2.7-image` / `wan2.7-image-pro`；旧 Wan 2.2/2.6 与
+    `/text2image/image-synthesis` 不再支持；
 - qwen-image-3.0-pro 默认思考模式、耗时可 >5 分钟：轮询窗口 ≥10 分钟；
 - 限流错误：`Throttling.RateQuota` → 25s×2 退避；
 - 国际网关 `dashscope-us.aliyuncs.com` 与国内 key 不通；火山走 `ARK_API_KEY`；
@@ -148,10 +152,10 @@ dsh plugin --profile web add github:mackwan84/dsh-ui-mockup#main   # 需 prepare
 
 - 端点 `POST https://ark.cn-beijing.volces.com/api/v3/images/generations`，
   认证 `Authorization: Bearer $ARK_API_KEY`；**同步 API 无任务轮询**；
-- model 可直接填 Model ID（`doubao-seedream-4-0-250828` / `doubao-seededit-3-0-i2i-250628`），
+- model 可直接填 Model ID（`doubao-seedream-4-0-250828` / `doubao-seedream-5-0-pro-260628`），
   也可填接入点 ID（`ep-xxxx`）；
 - size 双轨制：档位 `1K/2K/4K`（4.0）或显式 `宽x高`（总像素 ≤ 4096x4096，宽高比 [1/16,16]，
-  `1024x1024` 这类低于边长下限的不合法）；seededit 缺省 `adaptive`（跟随基准图）；
+  `1024x1024` 这类低于边长下限的不合法）；Seedream 编辑缺省 `2K`（模型按基准图比例出图）；
   档位与 WxH 两写法不可混用；
 - 编辑复用同一端点（image + prompt），**无 mask 局部重绘**（老 inpainting 涂抹编辑属
   旧视觉技术服务 `visual.volcengineapi.com` 且已公告下线，与方舟无关）；

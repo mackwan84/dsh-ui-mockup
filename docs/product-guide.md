@@ -114,7 +114,10 @@ flowchart LR
     M2 --> R
 ```
 
-可传 `model` 参数覆盖（线框图如 `qwen-image-2.0`、`wan2.7-image`，高保真如 `qwen-image-2.0-pro`、`wan2.7-image-pro`；设置面板「提供方与模型」页可配置各层默认）。
+可传 `model` 参数覆盖（线框图如 `qwen-image-2.0`、`wan2.7-image`，高保真如
+`qwen-image-2.0-pro`、`wan2.7-image-pro`；设置面板「提供方与模型」页可配置各层默认）。
+Wan 仅支持当前 2.7 系列，旧 Wan 2.2/2.6 不再兼容。Wan 2.7 Web/Mobile 缺省尺寸为
+`2048*1152` / `1152*2048`，文生图与单参考图 I2I 均走新版异步图像端点。
 
 ### 5.3 图片卡片的反馈按钮
 
@@ -127,7 +130,8 @@ flowchart LR
 
 ### 5.4 多页面风格一致（参考图模式）
 
-同一站点的后续页面：高保真生成时以已确认页面为 `reference`，模型以基准图保持配色、字体、圆角一致。
+同一站点的后续页面：高保真生成时以已确认页面为 `reference`，Qwen Image、Wan 2.7 和
+Seedream 均可按基准图保持配色、字体、圆角一致。
 生成历史（`$DSH_HOME/mockups/<工作区>/history.jsonl`）可在对话图片卡片一键「设为锚点」（M3）。
 
 ### 5.5 设计锁定
