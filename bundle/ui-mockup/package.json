@@ -1,6 +1,6 @@
 {
   "name": "@mackwan84/dsh-ui-mockup-bundle",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "dsh-ui-mockup 安装层：把图像 Provider（DashScope + 火山方舟，默认启用前者）与 ui_mockup 工具挂载进 dsh profile 的 bundle patch",
   "type": "module",
   "exports": {

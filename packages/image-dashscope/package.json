@@ -1,6 +1,6 @@
 {
   "name": "@mackwan84/dsh-image-dashscope",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "阿里云百炼图像生成 Provider：qwen-image 3.0 与 Wan 2.7 系列的文生图、参考图 I2I 和异步任务调用",
   "type": "module",
   "main": "lib/index.js",
