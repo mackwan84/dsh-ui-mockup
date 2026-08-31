@@ -2,7 +2,7 @@
 
 > 执行周期：2026-08-28～2026-08-31
 >
-> 被测提交：`80bb12ec716e5fc5de78429c1f51b056fbfee32b`
+> 被测提交：`6a8a41b`
 >
 > UI 缺陷修复提交：`49017ad`、`a0c6c1f`、`e39ad71`、`3999a47`、`bde1504`、`4cdc541`、`456cc02`
 >
@@ -12,7 +12,7 @@
 >
 > 浏览器：Codex 内置浏览器
 >
-> 当前结论：**插件范围通过；整机移动端有条件不通过**——`dsh-ui-mockup` 仓库内的 ACC-002/003/004/005/007 已修复并回归，插件四页在 320px/375px 下不再额外制造横向溢出；但宿主设置弹窗仍保留 188px 固定导航，320px/375px 时只给插件约 28px/83px 内容宽度，ACC-001 的宿主侧部分继续开放。异常、跨浏览器与真实读屏矩阵仍未完成。
+> 当前结论：**全端正式发布 No-Go；桌面限定发布 Conditional Go**——最终提交的核心功能、自动化、桌面 UI、辅助语义和 768px 档位全部通过；但宿主设置弹窗在 320px/375px 下仍只给插件约 28px/83px 内容宽度，整机界面不可正常阅读，ACC-001（S1/P0）继续阻断不限定视口的正式发布。仅当产品明确限定桌面宽度 ≥768px、从干净检出构建并先灰度时可发布。
 
 ## 1. 执行范围与限制
 
@@ -304,6 +304,37 @@ Volcengine → DashScope 约 10.6 秒完成热重载；页面唯一选中 DashSc
 
 ![320px 插件侧无额外溢出](screenshots/66-history-320px.jpg)
 
+### Step 29：团队复核后最终发版验收——桌面通过，全端阻断
+
+在团队代码审核及其后续修复全部进入 `develop` 后，对最终提交 `6a8a41b` 重新执行发布门禁：
+
+- 工程门禁：**120/120** 测试通过，`typecheck`、`lint`、`format:check`、全仓 `build` 全部通过；工作区测试前为干净状态且与 `origin/develop` 同步。
+- 桌面概览：插件宽度 564px，`scrollWidth=clientWidth`；旧 emoji 为 0、主题 SVG 为 3；响应式 CSS 已内联。
+- Tabs/辅助语义：ArrowRight 后 Provider tab 同时获得焦点与选中态，`aria-controls` 与 `tabpanel/aria-labelledby` 双向一致；模型、密钥、轮询超时、默认尺寸和搜索控件均可按名称查询。
+- 偏好：Web → Mobile 时 Save 启用，恢复 Web 后 Save 立即禁用；未执行保存，不改变持久化设置。
+- 历史搜索：“发布”经按钮从当前 5 条过滤为 1 条；未提交“仪表盘”草稿时结果保持 1 条并显示待提交提示；“Wanderly”经 Enter 得到 2 条。未清空历史。
+- 响应式数值：375px 下插件内容宽 83px，320px 下为 28px；四页 section/tabpanel 均无插件内部额外溢出，搜索框按容器宽度收缩，Tabs 仅在自身容器滚动。
+- 响应式视觉：数值门禁虽通过，但宿主固定导航使 320px/375px 设置内容呈窄竖列，320px 无法正常阅读；375px 可见主会话内容与设置窄列混杂。该问题属于宿主布局，插件仓库无法独立关闭。
+- 768px 档位：弹窗 720px、插件内容 476px，历史工具栏与卡片布局完整，无横向溢出。
+- 浏览器控制台：最终交互后 error/warn 均为 0。
+- 发布包：`image`、`image-dashscope`、`image-volcengine`、`tool-ui-mockup`、bundle 共 5 个 tarball 均成功生成。当前复用工作区的 UI 包包含一个未跟踪的旧 `lib/style.css`，不影响运行时，但正式发布应从干净检出构建，避免携带陈旧产物。
+- Provider 口径：`80bb12e` 之后没有图像 Provider 运行时代码变更，本轮不再次传输密钥或产生模型费用；沿用本报告此前两家 Provider 的真实连接、T2I、多图和 I2I 证据。
+
+发布判定：
+
+1. **全端/不限制窗口宽度：No-Go。** 必须先在 `deepseek-harness` 修复 ACC-001，并重新执行 320px、375px、键盘和截图验收。
+2. **桌面限定（≥768px）：Conditional Go。** 条件为从干净检出构建、先灰度发布、保留 Provider 错误率与生成失败率监控，并明确移动端/极窄窗口暂不支持。
+
+![最终桌面概览](screenshots/67-final-release-overview.png)
+
+![最终历史搜索](screenshots/68-final-release-history.png)
+
+![最终 375px 宿主阻断](screenshots/69-final-release-375px.png)
+
+![最终 320px 宿主阻断](screenshots/70-final-release-320px.png)
+
+![最终 768px 桌面边界](screenshots/71-final-release-768px.png)
+
 ## 3. 缺陷清单
 
 | 缺陷 ID | 等级    | 关联用例                | 状态                    | 结论                                                                                | 证据                                                                                                  |
@@ -345,7 +376,7 @@ Volcengine → DashScope 约 10.6 秒完成热重载；页面唯一选中 DashSc
 - DashScope `qwen-image-3.0-pro` 真实高保真 Mobile 双图通过，一条历史正确关联两个文件。
 - DashScope Qwen 锚点自动 I2I 通过，原始工具结果确认自动注入本地参考图。
 - Wan 2.7 标准版、Pro 双图和 Pro 锚点 I2I 真实回归通过；旧 Wan 本地拒绝且无历史副作用。
-- 最新完整工程门禁为 119 项测试，typecheck、lint、format 与 build 全部通过。
+- 最新完整工程门禁为 120 项测试，typecheck、lint、format 与 build 全部通过。
 
 以上正向结果仅适用于本轮 Codex 内置浏览器和当前运行数据，不代表 Edge、Safari、Firefox 或全部异常状态已通过。
 
