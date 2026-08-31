@@ -13,7 +13,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "pack:all": "rm -rf dist && mkdir -p dist && cd packages/image && pnpm pack --pack-destination ../../dist && cd ../image-dashscope && pnpm pack --pack-destination ../../dist && cd ../image-volcengine && pnpm pack --pack-destination ../../dist && cd ../tool-ui-mockup && pnpm pack --pack-destination ../../dist && cd ../../bundle/ui-mockup && pnpm pack --pack-destination ../../dist",
-    "publish:all": "pnpm --dir packages/image publish --access public --registry=https://registry.npmjs.org && pnpm --dir packages/image-dashscope publish --access public --registry=https://registry.npmjs.org && pnpm --dir packages/image-volcengine publish --access public --registry=https://registry.npmjs.org && pnpm --dir packages/tool-ui-mockup publish --access public --registry=https://registry.npmjs.org && pnpm --dir bundle/ui-mockup publish --access public --registry=https://registry.npmjs.org"
+    "publish:all": "pnpm run pack:all && npm publish ./dist/mackwan84-dsh-image-[0-9]*.tgz --access public --registry=https://registry.npmjs.org && npm publish ./dist/mackwan84-dsh-image-dashscope-*.tgz --access public --registry=https://registry.npmjs.org && npm publish ./dist/mackwan84-dsh-image-volcengine-*.tgz --access public --registry=https://registry.npmjs.org && npm publish ./dist/mackwan84-dsh-tool-ui-mockup-*.tgz --access public --registry=https://registry.npmjs.org && npm publish ./dist/mackwan84-dsh-ui-mockup-bundle-*.tgz --access public --registry=https://registry.npmjs.org"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
