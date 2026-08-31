@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vitest/config'
 
@@ -7,8 +8,20 @@ function workspaceSource(rel: string): string {
 }
 
 export default defineConfig({
-  // primitives 发布包遗漏 sourcemap；测试结果仍由 Vitest reporter 完整输出。
-  logLevel: 'silent',
+  plugins: [
+    {
+      name: 'strip-missing-primitives-sourcemap',
+      enforce: 'pre',
+      async load(id) {
+        if (!id.includes('@deepseek-ai/dsh-client-ui-primitives/lib/index.js')) return
+        // 发布包没有携带 index.js.map；在 Vite 解析无效引用前只移除这条注释。
+        return (await readFile(id, 'utf8')).replace(
+          /\n\/\/# sourceMappingURL=index\.js\.map\s*$/,
+          '',
+        )
+      },
+    },
+  ],
   resolve: {
     alias: [
       {

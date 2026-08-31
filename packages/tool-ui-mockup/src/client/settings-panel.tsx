@@ -908,22 +908,47 @@ function PreferencesPage({ t, prefs }: Omit<PanelProps, 'connection'>) {
   const [baseline, setBaseline] = useState<PanelPrefs>(initial)
   const [savedAt, setSavedAt] = useState(0)
   const [error, setError] = useState('')
+  const [mutating, setMutating] = useState(false)
+  const mutationLock = useRef(false)
   const dirty = !editablePrefsEqual(draft, baseline)
 
   useEffect(() => {
     // 外部值到达/变化且本地没有未保存修改时回填草稿；避免覆盖正在编辑的内容
-    if (!dirty && snap.value !== undefined) {
+    if (!dirty && !mutating && snap.value !== undefined) {
       setDraft(snap.value)
       setBaseline(snap.value)
     }
-  }, [dirty, snap.value])
+  }, [dirty, mutating, snap.value])
 
   const patch = (part: Partial<PanelPrefs>) => {
+    if (mutationLock.current) return
     setDraft((prev) => ({ ...prev, ...part }))
   }
 
-  const save = async () => {
+  const beginMutation = (): boolean => {
+    if (mutationLock.current) return false
+    mutationLock.current = true
+    setMutating(true)
+    setSavedAt(0)
     setError('')
+    return true
+  }
+
+  const endMutation = () => {
+    mutationLock.current = false
+    setMutating(false)
+  }
+
+  const confirmApplied = (expected: PanelPrefs): PanelPrefs => {
+    const actual = prefs.getSnapshot().value
+    if (actual === undefined || !editablePrefsEqual(actual, expected)) {
+      throw new Error(t('panel.prefs.writeNotApplied'))
+    }
+    return actual
+  }
+
+  const save = async () => {
+    if (!beginMutation()) return
     try {
       const saved = {
         ...draft,
@@ -935,16 +960,19 @@ function PreferencesPage({ t, prefs }: Omit<PanelProps, 'connection'>) {
       await prefs.set('defaultCount', saved.defaultCount)
       await prefs.set('pollTimeoutMinutes', saved.pollTimeoutMinutes)
       await prefs.set('defaultSize', saved.defaultSize)
-      setDraft(saved)
-      setBaseline(saved)
+      const applied = confirmApplied(saved)
+      setDraft(applied)
+      setBaseline(applied)
       setSavedAt(Date.now())
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      endMutation()
     }
   }
 
   const resetDefaults = async () => {
-    setError('')
+    if (!beginMutation()) return
     try {
       for (const field of [
         'defaultFidelity',
@@ -955,11 +983,14 @@ function PreferencesPage({ t, prefs }: Omit<PanelProps, 'connection'>) {
       ] as const) {
         await prefs.unset(field)
       }
-      setDraft(PANEL_DEFAULTS)
-      setBaseline(PANEL_DEFAULTS)
+      const applied = confirmApplied(PANEL_DEFAULTS)
+      setDraft(applied)
+      setBaseline(applied)
       setSavedAt(Date.now())
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      endMutation()
     }
   }
 
@@ -976,14 +1007,14 @@ function PreferencesPage({ t, prefs }: Omit<PanelProps, 'connection'>) {
             checked={draft.defaultFidelity === 'wireframe'}
             onChange={() => patch({ defaultFidelity: 'wireframe' })}
             name="pref-fidelity"
-            disabled={readonlyNote}
+            disabled={readonlyNote || mutating}
           />
           <Radio
             label={t('panel.prefs.fidelityHigh')}
             checked={draft.defaultFidelity === 'high-fidelity'}
             onChange={() => patch({ defaultFidelity: 'high-fidelity' })}
             name="pref-fidelity"
-            disabled={readonlyNote}
+            disabled={readonlyNote || mutating}
           />
         </FieldRow>
         <FieldRow label={t('panel.prefs.platform')}>
@@ -992,14 +1023,14 @@ function PreferencesPage({ t, prefs }: Omit<PanelProps, 'connection'>) {
             checked={draft.defaultPlatform === 'web'}
             onChange={() => patch({ defaultPlatform: 'web' })}
             name="pref-platform"
-            disabled={readonlyNote}
+            disabled={readonlyNote || mutating}
           />
           <Radio
             label="Mobile"
             checked={draft.defaultPlatform === 'mobile'}
             onChange={() => patch({ defaultPlatform: 'mobile' })}
             name="pref-platform"
-            disabled={readonlyNote}
+            disabled={readonlyNote || mutating}
           />
         </FieldRow>
         <FieldRow label={t('panel.prefs.count')}>
@@ -1010,7 +1041,7 @@ function PreferencesPage({ t, prefs }: Omit<PanelProps, 'connection'>) {
               checked={draft.defaultCount === n}
               onChange={() => patch({ defaultCount: n })}
               name="pref-count"
-              disabled={readonlyNote}
+              disabled={readonlyNote || mutating}
             />
           ))}
         </FieldRow>
@@ -1024,7 +1055,7 @@ function PreferencesPage({ t, prefs }: Omit<PanelProps, 'connection'>) {
             style={{ width: 100 }}
             value={draft.pollTimeoutMinutes}
             onChange={(event) => patch({ pollTimeoutMinutes: Number(event.target.value) })}
-            disabled={readonlyNote}
+            disabled={readonlyNote || mutating}
           />
           <span style={{ fontSize: 12, color: tokens.labelTertiary }}>
             {t('panel.prefs.minutes')}
@@ -1040,7 +1071,7 @@ function PreferencesPage({ t, prefs }: Omit<PanelProps, 'connection'>) {
             aria-label={t('panel.prefs.size')}
             value={draft.defaultSize}
             onChange={(event) => patch({ defaultSize: event.target.value })}
-            disabled={readonlyNote}
+            disabled={readonlyNote || mutating}
             style={selectStyle}
           >
             <option value="">{t('panel.models.followDefault')}</option>
@@ -1058,7 +1089,7 @@ function PreferencesPage({ t, prefs }: Omit<PanelProps, 'connection'>) {
           variant="ghost"
           size="sm"
           onClick={() => void resetDefaults()}
-          disabled={readonlyNote}
+          disabled={readonlyNote || mutating}
         >
           {t('panel.prefs.reset')}
         </Button>
@@ -1079,7 +1110,7 @@ function PreferencesPage({ t, prefs }: Omit<PanelProps, 'connection'>) {
             variant="primary"
             size="sm"
             onClick={() => void save()}
-            disabled={readonlyNote || !dirty}
+            disabled={readonlyNote || mutating || !dirty}
           >
             {t('panel.prefs.save')}
           </Button>

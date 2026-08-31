@@ -34,9 +34,21 @@ const t = ((key: keyof typeof zh, params?: Record<string, unknown>) => {
   return text
 }) as Translator
 
-function createPrefs(initial: PanelPrefs = DEFAULT_PREFS): PrefScope<PanelPrefs> {
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  const promise = new Promise<T>((done) => {
+    resolve = done
+  })
+  return { promise, resolve }
+}
+
+function createPrefs(
+  initial: PanelPrefs = DEFAULT_PREFS,
+  options: { applyWrites?: boolean; firstWriteGate?: Promise<void> } = {},
+): PrefScope<PanelPrefs> {
   let value = initial
   let revision = 1
+  let firstWrite = true
   const listeners = new Set<() => void>()
   const snapshot = (): ScopeSnapshot<PanelPrefs> => ({
     status: 'ready',
@@ -54,17 +66,26 @@ function createPrefs(initial: PanelPrefs = DEFAULT_PREFS): PrefScope<PanelPrefs>
       return () => listeners.delete(listener)
     },
     set(field, next) {
-      value = { ...value, [field]: next }
-      revision += 1
-      for (const listener of listeners) listener()
-      return Promise.resolve()
+      const gate = firstWrite ? options.firstWriteGate : undefined
+      firstWrite = false
+      if (gate !== undefined) return gate.then(() => apply(field, next))
+      return apply(field, next)
     },
     unset(field) {
+      if (options.applyWrites === false) return Promise.resolve()
       value = { ...value, [field]: DEFAULT_PREFS[field as keyof PanelPrefs] }
       revision += 1
       for (const listener of listeners) listener()
       return Promise.resolve()
     },
+  }
+
+  function apply(field: string, next: unknown): Promise<void> {
+    if (options.applyWrites === false) return Promise.resolve()
+    value = { ...value, [field]: next }
+    revision += 1
+    for (const listener of listeners) listener()
+    return Promise.resolve()
   }
 }
 
@@ -107,9 +128,11 @@ function createConnection({ historyTotal = 0 }: { historyTotal?: number } = {}) 
   return { connection, call }
 }
 
-function mountPanel(options?: { historyTotal?: number }) {
+function mountPanel(options: { historyTotal?: number; prefs?: PrefScope<PanelPrefs> } = {}) {
   const { connection, call } = createConnection(options)
-  const view = render(<UiMockupSection t={t} prefs={createPrefs()} connection={connection} />)
+  const view = render(
+    <UiMockupSection t={t} prefs={options.prefs ?? createPrefs()} connection={connection} />,
+  )
   return { ...view, call }
 }
 
@@ -124,6 +147,16 @@ describe('UiMockupSection tabs', () => {
     expect(panel.getAttribute('aria-labelledby')).toBe(tabs[0]?.id)
   })
 
+  it('每个 tab 切换后都与当前 tabpanel 双向关联', () => {
+    mountPanel()
+    for (const tab of screen.getAllByRole('tab')) {
+      fireEvent.click(tab)
+      const panel = screen.getByRole('tabpanel')
+      expect(tab.getAttribute('aria-controls')).toBe(panel.id)
+      expect(panel.getAttribute('aria-labelledby')).toBe(tab.id)
+    }
+  })
+
   it('用方向键循环切换并支持 Home 和 End', async () => {
     mountPanel()
     const overview = screen.getByRole('tab', { name: '概览' })
@@ -133,16 +166,19 @@ describe('UiMockupSection tabs', () => {
     expect(provider.getAttribute('aria-selected')).toBe('true')
     expect(document.activeElement).toBe(provider)
 
-    fireEvent.keyDown(provider, { key: 'End' })
+    fireEvent.keyDown(provider, { key: 'ArrowLeft' })
+    expect(screen.getByRole('tab', { name: '概览' }).getAttribute('aria-selected')).toBe('true')
+
+    fireEvent.keyDown(screen.getByRole('tab', { name: '概览' }), { key: 'ArrowLeft' })
     const history = screen.getByRole('tab', { name: '生成历史' })
     expect(history.getAttribute('aria-selected')).toBe('true')
     expect(document.activeElement).toBe(history)
 
-    fireEvent.keyDown(history, { key: 'ArrowRight' })
+    fireEvent.keyDown(history, { key: 'Home' })
     expect(screen.getByRole('tab', { name: '概览' }).getAttribute('aria-selected')).toBe('true')
 
     fireEvent.keyDown(screen.getByRole('tab', { name: '概览' }), { key: 'End' })
-    fireEvent.keyDown(screen.getByRole('tab', { name: '生成历史' }), { key: 'Home' })
+    fireEvent.keyDown(screen.getByRole('tab', { name: '生成历史' }), { key: 'ArrowRight' })
     expect(screen.getByRole('tab', { name: '概览' }).getAttribute('aria-selected')).toBe('true')
 
     await waitFor(() =>
@@ -204,6 +240,48 @@ describe('PreferencesPage dirty state', () => {
 
     expect((await screen.findByRole('status')).textContent).toBe('已保存 ✓')
   })
+
+  it('保存期间禁用编辑和恢复默认，避免旧操作覆盖新草稿', async () => {
+    const gate = deferred<void>()
+    mountPanel({ prefs: createPrefs(DEFAULT_PREFS, { firstWriteGate: gate.promise }) })
+    fireEvent.click(screen.getByRole('tab', { name: '生成偏好' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'Mobile' }))
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+
+    expect(screen.getByRole<HTMLInputElement>('radio', { name: 'Web' }).disabled).toBe(true)
+    expect(screen.getByRole<HTMLInputElement>('radio', { name: 'Mobile' }).disabled).toBe(true)
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: '恢复默认' }).disabled).toBe(true)
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: '保存' }).disabled).toBe(true)
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Web' }))
+    expect(screen.getByRole<HTMLInputElement>('radio', { name: 'Mobile' }).checked).toBe(true)
+
+    gate.resolve()
+    expect((await screen.findByRole('status')).textContent).toBe('已保存 ✓')
+  })
+
+  it('写入 resolve 但快照未变化时保留 dirty 并报告失败', async () => {
+    mountPanel({ prefs: createPrefs(DEFAULT_PREFS, { applyWrites: false }) })
+    fireEvent.click(screen.getByRole('tab', { name: '生成偏好' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'Mobile' }))
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+
+    await screen.findByText('设置存储未确认本次更改，请重试。')
+    expect(screen.queryByText('已保存 ✓')).toBeNull()
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: '保存' }).disabled).toBe(false)
+    expect(screen.getByRole<HTMLInputElement>('radio', { name: 'Mobile' }).checked).toBe(true)
+  })
+
+  it('恢复默认未落盘时保留当前草稿并报告失败', async () => {
+    const customized = { ...DEFAULT_PREFS, defaultPlatform: 'mobile' as const, defaultCount: 3 }
+    mountPanel({ prefs: createPrefs(customized, { applyWrites: false }) })
+    fireEvent.click(screen.getByRole('tab', { name: '生成偏好' }))
+    fireEvent.click(screen.getByRole('button', { name: '恢复默认' }))
+
+    await screen.findByText('设置存储未确认本次更改，请重试。')
+    expect(screen.getByRole<HTMLInputElement>('radio', { name: 'Mobile' }).checked).toBe(true)
+    expect(screen.getByRole<HTMLInputElement>('radio', { name: '3' }).checked).toBe(true)
+  })
 })
 
 describe('HistoryPage search', () => {
@@ -244,6 +322,26 @@ describe('HistoryPage search', () => {
     await waitFor(() => {
       const historyCalls = call.mock.calls.filter((args) => args[1] === 'history/list')
       expect(historyCalls.at(-1)?.[2]).toMatchObject({ query: '仪表盘', page: 1 })
+    })
+  })
+
+  it('清空历史后仍按已提交条件重载结果', async () => {
+    const { call } = mountPanel({ historyTotal: 6 })
+    fireEvent.click(screen.getByRole('tab', { name: '生成历史' }))
+    const search = await screen.findByRole('searchbox', { name: '搜索生成历史' })
+    fireEvent.change(search, { target: { value: '登录' } })
+    fireEvent.click(screen.getByRole('button', { name: '搜索' }))
+    await waitFor(() => {
+      expect(call.mock.calls.filter((args) => args[1] === 'history/list')).toHaveLength(2)
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '清空历史' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认清空?' }))
+
+    await waitFor(() => {
+      expect(call.mock.calls.some((args) => args[1] === 'history/clear')).toBe(true)
+      const historyCalls = call.mock.calls.filter((args) => args[1] === 'history/list')
+      expect(historyCalls.at(-1)?.[2]).toMatchObject({ query: '登录', page: 1 })
     })
   })
 })

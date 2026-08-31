@@ -112,6 +112,7 @@ export const zh = {
   'panel.prefs.reset': '恢复默认',
   'panel.prefs.save': '保存',
   'panel.prefs.saved': '已保存 ✓',
+  'panel.prefs.writeNotApplied': '设置存储未确认本次更改，请重试。',
 
   // 生成历史页
   'panel.history.search': '搜索',
@@ -256,6 +257,7 @@ export const en = {
   'panel.prefs.reset': 'Reset to defaults',
   'panel.prefs.save': 'Save',
   'panel.prefs.saved': 'Saved ✓',
+  'panel.prefs.writeNotApplied': 'The settings store did not confirm this change. Please retry.',
 
   'panel.history.search': 'Search',
   'panel.history.searchLabel': 'Search generation history',
