@@ -1,6 +1,6 @@
 {
   "name": "@mackwan84/dsh-tool-ui-mockup",
-  "version": "0.1.0-rc.0",
+  "version": "0.1.0",
   "description": "ui_mockup 工具 Consumer：研讨阶段生成 UI 线框图/高保真草图，落盘设计稿并提示确认后锁定设计规格；含客户端卡片、图片路由与 i18n",
   "type": "module",
   "main": "lib/index.js",

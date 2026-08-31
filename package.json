@@ -1,7 +1,7 @@
 {
   "name": "dsh-ui-mockup",
   "private": true,
-  "version": "0.1.0-rc.0",
+  "version": "0.1.0",
   "description": "DSH 插件：研讨阶段生成 UI 草图/高保真设计稿，确认后锁定设计规格",
   "type": "module",
   "scripts": {
