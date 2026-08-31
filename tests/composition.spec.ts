@@ -385,7 +385,7 @@ describe('ui-mockup real dynamic composition', () => {
               output: {
                 task_id: 'task-pref-model',
                 task_status: 'SUCCEEDED',
-                results: [{ url: 'https://oss.example/pref.png' }],
+                choices: [{ message: { content: [{ image: 'https://oss.example/pref.png' }] } }],
               },
             }),
             { status: 200 },
@@ -508,7 +508,7 @@ describe('ui-mockup real dynamic composition', () => {
               output: {
                 task_id: 'task-ref',
                 task_status: 'SUCCEEDED',
-                results: [{ url: 'https://oss.example/mock.png' }],
+                choices: [{ message: { content: [{ image: 'https://oss.example/mock.png' }] } }],
               },
             }),
             { status: 200 },
@@ -627,7 +627,10 @@ describe('ui-mockup real dynamic composition', () => {
         if (url.includes('/api/v1/tasks/task-route')) {
           return new Response(
             JSON.stringify({
-              output: { task_status: 'SUCCEEDED', results: [{ url: 'https://oss.example/m.png' }] },
+              output: {
+                task_status: 'SUCCEEDED',
+                choices: [{ message: { content: [{ image: 'https://oss.example/m.png' }] } }],
+              },
             }),
             { status: 200 },
           )
@@ -742,10 +745,10 @@ describe('ui-mockup real dynamic composition', () => {
     }
   })
 
-  it('skips anchor injection when the effective model is not qwen-image (wan tier)', async () => {
+  it('auto-injects the style anchor for Wan 2.7', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
     try {
-      // 预置锚点（同上），但把线框层默认模型切到 wan 系
+      // 预置锚点（同上），并把线框层默认模型切到支持参考图的 Wan 2.7
       const seedStore = storeDirFor(dir)
       await mkdir(join(seedStore, 'images'), { recursive: true })
       const seed = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
@@ -760,7 +763,7 @@ describe('ui-mockup real dynamic composition', () => {
       let createUrl = ''
       let createBody = ''
       vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
-        if (url.includes('text2image/image-synthesis')) {
+        if (url.includes('/api/v1/services/aigc/image-generation/generation')) {
           createUrl = url
           createBody = typeof init?.body === 'string' ? init.body : ''
           return new Response(
@@ -774,7 +777,13 @@ describe('ui-mockup real dynamic composition', () => {
               output: {
                 task_id: 'task-wan',
                 task_status: 'SUCCEEDED',
-                results: [{ url: 'https://oss.example/wan.png' }],
+                choices: [
+                  {
+                    message: {
+                      content: [{ image: 'https://oss.example/wan.png' }],
+                    },
+                  },
+                ],
               },
             }),
             { status: 200 },
@@ -795,12 +804,12 @@ describe('ui-mockup real dynamic composition', () => {
         { description: 'wan 系模型下的页面', fidelity: 'wireframe', platform: 'web' },
         { signal: new AbortController().signal, agent: { session: { header: { cwd: dir } } } },
       )
-      // 不再被 Provider INVALID_PARAMETER 拒绝：走 T2I 纯文本路径，无 base64 参考图
       expect(value.ok, String(value.message)).toBe(true)
-      expect(createUrl).toContain('text2image/image-synthesis')
-      expect(createBody).not.toContain('data:image/png;base64,')
-      expect(String(value.message)).toContain('已跳过风格锚点注入')
-      // 锚点保留（不解除），用户换回 qwen 系后仍可联动
+      expect(createUrl).toContain('/api/v1/services/aigc/image-generation/generation')
+      expect(createBody).toContain('data:image/png;base64,')
+      expect(String(value.message)).toContain('已按风格锚点')
+      expect(String(value.message)).not.toContain('已跳过风格锚点注入')
+      // 锚点保持不变，后续 Wan 2.7 与 Qwen 均可继续联动
       const overview = valueOf<{ anchor: string | null }>(
         await booted.connection.call('/ui-mockup', 'overview'),
       )

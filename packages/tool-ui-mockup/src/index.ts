@@ -512,6 +512,11 @@ function allowedRoots(ctx: Context, known: ReadonlySet<string>): Set<string> {
   return roots
 }
 
+/** DashScope 当前可安全接收单参考图的模型族。 */
+function supportsDashscopeReference(model: string): boolean {
+  return model.startsWith('qwen-image') || model === 'wan2.7-image' || model === 'wan2.7-image-pro'
+}
+
 export function apply(ctx: Context, config: MockupPluginConfig = {}) {
   const tools = ctx.get('tools') as ToolsFace
   // 本插件进程内已生成过图片的工作区根（canonical）：图片路由 cwd 白名单的信任源之一
@@ -700,8 +705,8 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
               : (fidelity === 'high-fidelity' ? prefs.highFidelityModel : prefs.wireframeModel) ||
                 undefined
           // 风格锚点联动：调用未显式传 reference 时自动引用当前锚点（I2I 保持多页风格一致）。
-          // 参考图能力按生效提供方分流：dashscope 的参考图是 qwen-image 系端点边界（wan 系等
-          // 模型跳过注入并说明，否则 Provider 必以 INVALID_PARAMETER 拒绝且用户难以归因）；
+          // 参考图能力按生效提供方分流：DashScope 当前支持 qwen-image 与 Wan 2.7；
+          // 其他自定义模型跳过注入并说明，否则 Provider 会以 INVALID_PARAMETER 拒绝且用户难以归因；
           // volcengine 的 seedream 系原生支持 image 参考图，锚点正常注入。
           // 模型为空串（交 Provider 自决）时仍注入：各提供方分层默认均支持参考图。
           let anchorInjected: string | null = null
@@ -713,9 +718,9 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
               const activeProviderId = (ctx.get('image') as ImageGenerationServiceFace | undefined)
                 ?.providerId
               const referenceUnsupported =
-                activeProviderId !== 'volcengine' &&
+                activeProviderId === 'dashscope' &&
                 effectiveModel !== undefined &&
-                !effectiveModel.startsWith('qwen-image')
+                !supportsDashscopeReference(effectiveModel)
               if (referenceUnsupported) {
                 anchorSkippedForModel = effectiveModel
               } else {
@@ -901,7 +906,7 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
             message += ` 已按风格锚点 ${anchorInjected} 自动注入参考图(可在设置 · UI 草图 · 生成历史中解除)。`
           }
           if (anchorSkippedForModel !== null) {
-            message += ` 当前生效模型 ${anchorSkippedForModel} 不支持参考图(I2I), 已跳过风格锚点注入; 如需沿用锚点风格, 请在设置 · UI 草图 · 提供方与模型改回 qwen-image 系, 或在生成历史中解除锚点。`
+            message += ` 当前生效模型 ${anchorSkippedForModel} 不支持参考图(I2I), 已跳过风格锚点注入; 请改用 qwen-image 或 wan2.7-image 系列。`
           }
           if (failures.length > 0) {
             message += ` 注意: 有 ${failures.length} 张下载失败(${failures.join('; ')}), 其余图片已保留。`

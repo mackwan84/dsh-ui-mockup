@@ -381,17 +381,6 @@ const PROVIDER_NAME_KEYS: Record<Exclude<ProviderId, 'unknown'>, UiMockupKey> = 
   volcengine: 'panel.provider.volcengineName',
 }
 
-/**
- * 参考图（I2I）模式是 qwen-image 系端点的能力边界：wan 系模型 + 风格锚点
- * 组合会被 Provider 以 INVALID_PARAMETER 明确拒绝。当前默认模型命中时提示
- * （仅 DashScope 生效时提示；火山参考图不受 qwen 系约束）。
- */
-function nonQwenModel(...models: Array<string | undefined>): string | undefined {
-  return models.find(
-    (model) => model !== undefined && model !== '' && !model.startsWith('qwen-image'),
-  )
-}
-
 function ProviderPage({ t, prefs, connection }: PanelProps) {
   const snap = prefs.getSnapshot()
   usePrefSync(prefs)
@@ -812,11 +801,6 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
         <Notice>
           {`${t('panel.models.wireframe')}: ${WIREFRAME_MODEL_HINTS[providerId].filter(Boolean).join(', ')} · ${t('panel.models.highFidelity')}: ${HIGH_FIDELITY_MODEL_HINTS[providerId].filter(Boolean).join(', ')}`}
         </Notice>
-        {/* wan 系 + 锚点互斥是 DashScope qwen 端点的约束，火山方舟参考图不受此限 */}
-        {providerId === 'dashscope' &&
-          nonQwenModel(snap.value?.wireframeModel, snap.value?.highFidelityModel) !== undefined && (
-            <Notice>{t('panel.models.nonQwenWarning')}</Notice>
-          )}
       </Card>
     </div>
   )

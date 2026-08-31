@@ -96,8 +96,6 @@ export const zh = {
   'panel.models.wireframe': '线框图',
   'panel.models.highFidelity': '高保真',
   'panel.models.followDefault': '跟随提供方默认',
-  'panel.models.nonQwenWarning':
-    '当前默认模型含 wan 系：wan 端点不支持参考图（图生图），设了风格锚点时该层生成会跳过锚点注入——需要锚点联动的层请换回 qwen-image 系。',
 
   // 生成偏好页
   'panel.prefs.fidelity': '保真度偏好',
@@ -239,8 +237,6 @@ export const en = {
   'panel.models.wireframe': 'Wireframe',
   'panel.models.highFidelity': 'High fidelity',
   'panel.models.followDefault': 'Follow provider default',
-  'panel.models.nonQwenWarning':
-    'A wan-series model is set as a default: the wan endpoint does not support reference images (I2I), so generations on that tier will skip style-anchor injection — switch that tier back to a qwen-image model to use anchors.',
 
   'panel.prefs.fidelity': 'Fidelity preference',
   'panel.prefs.fidelityWireframe': 'Wireframe',
