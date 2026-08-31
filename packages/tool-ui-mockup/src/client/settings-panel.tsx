@@ -1240,7 +1240,6 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
           type="search"
           aria-label={t('panel.history.searchLabel')}
           className="ui-mockup-history-search"
-          style={{ flex: 1 }}
           placeholder={t('panel.history.searchPlaceholder')}
           value={queryDraft}
           onChange={(event) => setQueryDraft(event.target.value)}
