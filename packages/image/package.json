@@ -1,7 +1,25 @@
 {
   "name": "@mackwan84/dsh-image",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "图像生成 capability 的 Service Definition：UI 草图生成/编辑的抽象契约与错误码",
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "dsh-plugin",
+    "image-generation",
+    "ui-mockup",
+    "wireframe",
+    "typescript"
+  ],
+  "homepage": "https://github.com/mackwan84/dsh-ui-mockup#readme",
+  "bugs": {
+    "url": "https://github.com/mackwan84/dsh-ui-mockup/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mackwan84/dsh-ui-mockup.git",
+    "directory": "packages/image"
+  },
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",

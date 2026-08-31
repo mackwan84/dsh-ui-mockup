@@ -1,7 +1,26 @@
 {
   "name": "@mackwan84/dsh-tool-ui-mockup",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "ui_mockup 工具 Consumer：研讨阶段生成 UI 线框图/高保真草图，落盘设计稿并提示确认后锁定设计规格；含客户端卡片、图片路由与 i18n",
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "dsh-plugin",
+    "ui-mockup",
+    "wireframe",
+    "ai-design",
+    "image-generation",
+    "react"
+  ],
+  "homepage": "https://github.com/mackwan84/dsh-ui-mockup#readme",
+  "bugs": {
+    "url": "https://github.com/mackwan84/dsh-ui-mockup/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mackwan84/dsh-ui-mockup.git",
+    "directory": "packages/tool-ui-mockup"
+  },
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",

@@ -1,7 +1,7 @@
 {
   "name": "dsh-ui-mockup",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "DSH 插件：研讨阶段生成 UI 草图/高保真设计稿，确认后锁定设计规格",
   "type": "module",
   "scripts": {
@@ -13,7 +13,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "pack:all": "rm -rf dist && mkdir -p dist && cd packages/image && pnpm pack --pack-destination ../../dist && cd ../image-dashscope && pnpm pack --pack-destination ../../dist && cd ../image-volcengine && pnpm pack --pack-destination ../../dist && cd ../tool-ui-mockup && pnpm pack --pack-destination ../../dist && cd ../../bundle/ui-mockup && pnpm pack --pack-destination ../../dist",
-    "publish:all": "pnpm run pack:all && npm publish ./dist/mackwan84-dsh-image-[0-9]*.tgz --access public --registry=https://registry.npmjs.org && npm publish ./dist/mackwan84-dsh-image-dashscope-*.tgz --access public --registry=https://registry.npmjs.org && npm publish ./dist/mackwan84-dsh-image-volcengine-*.tgz --access public --registry=https://registry.npmjs.org && npm publish ./dist/mackwan84-dsh-tool-ui-mockup-*.tgz --access public --registry=https://registry.npmjs.org && npm publish ./dist/mackwan84-dsh-ui-mockup-bundle-*.tgz --access public --registry=https://registry.npmjs.org"
+    "publish:all": "pnpm run pack:all && npm publish ./dist/mackwan84-dsh-image-0.1.2.tgz --access public --registry=https://registry.npmjs.org && npm publish ./dist/mackwan84-dsh-image-dashscope-0.1.2.tgz --access public --registry=https://registry.npmjs.org && npm publish ./dist/mackwan84-dsh-image-volcengine-0.1.2.tgz --access public --registry=https://registry.npmjs.org && npm publish ./dist/mackwan84-dsh-tool-ui-mockup-0.1.2.tgz --access public --registry=https://registry.npmjs.org && npm publish ./dist/mackwan84-dsh-ui-mockup-bundle-0.1.2.tgz --access public --registry=https://registry.npmjs.org"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",

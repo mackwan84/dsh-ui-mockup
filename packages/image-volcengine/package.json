@@ -1,7 +1,27 @@
 {
   "name": "@mackwan84/dsh-image-volcengine",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "火山方舟图像生成 Provider：doubao-seedream 4.0-5.0 系列（文生图 + 参考图 I2I + 指令编辑）的同步调用",
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "dsh-plugin",
+    "image-generation",
+    "ui-mockup",
+    "volcengine",
+    "seedream",
+    "doubao",
+    "ark"
+  ],
+  "homepage": "https://github.com/mackwan84/dsh-ui-mockup#readme",
+  "bugs": {
+    "url": "https://github.com/mackwan84/dsh-ui-mockup/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mackwan84/dsh-ui-mockup.git",
+    "directory": "packages/image-volcengine"
+  },
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",

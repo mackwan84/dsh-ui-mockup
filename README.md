@@ -1,7 +1,14 @@
 # dsh-ui-mockup
 
+[![npm version](https://img.shields.io/npm/v/%40mackwan84%2Fdsh-ui-mockup-bundle)](https://www.npmjs.com/package/@mackwan84/dsh-ui-mockup-bundle)
+[![npm downloads](https://img.shields.io/npm/dm/%40mackwan84%2Fdsh-ui-mockup-bundle)](https://www.npmjs.com/package/@mackwan84/dsh-ui-mockup-bundle)
+[![GitHub release](https://img.shields.io/github/v/release/mackwan84/dsh-ui-mockup)](https://github.com/mackwan84/dsh-ui-mockup/releases)
+[![License](https://img.shields.io/github/license/mackwan84/dsh-ui-mockup)](LICENSE)
+
 在 DSH（DeepSeek Harness）研讨阶段生成 UI 草图 / 高保真设计稿的插件：让用户在写代码之前
 确认界面方向，通过「生成 → 看图反馈 → 确认锁定 → 规格实现」闭环，避免实现完成后才发现界面不符合预期。
+
+![UI 草图设置概览](docs/test-evidence/2026-08-28-browser-acceptance/screenshots/67-final-release-overview.png)
 
 ## 功能特性
 
@@ -26,14 +33,23 @@
 - **风格锚点**：历史页把某张生成图设为锚点后，`ui_mockup` 未显式传 reference 时
   自动引用该图走 I2I，多页面风格保持一致；清空历史会一并解除锚点。
 
-## 安装（未发布，开发方式）
+## 安装
 
 ```sh
-# 从本仓库本地安装（开发期）
+dsh plugin --profile web add @mackwan84/dsh-ui-mockup-bundle@0.1.2
+```
+
+安装完成后重启 DSH。开发本仓库时可改用本地路径：
+
+```sh
 dsh plugin --profile web add /path/to/dsh-ui-mockup/bundle/ui-mockup
 ```
 
-发布后：`dsh plugin --profile web add @mackwan84/dsh-ui-mockup-bundle`
+### 使用环境
+
+- DSH Web profile；
+- 桌面端推荐宽度为 1024px 及以上，这是设置面板和结果卡片的正式验收基线；
+- 至少配置一个图像服务凭据：阿里云百炼 `DASHSCOPE_API_KEY` 或火山方舟 `ARK_API_KEY`。
 
 ## 配置
 
@@ -89,7 +105,7 @@ pnpm format        # Prettier 全仓格式化
 pnpm format:check  # Prettier 格式检查
 pnpm build         # 构建四个包的 lib/
 pnpm run pack:all  # 打包 5 个 tarball 到 dist/
-pnpm run publish:all # 先由 pnpm 打包转换 workspace: 协议，再按依赖顺序发布 5 个 tarball
+pnpm run publish:all # 先由 pnpm 转换 workspace: 协议，再按依赖顺序发布 5 个 tarball
 ```
 
 ## License
