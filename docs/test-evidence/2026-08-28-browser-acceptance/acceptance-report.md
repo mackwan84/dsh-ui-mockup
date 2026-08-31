@@ -2,9 +2,9 @@
 
 > 执行周期：2026-08-28～2026-08-31
 >
-> 被测提交：`4cdc541ab7cda9cc3b5bd8d133ae02a442e9c037`
+> 被测提交：`456cc025bfab852db18c33cb27cd29b26e1ed4d9`
 >
-> UI 缺陷修复提交：`49017ad`、`a0c6c1f`、`e39ad71`、`3999a47`、`bde1504`、`4cdc541`
+> UI 缺陷修复提交：`49017ad`、`a0c6c1f`、`e39ad71`、`3999a47`、`bde1504`、`4cdc541`、`456cc02`
 >
 > DSH Web：Local Build `141eb6f`，`http://127.0.0.1:3080/`
 >
@@ -279,7 +279,7 @@ Volcengine → DashScope 约 10.6 秒完成热重载；页面唯一选中 DashSc
 
 1. **Tabs 与辅助语义**：四个 tab 具备 roving `tabIndex`、`aria-controls` 与 `tabpanel/aria-labelledby` 双向关联；ArrowLeft/ArrowRight 循环切换，Home/End 跳到首尾。浏览器实测 ArrowRight 后“提供方与模型”同时获得焦点和选中态。
 2. **表单名称与状态播报**：线框/高保真模型、`ARK_API_KEY` 输入、轮询超时和默认尺寸均可按可见名称查询；保存成功使用礼貌状态区播报。
-3. **偏好 dirty 与写入边界**：从 Web 临时改为 Mobile 时 Save 启用，改回 Web 后立即禁用，未写入持久化数据。保存/恢复默认期间全部编辑控件禁用；SettingsScope 即使 resolve，仍须同步快照匹配预期才显示成功，否则保留 dirty 并提示重试。
+3. **偏好 dirty 与写入边界**：从 Web 临时改为 Mobile 时 Save 启用，改回 Web 后立即禁用，未写入持久化数据。保存/恢复默认期间全部编辑控件禁用；SettingsScope 即使 resolve，保存仍须同步快照匹配预期才显示成功；恢复默认则要求用户层覆盖字段全部消失，并接受配置层 base 作为新基线。失败时保留 dirty 并提示重试。
 4. **历史搜索**：增加明确“搜索”按钮、搜索框可访问名称与“条件已更改”提示；按钮和 Enter 均提交，翻页继续使用已提交条件。实测“发布”从 5 条当前页结果过滤为 1 条，“Wanderly”经 Enter 得到 2 条。
 5. **视觉与窄屏**：概览三枚系统 emoji 已替换为 UI primitives SVG；桌面 DOM 中无旧 emoji、存在 3 枚矢量图标。响应式 CSS 以 `?inline` 打入 `client.js`，避免动态插件只加载 JS 时丢失样式。
 
@@ -290,7 +290,7 @@ Volcengine → DashScope 约 10.6 秒完成热重载；页面唯一选中 DashSc
 | 375px |        327px |         83px | `scrollWidth=clientWidth=83`        | `83/264`，仅容器内横向滚动 | 插件无额外溢出；宿主可用宽度仍不足 |
 | 320px |        272px |         28px | 四页均 `scrollWidth=clientWidth=28` | `28/264`，仅容器内横向滚动 | 插件无额外溢出；宿主内容区已不可用 |
 
-自动化门禁新增 14 项设置面板组件测试，最终为 **118/118**；`typecheck`、`lint`、`format:check`、全仓 `build` 均通过。浏览器控制台无 error/warn。
+自动化门禁新增 15 项设置面板组件测试，最终为 **119/119**；`typecheck`、`lint`、`format:check`、全仓 `build` 均通过。浏览器控制台无 error/warn。
 
 ![修复后桌面概览](screenshots/62-settings-overview-desktop.png)
 
@@ -307,7 +307,7 @@ Volcengine → DashScope 约 10.6 秒完成热重载；页面唯一选中 DashSc
 | 缺陷 ID | 等级    | 关联用例                | 状态                    | 结论                                                                                | 证据                                                                                                  |
 | ------- | ------- | ----------------------- | ----------------------- | ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | ACC-001 | S1 / P0 | VIS-12、A11Y-10、UI-05  | **插件已修复/宿主开放** | 插件四页在 320/375px 无额外溢出；宿主固定导航仍把内容区压缩为 28/83px，整机仍不可用 | `screenshots/11-history-375px.png`、`65-history-375px.png`、`66-history-320px.png`                    |
-| ACC-002 | S2 / P1 | A11Y-05、UI-10          | **已修复并回归**        | Tabs 支持 ArrowLeft/Right、Home/End、roving focus 和完整 tabpanel 关系              | 14 项组件测试、浏览器 DOM/焦点检查                                                                    |
+| ACC-002 | S2 / P1 | A11Y-05、UI-10          | **已修复并回归**        | Tabs 支持 ArrowLeft/Right、Home/End、roving focus 和完整 tabpanel 关系              | 15 项组件测试、浏览器 DOM/焦点检查                                                                    |
 | ACC-003 | S2 / P1 | HIS-04、UX-11           | **已修复并回归**        | 搜索按钮、Enter、待提交提示和 draft/applied 条件隔离均通过                          | `screenshots/64-history-search-button.png`                                                            |
 | ACC-004 | S2 / P1 | VIS-04、VIS-08、A11Y-02 | **已修复并回归**        | 三枚系统 emoji 替换为 primitives SVG，浅/深色使用主题色                             | `screenshots/62-settings-overview-desktop.png`                                                        |
 | ACC-005 | S3 / P1 | PREF-01、UX-08          | **已修复并回归**        | dirty 改为草稿与基线比较，恢复原值后 Save 立即禁用                                  | `screenshots/63-preferences-reverted.png`                                                             |
@@ -343,7 +343,7 @@ Volcengine → DashScope 约 10.6 秒完成热重载；页面唯一选中 DashSc
 - DashScope `qwen-image-3.0-pro` 真实高保真 Mobile 双图通过，一条历史正确关联两个文件。
 - DashScope Qwen 锚点自动 I2I 通过，原始工具结果确认自动注入本地参考图。
 - Wan 2.7 标准版、Pro 双图和 Pro 锚点 I2I 真实回归通过；旧 Wan 本地拒绝且无历史副作用。
-- 最新完整工程门禁为 118 项测试，typecheck、lint、format 与 build 全部通过。
+- 最新完整工程门禁为 119 项测试，typecheck、lint、format 与 build 全部通过。
 
 以上正向结果仅适用于本轮 Codex 内置浏览器和当前运行数据，不代表 Edge、Safari、Firefox 或全部异常状态已通过。
 
