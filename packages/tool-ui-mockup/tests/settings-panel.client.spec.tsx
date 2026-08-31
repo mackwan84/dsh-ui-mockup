@@ -48,6 +48,8 @@ function createPrefs(
     applyWrites?: boolean
     base?: PanelPrefs
     firstWriteGate?: Promise<void>
+    /** 指定字段的 set 静默不生效（模拟宿主写入失败走 recover、resolve 不抛错）。 */
+    failFields?: readonly string[]
     user?: Partial<PanelPrefs>
   } = {},
 ): PrefScope<PanelPrefs> {
@@ -92,6 +94,7 @@ function createPrefs(
 
   function apply(field: string, next: unknown): Promise<void> {
     if (options.applyWrites === false) return Promise.resolve()
+    if (options.failFields?.includes(field) === true) return Promise.resolve()
     user = { ...user, [field]: next }
     value = { ...base, ...user }
     revision += 1
@@ -277,10 +280,34 @@ describe('PreferencesPage dirty state', () => {
     fireEvent.click(screen.getByRole('radio', { name: 'Mobile' }))
     fireEvent.click(screen.getByRole('button', { name: '保存' }))
 
-    await screen.findByText('设置存储未确认本次更改，请重试。')
+    await screen.findByText(
+      '「defaultPlatform」未写入设置存储，保存已中止；之前的字段可能已落盘，请核对后重试。',
+    )
     expect(screen.queryByText('已保存 ✓')).toBeNull()
     expect(screen.getByRole<HTMLButtonElement>('button', { name: '保存' }).disabled).toBe(false)
     expect(screen.getByRole<HTMLInputElement>('radio', { name: 'Mobile' }).checked).toBe(true)
+  })
+
+  it('单字段写入失败时立即中止并点名，已写字段如实保留', async () => {
+    const prefs = createPrefs(DEFAULT_PREFS, { failFields: ['defaultCount'] })
+    mountPanel({ prefs })
+    fireEvent.click(screen.getByRole('tab', { name: '生成偏好' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'Mobile' }))
+    fireEvent.click(screen.getByRole('radio', { name: '3' }))
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+
+    await screen.findByText(
+      '「defaultCount」未写入设置存储，保存已中止；之前的字段可能已落盘，请核对后重试。',
+    )
+    // 失败字段之前的写入已落盘（提示如实说明），之后的字段不再写入
+    expect(prefs.getSnapshot().user).toMatchObject({
+      defaultFidelity: 'wireframe',
+      defaultPlatform: 'mobile',
+    })
+    expect(prefs.getSnapshot().user).not.toHaveProperty('defaultCount')
+    expect(prefs.getSnapshot().user).not.toHaveProperty('defaultSize')
+    // 草稿与 dirty 保留，可直接重试（写入幂等）
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: '保存' }).disabled).toBe(false)
   })
 
   it('恢复默认未落盘时保留当前草稿并报告失败', async () => {

@@ -113,6 +113,8 @@ export const zh = {
   'panel.prefs.save': '保存',
   'panel.prefs.saved': '已保存 ✓',
   'panel.prefs.writeNotApplied': '设置存储未确认本次更改，请重试。',
+  'panel.prefs.writeNotAppliedField':
+    '「{field}」未写入设置存储，保存已中止；之前的字段可能已落盘，请核对后重试。',
 
   // 生成历史页
   'panel.history.search': '搜索',
@@ -258,6 +260,8 @@ export const en = {
   'panel.prefs.save': 'Save',
   'panel.prefs.saved': 'Saved ✓',
   'panel.prefs.writeNotApplied': 'The settings store did not confirm this change. Please retry.',
+  'panel.prefs.writeNotAppliedField':
+    '"{field}" was not confirmed by the settings store; saving stopped. Earlier fields may already be applied — please verify and retry.',
 
   'panel.history.search': 'Search',
   'panel.history.searchLabel': 'Search generation history',

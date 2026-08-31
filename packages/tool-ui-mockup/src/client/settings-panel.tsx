@@ -962,6 +962,16 @@ function PreferencesPage({ t, prefs }: Omit<PanelProps, 'connection'>) {
     return actual
   }
 
+  /** 单字段写入后立即确认落盘；宿主 set 失败时静默恢复（不抛错），逐字段确认
+      能在第一时间中止后续写入，避免静默部分落盘。 */
+  const setField = async (field: (typeof EDITABLE_PREF_FIELDS)[number], value: unknown) => {
+    await prefs.set(field, value)
+    const actual = prefs.getSnapshot().value
+    if (actual === undefined || actual[field] !== value) {
+      throw new Error(t('panel.prefs.writeNotAppliedField', { field }))
+    }
+  }
+
   const confirmResetApplied = (): PanelPrefs => {
     const current = prefs.getSnapshot()
     if (current.value === undefined || !editableUserOverridesCleared(current.user)) {
@@ -978,11 +988,11 @@ function PreferencesPage({ t, prefs }: Omit<PanelProps, 'connection'>) {
         defaultCount: Math.min(4, Math.max(1, Math.round(draft.defaultCount))),
         pollTimeoutMinutes: Math.max(1, Math.round(draft.pollTimeoutMinutes)),
       }
-      await prefs.set('defaultFidelity', saved.defaultFidelity)
-      await prefs.set('defaultPlatform', saved.defaultPlatform)
-      await prefs.set('defaultCount', saved.defaultCount)
-      await prefs.set('pollTimeoutMinutes', saved.pollTimeoutMinutes)
-      await prefs.set('defaultSize', saved.defaultSize)
+      await setField('defaultFidelity', saved.defaultFidelity)
+      await setField('defaultPlatform', saved.defaultPlatform)
+      await setField('defaultCount', saved.defaultCount)
+      await setField('pollTimeoutMinutes', saved.pollTimeoutMinutes)
+      await setField('defaultSize', saved.defaultSize)
       const applied = confirmApplied(saved)
       setDraft(applied)
       setBaseline(applied)
