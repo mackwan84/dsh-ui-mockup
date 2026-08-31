@@ -13,6 +13,9 @@
 
 .ui-mockup-section {
   box-sizing: border-box;
+  /* 面板作为容器查询上下文：窄屏断点跟随宿主分配的实际内容宽度，
+     而非视口宽度（宿主设置弹窗的固定侧栏会让两者相差上百像素）。 */
+  container-type: inline-size;
 }
 
 .ui-mockup-card,
@@ -66,7 +69,7 @@
   min-width: 28px;
 }
 
-@media (max-width: 640px) {
+@container (max-width: 640px) {
   .ui-mockup-tabs {
     gap: 16px;
   }
