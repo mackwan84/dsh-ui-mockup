@@ -53,26 +53,24 @@ function createPrefs(initial: PanelPrefs = DEFAULT_PREFS): PrefScope<PanelPrefs>
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
-    async set(field, next) {
+    set(field, next) {
       value = { ...value, [field]: next }
       revision += 1
       for (const listener of listeners) listener()
+      return Promise.resolve()
     },
-    async unset(field) {
+    unset(field) {
       value = { ...value, [field]: DEFAULT_PREFS[field as keyof PanelPrefs] }
       revision += 1
       for (const listener of listeners) listener()
+      return Promise.resolve()
     },
   }
 }
 
 function createConnection({ historyTotal = 0 }: { historyTotal?: number } = {}) {
   const call = vi.fn(
-    async (
-      _channel: string,
-      endpoint: string,
-      _payload?: unknown,
-    ): Promise<RpcResultLike<unknown>> => {
+    (_channel: string, endpoint: string, _payload?: unknown): Promise<RpcResultLike<unknown>> => {
       const value =
         endpoint === 'overview'
           ? {
@@ -102,7 +100,7 @@ function createConnection({ historyTotal = 0 }: { historyTotal?: number } = {}) 
                         ],
                 }
               : {}
-      return { ok: true, value }
+      return Promise.resolve({ ok: true as const, value })
     },
   )
   const connection: ConnectionFace = { isLoopback: true, rpc: { call } }
