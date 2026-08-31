@@ -99,22 +99,59 @@ function isRateLimitCode(code: unknown): code is string {
   return typeof code === 'string' && (code.includes('Throttling') || code.includes('RateQuota'))
 }
 
-/** 从任务输出中提取图片 URL：兼容 wanx 的 results[].url 与 qwen-image 的 choices[].message.content[].image。 */
+type DashscopeModelFamily = 'qwen' | 'wan27'
+
+/** 只接受当前已适配的模型族，避免把未知模型猜测性地发往旧端点。 */
+function modelFamilyOf(model: string): DashscopeModelFamily {
+  if (model.startsWith('qwen-image')) return 'qwen'
+  if (model === 'wan2.7-image' || model === 'wan2.7-image-pro') return 'wan27'
+  throw new ImageProviderError(
+    'INVALID_PARAMETER',
+    `模型 ${model} 不受支持；当前仅支持 qwen-image 系列与 wan2.7-image(-pro)`,
+  )
+}
+
+/** 按 Wan 2.7 当前模型、场景和官方像素域归一画幅。 */
+function toWan27Size(
+  model: string,
+  size: string | undefined,
+  platform: ImageGenerateSpec['platform'],
+  hasReference: boolean,
+): string {
+  if (size === undefined || size.trim() === '') {
+    return platform === 'mobile' ? '1152*2048' : '2048*1152'
+  }
+  const normalized = size.trim().toUpperCase()
+  if (normalized === '1K' || normalized === '2K') return normalized
+  if (normalized === '4K') {
+    if (model === 'wan2.7-image-pro' && !hasReference) return normalized
+    throw new ImageProviderError(
+      'INVALID_PARAMETER',
+      `模型 ${model} 在当前场景不支持 4K；请使用 1K、2K 或合法宽高`,
+    )
+  }
+  const parsed = /^(\d+)[X*](\d+)$/.exec(normalized)
+  if (parsed === null) {
+    throw new ImageProviderError('INVALID_PARAMETER', `Wan 2.7 画幅 ${size} 格式无效`)
+  }
+  const width = Number(parsed[1])
+  const height = Number(parsed[2])
+  const ratio = width / height
+  const maxPixels = model === 'wan2.7-image-pro' && !hasReference ? 4096 * 4096 : 2048 * 2048
+  if (width * height < 768 * 768 || width * height > maxPixels || ratio < 1 / 8 || ratio > 8) {
+    throw new ImageProviderError(
+      'INVALID_PARAMETER',
+      `Wan 2.7 画幅 ${size} 超出当前模型与场景的像素或宽高比范围`,
+    )
+  }
+  return `${width}*${height}`
+}
+
+/** 从 Qwen Image / Wan 2.7 的 choices 消息中提取图片 URL。 */
 export function extractImageUrls(output: unknown): string[] {
   if (output === null || typeof output !== 'object') return []
   const record = output as JsonObject
   const urls: string[] = []
-  if (Array.isArray(record.results)) {
-    for (const item of record.results) {
-      if (
-        item !== null &&
-        typeof item === 'object' &&
-        typeof (item as JsonObject).url === 'string'
-      ) {
-        urls.push((item as JsonObject).url as string)
-      }
-    }
-  }
   if (Array.isArray(record.choices)) {
     for (const choice of record.choices) {
       const message =
@@ -169,42 +206,32 @@ export default class DashscopeImageProvider extends ImageGenerationService {
   }
 
   async generate(spec: ImageGenerateSpec, signal?: AbortSignal): Promise<ImageGenerateResult> {
-    const apiKey = await this.resolveApiKey()
     const model =
       spec.model ??
       (spec.fidelity === 'high-fidelity'
         ? this.config.highFidelityModel
         : this.config.wireframeModel)
-    // 缺省 2K（2560x1440 = 3,686,400 像素，qwen-image 合法域 [512*512, 2048*2048] 总像素内）
-    const size = spec.size ?? (spec.platform === 'mobile' ? '1440*2560' : '2560*1440')
+    const family = modelFamilyOf(model)
+    const apiKey = await this.resolveApiKey()
+    const hasReference = spec.reference !== undefined && spec.reference !== ''
+    const size =
+      family === 'wan27'
+        ? toWan27Size(model, spec.size, spec.platform, hasReference)
+        : (spec.size ?? (spec.platform === 'mobile' ? '1440*2560' : '2560*1440'))
     const n = Math.min(4, Math.max(1, Math.trunc(spec.n ?? 1)))
-    const isQwen = model.startsWith('qwen-image')
-
-    let path: string
-    let input: JsonObject
-    if (isQwen) {
-      const content: JsonObject[] = []
-      if (spec.reference !== undefined && spec.reference !== '') {
-        const bytes = await readFile(resolveReferencePath(spec.reference, spec.cwd))
-        content.push({ image: `data:image/png;base64,${bytes.toString('base64')}` })
-      }
-      content.push({ text: spec.prompt })
-      path = '/api/v1/services/aigc/image-generation/generation'
-      input = { messages: [{ role: 'user', content }] }
-    } else {
-      if (spec.reference !== undefined && spec.reference !== '') {
-        throw new ImageProviderError(
-          'INVALID_PARAMETER',
-          `参考图模式仅支持 qwen-image 系列模型（当前 ${model}）`,
-        )
-      }
-      path = '/api/v1/services/aigc/text2image/image-synthesis'
-      input = { prompt: spec.prompt }
+    const content: JsonObject[] = []
+    if (hasReference) {
+      const bytes = await readFile(resolveReferencePath(spec.reference, spec.cwd))
+      content.push({ image: `data:image/png;base64,${bytes.toString('base64')}` })
     }
+    content.push({ text: spec.prompt })
+    const input = { messages: [{ role: 'user', content }] }
+    const parameters: JsonObject = { size, n }
+    if (family === 'wan27') parameters.watermark = false
 
     const created = await this.createTask(
-      path,
-      { model, input, parameters: { size, n } },
+      '/api/v1/services/aigc/image-generation/generation',
+      { model, input, parameters },
       apiKey,
       signal,
     )

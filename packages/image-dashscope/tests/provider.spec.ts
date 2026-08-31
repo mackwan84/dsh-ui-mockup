@@ -74,10 +74,8 @@ afterEach(() => {
 })
 
 describe('extractImageUrls', () => {
-  it('reads wanx results[].url', () => {
-    expect(extractImageUrls({ results: [{ url: 'https://oss/a.png' }] })).toEqual([
-      'https://oss/a.png',
-    ])
+  it('ignores the retired Wan results output', () => {
+    expect(extractImageUrls({ results: [{ url: 'https://oss/legacy.png' }] })).toEqual([])
   })
 
   it('reads qwen-image choices[].message.content[].image', () => {
@@ -158,7 +156,10 @@ describe('generate · qwen-image', () => {
       () =>
         new Response(
           JSON.stringify({
-            output: { task_status: 'SUCCEEDED', results: [{ url: 'https://oss/r.png' }] },
+            output: {
+              task_status: 'SUCCEEDED',
+              choices: [{ message: { content: [{ image: 'https://oss/r.png' }] } }],
+            },
           }),
           { status: 200 },
         ),
@@ -179,7 +180,10 @@ describe('generate · qwen-image', () => {
         () =>
           new Response(
             JSON.stringify({
-              output: { task_status: 'SUCCEEDED', results: [{ url: 'https://oss/r.png' }] },
+              output: {
+                task_status: 'SUCCEEDED',
+                choices: [{ message: { content: [{ image: 'https://oss/r.png' }] } }],
+              },
             }),
             { status: 200 },
           ),
@@ -238,7 +242,10 @@ describe('generate · qwen-image', () => {
       () =>
         new Response(
           JSON.stringify({
-            output: { task_status: 'SUCCEEDED', results: [{ url: 'https://oss/r.png' }] },
+            output: {
+              task_status: 'SUCCEEDED',
+              choices: [{ message: { content: [{ image: 'https://oss/r.png' }] } }],
+            },
           }),
           { status: 200 },
         ),
@@ -253,33 +260,129 @@ describe('generate · qwen-image', () => {
   })
 })
 
-describe('generate · wanx fallback', () => {
-  it('uses the text2image endpoint with a plain prompt input', async () => {
+describe('generate · Wan 2.7', () => {
+  const wanSuccess = {
+    output: {
+      task_status: 'SUCCEEDED',
+      choices: [{ message: { content: [{ image: 'https://oss.example/wan27.png' }] } }],
+    },
+  }
+
+  it('uses the Wan 2.7 async messages endpoint with web defaults', async () => {
     const calls = mockFetch([
-      () =>
-        new Response(JSON.stringify({ output: { task_id: 't', task_status: 'PENDING' } }), {
-          status: 200,
-        }),
-      () =>
-        new Response(
-          JSON.stringify({
-            output: { task_status: 'SUCCEEDED', results: [{ url: 'https://oss/r.png' }] },
-          }),
-          { status: 200 },
-        ),
+      () => new Response(JSON.stringify({ output: { task_id: 'wan27' } }), { status: 200 }),
+      () => new Response(JSON.stringify(wanSuccess), { status: 200 }),
     ])
-    await provider().generate({ ...wireframeSpec, model: 'wan2.2-t2i-plus' })
+    const result = await provider().generate({ ...wireframeSpec, model: 'wan2.7-image' })
     expect(calls[0]!.url).toBe(
-      'https://dashscope.aliyuncs.com/api/v1/services/aigc/text2image/image-synthesis',
+      'https://dashscope.aliyuncs.com/api/v1/services/aigc/image-generation/generation',
     )
-    const body = JSON.parse(bodyOf(calls[0]!)) as { input: { prompt: string } }
-    expect(body.input.prompt).toBe('黑白线框图测试')
+    const body = JSON.parse(bodyOf(calls[0]!)) as {
+      input: { messages: Array<{ content: Array<Record<string, string>> }> }
+      parameters: { size: string; n: number; watermark: boolean }
+    }
+    expect(body.input.messages[0]!.content).toEqual([{ text: '黑白线框图测试' }])
+    expect(body.parameters).toEqual({ size: '2048*1152', n: 1, watermark: false })
+    expect(result.images).toEqual([{ url: 'https://oss.example/wan27.png' }])
   })
 
-  it('rejects a reference for non-qwen models', async () => {
+  it('uses the Wan 2.7 mobile default size', async () => {
+    const calls = mockFetch([
+      () => new Response(JSON.stringify({ output: { task_id: 'wan27-mobile' } }), { status: 200 }),
+      () => new Response(JSON.stringify(wanSuccess), { status: 200 }),
+    ])
+    await provider().generate({
+      ...wireframeSpec,
+      model: 'wan2.7-image',
+      platform: 'mobile',
+    })
+    const body = JSON.parse(bodyOf(calls[0]!)) as { parameters: { size: string } }
+    expect(body.parameters.size).toBe('1152*2048')
+  })
+
+  it('inlines a reference for Wan 2.7', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-wan27-reference-'))
+    try {
+      const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47])
+      await writeFile(join(dir, 'anchor.png'), bytes)
+      const calls = mockFetch([
+        () => new Response(JSON.stringify({ output: { task_id: 'wan27-i2i' } }), { status: 200 }),
+        () => new Response(JSON.stringify(wanSuccess), { status: 200 }),
+      ])
+      await provider().generate({
+        ...wireframeSpec,
+        model: 'wan2.7-image-pro',
+        reference: 'anchor.png',
+        cwd: dir,
+      })
+      const body = JSON.parse(bodyOf(calls[0]!)) as {
+        input: { messages: Array<{ content: Array<Record<string, string>> }> }
+      }
+      expect(body.input.messages[0]!.content).toEqual([
+        { image: `data:image/png;base64,${bytes.toString('base64')}` },
+        { text: '黑白线框图测试' },
+      ])
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects retired and unknown models before fetch', async () => {
+    const calls = mockFetch(() => {
+      throw new Error('unexpected fetch: unsupported models must fail locally')
+    })
     await expect(
-      provider().generate({ ...wireframeSpec, model: 'wan2.2-t2i-plus', reference: 'x.png' }),
+      provider().generate({ ...wireframeSpec, model: 'wan2.2-t2i-plus' }),
     ).rejects.toMatchObject({ code: 'INVALID_PARAMETER' })
+    await expect(
+      provider().generate({ ...wireframeSpec, model: 'future-image-model' }),
+    ).rejects.toMatchObject({ code: 'INVALID_PARAMETER' })
+    expect(calls).toHaveLength(0)
+  })
+
+  it('enforces Wan 2.7 tier and pixel limits', async () => {
+    const calls = mockFetch(() => {
+      throw new Error('unexpected fetch: invalid Wan sizes must fail locally')
+    })
+    await expect(
+      provider().generate({ ...wireframeSpec, model: 'wan2.7-image', size: '4K' }),
+    ).rejects.toMatchObject({
+      code: 'INVALID_PARAMETER',
+      message: '模型 wan2.7-image 在当前场景不支持 4K；请使用 1K、2K 或合法宽高',
+    })
+    await expect(
+      provider().generate({
+        ...wireframeSpec,
+        model: 'wan2.7-image-pro',
+        reference: 'anchor.png',
+        size: '4K',
+      }),
+    ).rejects.toMatchObject({
+      code: 'INVALID_PARAMETER',
+      message: '模型 wan2.7-image-pro 在当前场景不支持 4K；请使用 1K、2K 或合法宽高',
+    })
+    await expect(
+      provider().generate({ ...wireframeSpec, model: 'wan2.7-image', size: '4096*4096' }),
+    ).rejects.toMatchObject({ code: 'INVALID_PARAMETER' })
+    expect(calls).toHaveLength(0)
+  })
+
+  it('allows 4K only for Wan 2.7 Pro text-to-image', async () => {
+    const calls = mockFetch([
+      () => new Response(JSON.stringify({ output: { task_id: 'wan27-pro-4k' } }), { status: 200 }),
+      () => new Response(JSON.stringify(wanSuccess), { status: 200 }),
+    ])
+    await provider().generate({ ...wireframeSpec, model: 'wan2.7-image-pro', size: '4K' })
+    expect(calls[0]!.url).toBe(
+      'https://dashscope.aliyuncs.com/api/v1/services/aigc/image-generation/generation',
+    )
+    const body = JSON.parse(bodyOf(calls[0]!)) as {
+      input: { messages: Array<{ content: Array<Record<string, string>> }> }
+      parameters: { size: string; watermark: boolean }
+    }
+    expect(body.parameters.size).toBe('4K')
+    expect(body.parameters.watermark).toBe(false)
+    expect(body.input.messages[0]!.content).toEqual([{ text: '黑白线框图测试' }])
   })
 })
 
@@ -310,7 +413,10 @@ describe('resilience', () => {
       () =>
         new Response(
           JSON.stringify({
-            output: { task_status: 'SUCCEEDED', results: [{ url: 'https://oss/r.png' }] },
+            output: {
+              task_status: 'SUCCEEDED',
+              choices: [{ message: { content: [{ image: 'https://oss/r.png' }] } }],
+            },
           }),
           { status: 200 },
         ),
@@ -427,7 +533,10 @@ describe('resilience', () => {
       () =>
         new Response(
           JSON.stringify({
-            output: { task_status: 'SUCCEEDED', results: [{ url: 'https://oss/r.png' }] },
+            output: {
+              task_status: 'SUCCEEDED',
+              choices: [{ message: { content: [{ image: 'https://oss/r.png' }] } }],
+            },
           }),
           { status: 200 },
         ),
