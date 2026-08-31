@@ -1,6 +1,6 @@
 {
   "name": "@mackwan84/dsh-image",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "图像生成 capability 的 Service Definition：UI 草图生成/编辑的抽象契约与错误码",
   "type": "module",
   "main": "lib/index.js",
