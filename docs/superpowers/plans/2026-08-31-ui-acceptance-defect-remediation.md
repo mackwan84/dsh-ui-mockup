@@ -23,6 +23,7 @@
 ### Task 1: 建立设置面板组件测试并修复 Tabs 与图标
 
 **Files:**
+
 - Modify: `packages/tool-ui-mockup/package.json`
 - Modify: `pnpm-lock.yaml`
 - Modify: `vitest.config.ts`
@@ -30,6 +31,7 @@
 - Modify: `packages/tool-ui-mockup/src/client/settings-panel.tsx`
 
 **Interfaces:**
+
 - Consumes: `UiMockupSection`、`PrefScope<PanelPrefs>`、`ConnectionFace`
 - Produces: 完整的自动激活 Tabs 合约与稳定的 primitives 图标
 
@@ -65,11 +67,15 @@ pnpm vitest run packages/tool-ui-mockup/tests/settings-panel.client.spec.tsx
 
 ```ts
 const nextIndex =
-  event.key === 'Home' ? 0
-  : event.key === 'End' ? SUBPAGES.length - 1
-  : event.key === 'ArrowRight' ? (index + 1) % SUBPAGES.length
-  : event.key === 'ArrowLeft' ? (index - 1 + SUBPAGES.length) % SUBPAGES.length
-  : null
+  event.key === 'Home'
+    ? 0
+    : event.key === 'End'
+      ? SUBPAGES.length - 1
+      : event.key === 'ArrowRight'
+        ? (index + 1) % SUBPAGES.length
+        : event.key === 'ArrowLeft'
+          ? (index - 1 + SUBPAGES.length) % SUBPAGES.length
+          : null
 ```
 
 目标非空时 `preventDefault()`、`setPage(SUBPAGES[nextIndex])` 并聚焦目标 tab。概览三步分别改用 `IconNewChatOutline16`、`IconEditOutline16`、`IconCheckOutline16`。
@@ -90,11 +96,13 @@ git commit -m "fix(ui-mockup): 完善设置子页键盘导航"
 ### Task 2: 修复表单可访问名称与偏好脏状态
 
 **Files:**
+
 - Modify: `packages/tool-ui-mockup/src/client/settings-panel.tsx`
 - Modify: `packages/tool-ui-mockup/src/client/locales.ts`
 - Modify: `packages/tool-ui-mockup/tests/settings-panel.client.spec.tsx`
 
 **Interfaces:**
+
 - Consumes: Task 1 的组件测试夹具
 - Produces: `editablePrefsEqual(left, right): boolean` 的五字段比较行为和具名表单控件
 
@@ -115,7 +123,9 @@ pnpm vitest run packages/tool-ui-mockup/tests/settings-panel.client.spec.tsx
 为单一控件直接设置本地化 `aria-label`；保存反馈使用：
 
 ```tsx
-<span role="status" aria-live="polite">{t('panel.prefs.saved')}</span>
+<span role="status" aria-live="polite">
+  {t('panel.prefs.saved')}
+</span>
 ```
 
 偏好状态改为：
@@ -143,12 +153,14 @@ git commit -m "fix(ui-mockup): 修复偏好状态与控件名称"
 ### Task 3: 修复历史搜索反馈与插件侧窄容器布局
 
 **Files:**
+
 - Create: `packages/tool-ui-mockup/src/client/settings-panel.css`
 - Modify: `packages/tool-ui-mockup/src/client/settings-panel.tsx`
 - Modify: `packages/tool-ui-mockup/src/client/locales.ts`
 - Modify: `packages/tool-ui-mockup/tests/settings-panel.client.spec.tsx`
 
 **Interfaces:**
+
 - Consumes: `callPanel(connection, 'history/list', payload)` 现有协议
 - Produces: `queryDraft`/`appliedQuery` 搜索状态与 `ui-mockup-*` 私有响应式类名
 
@@ -184,15 +196,28 @@ const submitSearch = () => {
 根节点、tablist、字段行、历史工具栏、历史卡片和操作区添加 `ui-mockup-*` 类。样式至少包含：
 
 ```css
-.ui-mockup-section { min-width: 0; }
-.ui-mockup-tabs { overflow-x: auto; }
-.ui-mockup-tab { flex: 0 0 auto; white-space: nowrap; }
-.ui-mockup-model-select { max-width: 100%; }
+.ui-mockup-section {
+  min-width: 0;
+}
+.ui-mockup-tabs {
+  overflow-x: auto;
+}
+.ui-mockup-tab {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.ui-mockup-model-select {
+  max-width: 100%;
+}
 
 @media (max-width: 640px) {
   .ui-mockup-history-toolbar,
-  .ui-mockup-history-row { flex-wrap: wrap; }
-  .ui-mockup-history-actions { width: 100%; }
+  .ui-mockup-history-row {
+    flex-wrap: wrap;
+  }
+  .ui-mockup-history-actions {
+    width: 100%;
+  }
 }
 ```
 
@@ -214,10 +239,12 @@ git commit -m "fix(ui-mockup): 改进历史搜索与窄屏布局"
 ### Task 4: 全量回归并更新验收报告
 
 **Files:**
+
 - Modify: `docs/test-evidence/2026-08-28-browser-acceptance/acceptance-report.md`
 - Create: `docs/test-evidence/2026-08-28-browser-acceptance/screenshots/62-*.png`
 
 **Interfaces:**
+
 - Consumes: Tasks 1-3 的全部修复
 - Produces: 可追溯的自动化与浏览器验收结论
 
