@@ -4,8 +4,24 @@
  * 视觉完全使用 DSH 主题令牌（--dsw-*）与原生控件，浅/深色自适应；
  * 数据面：偏好经同名 settings 命名空间镜像读写，历史/锚点/测试连接走私有 RPC 频道。
  */
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Button, Input, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from 'react'
+import {
+  Button,
+  IconCheckOutline16,
+  IconEditOutline16,
+  IconNewChatOutline16,
+  Input,
+  StateDot,
+} from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import {
   callPanel,
@@ -68,28 +84,61 @@ const TAB_KEYS: Record<SubPage, `panel.tab.${SubPage}`> = {
 
 export function UiMockupSection({ t, prefs, connection }: PanelProps) {
   const [page, setPage] = useState<SubPage>('overview')
+  const tabsId = useId()
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([])
+
+  const selectTabFromKeyboard = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    const nextIndex =
+      event.key === 'Home'
+        ? 0
+        : event.key === 'End'
+          ? SUBPAGES.length - 1
+          : event.key === 'ArrowRight'
+            ? (index + 1) % SUBPAGES.length
+            : event.key === 'ArrowLeft'
+              ? (index - 1 + SUBPAGES.length) % SUBPAGES.length
+              : null
+    if (nextIndex === null) return
+    const nextPage = SUBPAGES[nextIndex]
+    if (nextPage === undefined) return
+    event.preventDefault()
+    setPage(nextPage)
+    tabRefs.current[nextIndex]?.focus()
+  }
+
+  const activeTabId = `${tabsId}-tab-${page}`
+  const activePanelId = `${tabsId}-panel-${page}`
   return (
     <div style={sectionStyle}>
       {/* 子页切换：对齐原生 Plugins 设置区的 tab 范式（底边线 + active 下划线） */}
-      <div role="tablist" style={tabsStyle}>
-        {SUBPAGES.map((key) => (
+      <div role="tablist" aria-label={t('panel.nav')} style={tabsStyle}>
+        {SUBPAGES.map((key, index) => (
           <button
             key={key}
+            id={`${tabsId}-tab-${key}`}
+            ref={(element) => {
+              tabRefs.current[index] = element
+            }}
             type="button"
             role="tab"
             aria-selected={page === key}
+            aria-controls={`${tabsId}-panel-${key}`}
+            tabIndex={page === key ? 0 : -1}
             data-active={page === key}
             onClick={() => setPage(key)}
+            onKeyDown={(event) => selectTabFromKeyboard(event, index)}
             style={page === key ? { ...tabStyle, ...tabActiveStyle } : tabStyle}
           >
             {t(TAB_KEYS[key])}
           </button>
         ))}
       </div>
-      {page === 'overview' && <OverviewPage t={t} connection={connection} />}
-      {page === 'provider' && <ProviderPage t={t} prefs={prefs} connection={connection} />}
-      {page === 'preferences' && <PreferencesPage t={t} prefs={prefs} />}
-      {page === 'history' && <HistoryPage t={t} connection={connection} />}
+      <div id={activePanelId} role="tabpanel" aria-labelledby={activeTabId} tabIndex={0}>
+        {page === 'overview' && <OverviewPage t={t} connection={connection} />}
+        {page === 'provider' && <ProviderPage t={t} prefs={prefs} connection={connection} />}
+        {page === 'preferences' && <PreferencesPage t={t} prefs={prefs} />}
+        {page === 'history' && <HistoryPage t={t} connection={connection} />}
+      </div>
     </div>
   )
 }
@@ -250,9 +299,17 @@ function Notice({ children, danger }: { children: ReactNode; danger?: boolean })
 
 /** 快速使用三步的图标与词条键（显式常量，规避模板字面量推断不进字典联合）。 */
 const QUICK_STEPS = [
-  { icon: '💬', title: 'panel.overview.step1Title', body: 'panel.overview.step1Body' },
-  { icon: '🖱️', title: 'panel.overview.step2Title', body: 'panel.overview.step2Body' },
-  { icon: '🔒', title: 'panel.overview.step3Title', body: 'panel.overview.step3Body' },
+  {
+    Icon: IconNewChatOutline16,
+    title: 'panel.overview.step1Title',
+    body: 'panel.overview.step1Body',
+  },
+  { Icon: IconEditOutline16, title: 'panel.overview.step2Title', body: 'panel.overview.step2Body' },
+  {
+    Icon: IconCheckOutline16,
+    title: 'panel.overview.step3Title',
+    body: 'panel.overview.step3Body',
+  },
 ] as const
 
 /** 面板用的凭据状态（与宿主 CredentialStatus 同构）：只有三个事实，永不携带值。 */
@@ -295,13 +352,15 @@ function OverviewPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
         {t('panel.overview.intro')}
       </p>
       <Card title={t('panel.overview.quickTitle')}>
-        {QUICK_STEPS.map((step) => (
-          <div key={step.title} style={{ display: 'flex', gap: 8 }}>
-            <span aria-hidden>{step.icon}</span>
+        {QUICK_STEPS.map(({ Icon, title, body }) => (
+          <div key={title} style={{ display: 'flex', gap: 8 }}>
+            <span aria-hidden style={{ flex: 'none', color: tokens.labelSecondary, marginTop: 2 }}>
+              <Icon size={16} />
+            </span>
             <p style={{ margin: 0, lineHeight: '20px' }}>
-              <strong style={{ fontSize: 13 }}>{t(step.title)}</strong>
+              <strong style={{ fontSize: 13 }}>{t(title)}</strong>
               <br />
-              <span style={{ fontSize: 13, color: tokens.labelSecondary }}>{t(step.body)}</span>
+              <span style={{ fontSize: 13, color: tokens.labelSecondary }}>{t(body)}</span>
             </p>
           </div>
         ))}

@@ -7,6 +7,8 @@ function workspaceSource(rel: string): string {
 }
 
 export default defineConfig({
+  // primitives 发布包遗漏 sourcemap；测试结果仍由 Vitest reporter 完整输出。
+  logLevel: 'silent',
   resolve: {
     alias: [
       {
@@ -28,7 +30,12 @@ export default defineConfig({
     ],
   },
   test: {
-    include: ['packages/**/tests/**/*.spec.ts', 'tests/**/*.spec.ts'],
+    include: ['packages/**/tests/**/*.spec.{ts,tsx}', 'tests/**/*.spec.{ts,tsx}'],
     environment: 'node',
+    server: {
+      deps: {
+        inline: ['@deepseek-ai/dsh-client-ui-primitives'],
+      },
+    },
   },
 })

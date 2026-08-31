@@ -1,0 +1,152 @@
+// @vitest-environment jsdom
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import type { ComponentProps } from 'react'
+import { UiMockupSection, type PanelPrefs } from '../src/client/settings-panel.js'
+import { zh } from '../src/client/locales.js'
+import type {
+  ConnectionFace,
+  PrefScope,
+  RpcResultLike,
+  ScopeSnapshot,
+} from '../src/client/shared.js'
+
+afterEach(cleanup)
+
+const DEFAULT_PREFS: PanelPrefs = {
+  defaultFidelity: 'wireframe',
+  defaultPlatform: 'web',
+  defaultCount: 2,
+  outputDir: 'design/images',
+  pollTimeoutMinutes: 10,
+  wireframeModel: '',
+  highFidelityModel: '',
+  defaultSize: '',
+}
+
+type Translator = ComponentProps<typeof UiMockupSection>['t']
+
+const t = ((key: keyof typeof zh, params?: Record<string, unknown>) => {
+  let text: string = zh[key]
+  for (const [name, value] of Object.entries(params ?? {})) {
+    text = text.replaceAll(`{${name}}`, String(value))
+  }
+  return text
+}) as Translator
+
+function createPrefs(initial: PanelPrefs = DEFAULT_PREFS): PrefScope<PanelPrefs> {
+  let value = initial
+  let revision = 1
+  const listeners = new Set<() => void>()
+  const snapshot = (): ScopeSnapshot<PanelPrefs> => ({
+    status: 'ready',
+    value,
+    user: value,
+    base: undefined,
+    revision,
+    writable: true,
+    mode: 'host',
+  })
+  return {
+    getSnapshot: snapshot,
+    subscribe(listener) {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
+    async set(field, next) {
+      value = { ...value, [field]: next }
+      revision += 1
+      for (const listener of listeners) listener()
+    },
+    async unset(field) {
+      value = { ...value, [field]: DEFAULT_PREFS[field as keyof PanelPrefs] }
+      revision += 1
+      for (const listener of listeners) listener()
+    },
+  }
+}
+
+function createConnection() {
+  const call = vi.fn(
+    async (_channel: string, endpoint: string): Promise<RpcResultLike<unknown>> => {
+      const value =
+        endpoint === 'overview'
+          ? {
+              provider: 'dashscope',
+              credential: { configured: true, source: 'file', writable: true },
+              anchor: null,
+            }
+          : endpoint === 'provider/status'
+            ? { active: 'dashscope' }
+            : endpoint === 'history/list'
+              ? {
+                  anchorFile: null,
+                  anchorIndex: -1,
+                  total: 0,
+                  page: 1,
+                  pageSize: 5,
+                  entries: [],
+                }
+              : {}
+      return { ok: true, value }
+    },
+  )
+  const connection: ConnectionFace = { isLoopback: true, rpc: { call } }
+  return { connection, call }
+}
+
+function mountPanel() {
+  const { connection, call } = createConnection()
+  const view = render(<UiMockupSection t={t} prefs={createPrefs()} connection={connection} />)
+  return { ...view, call }
+}
+
+describe('UiMockupSection tabs', () => {
+  it('只让当前 tab 进入 Tab 顺序，并与 tabpanel 双向关联', () => {
+    mountPanel()
+    const tabs = screen.getAllByRole('tab')
+    expect(tabs.map((tab) => tab.tabIndex)).toEqual([0, -1, -1, -1])
+
+    const panel = screen.getByRole('tabpanel')
+    expect(tabs[0]?.getAttribute('aria-controls')).toBe(panel.id)
+    expect(panel.getAttribute('aria-labelledby')).toBe(tabs[0]?.id)
+  })
+
+  it('用方向键循环切换并支持 Home 和 End', async () => {
+    mountPanel()
+    const overview = screen.getByRole('tab', { name: '概览' })
+
+    fireEvent.keyDown(overview, { key: 'ArrowRight' })
+    const provider = screen.getByRole('tab', { name: '提供方与模型' })
+    expect(provider.getAttribute('aria-selected')).toBe('true')
+    expect(document.activeElement).toBe(provider)
+
+    fireEvent.keyDown(provider, { key: 'End' })
+    const history = screen.getByRole('tab', { name: '生成历史' })
+    expect(history.getAttribute('aria-selected')).toBe('true')
+    expect(document.activeElement).toBe(history)
+
+    fireEvent.keyDown(history, { key: 'ArrowRight' })
+    expect(screen.getByRole('tab', { name: '概览' }).getAttribute('aria-selected')).toBe('true')
+
+    fireEvent.keyDown(screen.getByRole('tab', { name: '概览' }), { key: 'End' })
+    fireEvent.keyDown(screen.getByRole('tab', { name: '生成历史' }), { key: 'Home' })
+    expect(screen.getByRole('tab', { name: '概览' }).getAttribute('aria-selected')).toBe('true')
+
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole('tab', { name: '概览' })),
+    )
+  })
+})
+
+describe('OverviewPage visuals', () => {
+  it('使用稳定的矢量图标而不是系统 Emoji', async () => {
+    const { container } = mountPanel()
+    await screen.findByText('快速使用')
+
+    expect(container.textContent).not.toContain('💬')
+    expect(container.textContent).not.toContain('🖱️')
+    expect(container.textContent).not.toContain('🔒')
+    expect(container.querySelectorAll('svg').length).toBeGreaterThanOrEqual(3)
+  })
+})
