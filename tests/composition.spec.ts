@@ -1138,6 +1138,76 @@ describe('ui-mockup real dynamic composition', () => {
     }
   })
 
+  it('skips corrupted history lines and still serves the valid entries', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+    try {
+      const epStore = storeDirFor(dir)
+      await mkdir(join(epStore, 'images'), { recursive: true })
+      // 损坏行来源：进程中断的半截 JSON、非 JSON 垃圾、空行（验收 §5「历史损坏行」场景）
+      await writeFile(
+        join(epStore, 'history.jsonl'),
+        [
+          JSON.stringify({
+            time: '2026-08-27T00:00:01Z',
+            files: ['design/images/mockup-ok1.png'],
+            description: '损坏行之间的有效记录',
+            model: 'qwen-image-3.0',
+            fidelity: 'wireframe',
+            platform: 'web',
+            status: 'generated',
+          }),
+          '{"time": "2026-08-27T00:00:02Z", "files": [',
+          'not json at all',
+          '',
+          JSON.stringify({
+            time: '2026-08-27T00:00:03Z',
+            files: ['design/images/mockup-ok2.png'],
+            description: '较新的有效记录',
+            model: 'qwen-image-3.0',
+            fidelity: 'wireframe',
+            platform: 'web',
+            status: 'generated',
+          }),
+          '',
+        ].join('\n'),
+      )
+
+      const booted = await bootComposition(dir)
+      const listed = valueOf<{
+        entries: Array<{ description: string }>
+        total: number
+      }>(await booted.connection.call('/ui-mockup', 'history/list', { cwd: dir }))
+      // 损坏行被跳过而非报错；有效条目按新→旧排列
+      expect(listed.total).toBe(2)
+      expect(listed.entries.map((entry) => entry.description)).toEqual([
+        '较新的有效记录',
+        '损坏行之间的有效记录',
+      ])
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('treats an unreadable history file as an empty list instead of failing', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+    try {
+      const epStore = storeDirFor(dir)
+      await mkdir(join(epStore, 'images'), { recursive: true })
+      // 用同名目录占位：readFile 抛 EISDIR，确定性模拟磁盘损坏/不可读，
+      // 不依赖文件权限（避免 root 环境下 chmod 用例失效）
+      await mkdir(join(epStore, 'history.jsonl'))
+
+      const booted = await bootComposition(dir)
+      const listed = valueOf<{ entries: unknown[]; total: number }>(
+        await booted.connection.call('/ui-mockup', 'history/list', { cwd: dir }),
+      )
+      expect(listed.total).toBe(0)
+      expect(listed.entries).toEqual([])
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   it('boots the volcengine provider when the bundle row flips disabled', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
     try {
