@@ -49,7 +49,9 @@ dsh plugin --profile web add /path/to/dsh-ui-mockup/bundle/ui-mockup
 
 - DSH Web profile；
 - 桌面端推荐宽度为 1024px 及以上，这是设置面板和结果卡片的正式验收基线；
-- 至少配置一个图像服务凭据：阿里云百炼 `DASHSCOPE_API_KEY` 或火山方舟 `ARK_API_KEY`。
+- 至少配置一个图像服务凭据：阿里云百炼 `DASHSCOPE_API_KEY` 或火山方舟 `ARK_API_KEY`；
+- 耗时预期：线框图通常数十秒；高保真 pro 模型默认思考模式，单张 1~5 分钟属正常
+  （火山同步 API 默认窗口 300s）。生成卡片实时显示已耗时，无需担心挂死。
 
 ## 配置
 
