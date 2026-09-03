@@ -6,6 +6,8 @@ export const NS = 'ui-mockup'
 export const zh = {
   // 工具卡片
   'card.generating': '生成中…',
+  'card.generatingSeconds': '生成中 · 已耗时 {n} 秒',
+  'card.generatingMinutes': '生成中 · 已耗时 {m} 分 {s} 秒',
   'card.confirm': '确认采用这版',
   'card.select': '选用第 {n} 版',
   'card.selectPlaceholder': '选用某一版…',
@@ -151,6 +153,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 /** English UI copy. */
 export const en = {
   'card.generating': 'Generating…',
+  'card.generatingSeconds': 'Generating · {n}s elapsed',
+  'card.generatingMinutes': 'Generating · {m}m {s}s elapsed',
   'card.confirm': 'Confirm this version',
   'card.select': 'Use version {n}',
   'card.selectPlaceholder': 'Pick a version…',

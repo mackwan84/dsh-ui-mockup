@@ -4,7 +4,7 @@
  * `t`（i18n）和 `inputActions`（反馈按钮通过 setDraft + submit 发送消息）。
  * 视觉与 DSH 原生一致：Button 原语 + --dsw-alias-* 主题令牌。
  */
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ToolCallViewProps } from '@deepseek-ai/dsh-client-ui-tool/client'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
@@ -50,6 +50,19 @@ export function UiMockupToolview({ block, inputActions, cwd, t, anchor }: Props)
   const [anchoredNames, setAnchoredNames] = useState<ReadonlySet<string>>(new Set())
   const [anchorError, setAnchorError] = useState('')
 
+  // 生成耗时反馈：高保真模型单次可超 5 分钟，静态「生成中」无法区分在跑/挂死。
+  // 卡片挂载即本地计时（不依赖 RPC/Provider 协议），出图后块带 kind 即停表。
+  const pending = !('kind' in block)
+  const [elapsedSeconds, setElapsedSeconds] = useState(0)
+  useEffect(() => {
+    if (!pending) return undefined
+    const startedAt = Date.now()
+    const timer = setInterval(() => {
+      setElapsedSeconds(Math.max(0, Math.round((Date.now() - startedAt) / 1000)))
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [pending])
+
   const setAnchor = async (name: string) => {
     if (anchor === undefined) return
     setAnchorError('')
@@ -61,10 +74,20 @@ export function UiMockupToolview({ block, inputActions, cwd, t, anchor }: Props)
     }
   }
 
-  if (!('kind' in block)) {
+  if (pending) {
+    // 首秒仍显示纯「生成中…」，避免一闪而过的「0 秒」噪音；
+    // 之后按秒/分秒两档展示已耗时
+    const minutes = Math.floor(elapsedSeconds / 60)
+    const seconds = elapsedSeconds % 60
+    const label =
+      elapsedSeconds < 1
+        ? t('card.generating')
+        : minutes < 1
+          ? t('card.generatingSeconds', { n: seconds })
+          : t('card.generatingMinutes', { m: minutes, s: seconds })
     return (
       <div style={{ padding: '8px 0', fontSize: 13, color: 'var(--dsw-alias-label-tertiary)' }}>
-        {t('card.generating')}
+        {label}
       </div>
     )
   }
