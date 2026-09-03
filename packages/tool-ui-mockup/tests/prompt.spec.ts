@@ -46,4 +46,27 @@ describe('buildPrompt', () => {
     expect(prompt).toContain('参考图是该网站已确认的视觉风格基准')
     expect(prompt).toContain('不要改变参考图的视觉风格')
   })
+
+  // 图像模型对大段中文正文极易输出乱码(验收实测): 三个模板都要压低文字密度
+  it('keeps text density low in every template to reduce garbled output', () => {
+    const wireframe = buildPrompt(
+      { description: 'x', fidelity: 'wireframe', platform: 'web' },
+      false,
+    )
+    expect(wireframe).toContain('区块内不写大段正文')
+    expect(wireframe).toContain('避免长句与生僻字')
+
+    const highFidelity = buildPrompt(
+      { description: 'x', fidelity: 'high-fidelity', platform: 'web' },
+      false,
+    )
+    expect(highFidelity).toContain('避免大段密集长文本')
+
+    const reference = buildPrompt(
+      { description: 'x', fidelity: 'high-fidelity', platform: 'web' },
+      true,
+    )
+    expect(reference).toContain('文案用简短常见短语')
+    expect(reference).toContain('避免大段密集长文本')
+  })
 })
