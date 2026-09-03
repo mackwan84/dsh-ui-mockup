@@ -36,7 +36,7 @@
 ## 安装
 
 ```sh
-dsh plugin --profile web add @mackwan84/dsh-ui-mockup-bundle@0.1.2
+dsh plugin --profile web add @mackwan84/dsh-ui-mockup-bundle@0.1.3
 ```
 
 安装完成后重启 DSH。开发本仓库时可改用本地路径：

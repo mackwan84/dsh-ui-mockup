@@ -25,7 +25,7 @@ id 定向的 `disabled` 翻转写入 DSH home 用户层（`~/.dsh/cordis.patch.y
 ## 安装
 
 ```sh
-dsh plugin --profile web add @mackwan84/dsh-ui-mockup-bundle@0.1.2
+dsh plugin --profile web add @mackwan84/dsh-ui-mockup-bundle@0.1.3
 
 # 开发期（本仓库 checkout）
 dsh plugin --profile web add /path/to/dsh-ui-mockup/bundle/ui-mockup
