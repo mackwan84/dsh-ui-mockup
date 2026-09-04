@@ -65,19 +65,22 @@ export function UiMockupToolview({ block, inputActions, cwd, t, anchor }: Props)
   const [anchoredNames, setAnchoredNames] = useState<ReadonlySet<string>>(new Set())
   const [anchorError, setAnchorError] = useState('')
 
-  // 生成耗时反馈：高保真模型单次可超 5 分钟；这里只说明本地等待时长，
-  // 不能据此判断远端任务进度或存活状态。
-  // 卡片挂载即本地计时（不依赖 RPC/Provider 协议），出图后块带 kind 即停表。
+  // 生成耗时反馈：运行中工具块的事件时间会随会话持久化，刷新后仍能延续计时；
+  // 旧数据缺少时间时才回退到卡片挂载时间。出图后块带 kind 即停表。
+  // 这里只说明本地已等待时长，不能据此判断远端任务进度或存活状态。
   const pending = !('kind' in block)
-  const [elapsedSeconds, setElapsedSeconds] = useState(0)
+  const [mountedAt] = useState(() => Date.now())
+  const startedAt = pending && Number.isFinite(block.time) ? block.time : mountedAt
+  const elapsedSinceStart = () => Math.max(0, Math.round((Date.now() - startedAt) / 1000))
+  const [elapsedSeconds, setElapsedSeconds] = useState(elapsedSinceStart)
   useEffect(() => {
     if (!pending) return undefined
-    const startedAt = Date.now()
+    setElapsedSeconds(elapsedSinceStart())
     const timer = setInterval(() => {
-      setElapsedSeconds(Math.max(0, Math.round((Date.now() - startedAt) / 1000)))
+      setElapsedSeconds(elapsedSinceStart())
     }, 1000)
     return () => clearInterval(timer)
-  }, [pending])
+  }, [pending, startedAt])
 
   const setAnchor = async (name: string) => {
     if (anchor === undefined) return
