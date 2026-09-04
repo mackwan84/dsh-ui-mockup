@@ -332,5 +332,8 @@ dist/
 # ui_mockup 工具运行时输出
 design/*
 
-# 浏览器验收截图、DOM 快照和运行日志由 CI / 外部制品存储保留，不提交仓库
-docs/test-evidence/
+# 本地验收与文档生成制品
+.artifacts/
+
+# 兼容旧版验收采集路径
+/docs/test-evidence/
