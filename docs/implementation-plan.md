@@ -105,7 +105,7 @@ dsh plugin --profile web add github:mackwan84/dsh-ui-mockup#main   # 需 prepare
 
 ### 6.4 客户端 UI
 
-- **工具卡片**：`tool.call.toolview` keyed `ui_mockup`——图片内嵌、确认/选用/修改意见按钮（模型可见消息固定中文）、打开原图；空意见禁止提交，部分下载与附件超限告警保持可见；
+- **工具卡片**：`tool.call.toolview` keyed `ui_mockup`——图片内嵌、确认/选用/修改意见按钮（模型可见消息固定中文）、打开原图；运行中按持久化的工具调用事件时间计时，刷新后续表；空意见禁止提交，部分下载与附件超限告警保持可见；
 - **图片路由**：webServer prefix `/ui-mockup/images` 服务资产库图片（cwd 经信任源全集校验）；
 - **设置面板 4 页**（已确认线框）：概览 / 提供方与模型 / 生成偏好 / 生成历史；
   视觉跟随 DSH 主题（主题令牌 + 原生控件，浅/深色自适应），不做独立风格探索；
