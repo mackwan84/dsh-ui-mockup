@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { buildPrompt } from '../src/prompt.js'
 
 describe('buildPrompt', () => {
-  it('renders a Balsamiq-style wireframe template with Chinese annotation guidance', () => {
+  it('renders a hand-drawn wireframe template with Chinese annotation guidance', () => {
     const prompt = buildPrompt(
       { description: '待办事项主页', fidelity: 'wireframe', platform: 'web' },
       false,
@@ -68,5 +68,44 @@ describe('buildPrompt', () => {
     )
     expect(reference).toContain('文案用简短常见短语')
     expect(reference).toContain('避免大段密集长文本')
+  })
+
+  it('在用户长描述之后重申可见文案和组件状态约束', () => {
+    for (const [fidelity, hasReference] of [
+      ['wireframe', false],
+      ['high-fidelity', false],
+      ['high-fidelity', true],
+    ] as const) {
+      const prompt = buildPrompt(
+        { description: '这是一段会重复很多次的客户跟进正文', fidelity, platform: 'web' },
+        hasReference,
+      )
+      expect(prompt.endsWith('不要把上述生成说明、风格名或模型名画进界面。')).toBe(true)
+      expect(prompt).toContain('不得照抄用户描述中的长段正文')
+      expect(prompt).toContain('每个组件只展示一种当前状态')
+    }
+  })
+
+  it('线框模板使用中性占位词并要求图表不绘制成同名实体', () => {
+    const prompt = buildPrompt(
+      { description: 'CRM 商机漏斗', fidelity: 'wireframe', platform: 'web' },
+      false,
+    )
+    expect(prompt).toContain('页面标题')
+    expect(prompt).toContain('数据可视化图表')
+    expect(prompt).toContain('漏斗类图表必须用分层梯形或横条表达阶段数据')
+    expect(prompt).toContain('低保真手绘线框风格')
+    expect(prompt).not.toContain('Balsamiq')
+    expect(prompt).not.toContain('商品名称')
+    expect(prompt).not.toContain('¥99')
+  })
+
+  it('高保真模板不再用“状态完整”诱导同页展示多种组件状态', () => {
+    const prompt = buildPrompt(
+      { description: 'CRM 登录页', fidelity: 'high-fidelity', platform: 'mobile' },
+      false,
+    )
+    expect(prompt).not.toContain('组件状态完整')
+    expect(prompt).toContain('每个组件只展示一种当前状态')
   })
 })

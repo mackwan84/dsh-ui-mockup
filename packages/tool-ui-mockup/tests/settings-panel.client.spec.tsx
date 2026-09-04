@@ -50,7 +50,9 @@ function createPrefs(
     firstWriteGate?: Promise<void>
     /** 指定字段的 set 静默不生效（模拟宿主写入失败走 recover、resolve 不抛错）。 */
     failFields?: readonly string[]
+    mode?: 'host' | 'memory'
     user?: Partial<PanelPrefs>
+    writable?: boolean
   } = {},
 ): PrefScope<PanelPrefs> {
   const base = options.base ?? initial
@@ -65,8 +67,8 @@ function createPrefs(
     user: Object.keys(user).length === 0 ? undefined : user,
     base,
     revision,
-    writable: true,
-    mode: 'host',
+    writable: options.writable ?? true,
+    mode: options.mode ?? 'host',
   })
   return {
     getSnapshot: snapshot,
@@ -103,9 +105,19 @@ function createPrefs(
   }
 }
 
-function createConnection({ historyTotal = 0 }: { historyTotal?: number } = {}) {
+function createConnection({
+  historyTotal = 0,
+  pendingSwitch = false,
+  pendingLandsBeforeRefresh = false,
+}: {
+  historyTotal?: number
+  pendingSwitch?: boolean
+  pendingLandsBeforeRefresh?: boolean
+} = {}) {
+  let switchRequested = false
   const call = vi.fn(
     (_channel: string, endpoint: string, _payload?: unknown): Promise<RpcResultLike<unknown>> => {
+      if (endpoint === 'provider/switch' && pendingSwitch) switchRequested = true
       const value =
         endpoint === 'overview'
           ? {
@@ -114,27 +126,31 @@ function createConnection({ historyTotal = 0 }: { historyTotal?: number } = {}) 
               anchor: null,
             }
           : endpoint === 'provider/status'
-            ? { active: 'dashscope' }
-            : endpoint === 'history/list'
-              ? {
-                  anchorFile: null,
-                  anchorIndex: -1,
-                  total: historyTotal,
-                  page: 1,
-                  pageSize: 5,
-                  entries:
-                    historyTotal === 0
-                      ? []
-                      : [
-                          {
-                            time: '2026-08-31T00:00:00.000Z',
-                            description: '移动端登录页',
-                            files: [],
-                            anchored: false,
-                          },
-                        ],
-                }
-              : {}
+            ? {
+                active: switchRequested && pendingLandsBeforeRefresh ? 'volcengine' : 'dashscope',
+              }
+            : endpoint === 'provider/switch' && pendingSwitch
+              ? { active: 'dashscope', pending: true }
+              : endpoint === 'history/list'
+                ? {
+                    anchorFile: null,
+                    anchorIndex: -1,
+                    total: historyTotal,
+                    page: 1,
+                    pageSize: 5,
+                    entries:
+                      historyTotal === 0
+                        ? []
+                        : [
+                            {
+                              time: '2026-08-31T00:00:00.000Z',
+                              description: '移动端登录页',
+                              files: [],
+                              anchored: false,
+                            },
+                          ],
+                  }
+                : {}
       return Promise.resolve({ ok: true as const, value })
     },
   )
@@ -142,7 +158,14 @@ function createConnection({ historyTotal = 0 }: { historyTotal?: number } = {}) 
   return { connection, call }
 }
 
-function mountPanel(options: { historyTotal?: number; prefs?: PrefScope<PanelPrefs> } = {}) {
+function mountPanel(
+  options: {
+    historyTotal?: number
+    pendingSwitch?: boolean
+    pendingLandsBeforeRefresh?: boolean
+    prefs?: PrefScope<PanelPrefs>
+  } = {},
+) {
   const { connection, call } = createConnection(options)
   const view = render(
     <UiMockupSection t={t} prefs={options.prefs ?? createPrefs()} connection={connection} />,
@@ -213,6 +236,50 @@ describe('OverviewPage visuals', () => {
   })
 })
 
+describe('Provider switch state', () => {
+  it('热重载超时返回 pending 时显示尚未完成提示', async () => {
+    mountPanel({ pendingSwitch: true })
+    fireEvent.click(screen.getByRole('tab', { name: '提供方与模型' }))
+    fireEvent.click(await screen.findByRole('radio', { name: '火山方舟 Volcengine' }))
+
+    expect(
+      await screen.findByText('提供方切换尚未完成；请稍后重试，或检查 DSH 配置与日志。'),
+    ).toBeTruthy()
+    expect(screen.queryByText(/模型分层默认重置/)).toBeNull()
+  })
+
+  it('pending 后刷新发现目标提供方已落位时仍重置旧模型默认值', async () => {
+    const prefs = createPrefs({
+      ...DEFAULT_PREFS,
+      wireframeModel: 'qwen-image-3.0',
+      highFidelityModel: 'qwen-image-3.0-pro',
+    })
+    mountPanel({ pendingSwitch: true, pendingLandsBeforeRefresh: true, prefs })
+    fireEvent.click(screen.getByRole('tab', { name: '提供方与模型' }))
+    fireEvent.click(await screen.findByRole('radio', { name: '火山方舟 Volcengine' }))
+
+    expect(await screen.findByText(/已随切换把模型分层默认重置/)).toBeTruthy()
+    expect(screen.queryByText(/切换尚未完成/)).toBeNull()
+    expect(screen.getByRole<HTMLSelectElement>('combobox', { name: '线框图' }).value).toBe('')
+    expect(screen.getByRole<HTMLSelectElement>('combobox', { name: '高保真' }).value).toBe('')
+  })
+
+  it('pending 尚未落位时也清除即将失效的旧模型默认值', async () => {
+    const prefs = createPrefs({
+      ...DEFAULT_PREFS,
+      wireframeModel: 'qwen-image-3.0',
+      highFidelityModel: 'qwen-image-3.0-pro',
+    })
+    mountPanel({ pendingSwitch: true, prefs })
+    fireEvent.click(screen.getByRole('tab', { name: '提供方与模型' }))
+    fireEvent.click(await screen.findByRole('radio', { name: '火山方舟 Volcengine' }))
+
+    expect(await screen.findByText(/切换尚未完成/)).toBeTruthy()
+    expect(screen.getByRole<HTMLSelectElement>('combobox', { name: '线框图' }).value).toBe('')
+    expect(screen.getByRole<HTMLSelectElement>('combobox', { name: '高保真' }).value).toBe('')
+  })
+})
+
 describe('Settings form accessibility', () => {
   it('可通过可见字段名定位模型选择控件和凭据输入', async () => {
     mountPanel()
@@ -233,6 +300,30 @@ describe('Settings form accessibility', () => {
 })
 
 describe('PreferencesPage dirty state', () => {
+  it('只读设置显示提示并禁用所有偏好修改入口', () => {
+    mountPanel({ prefs: createPrefs(DEFAULT_PREFS, { writable: false }) })
+    fireEvent.click(screen.getByRole('tab', { name: '生成偏好' }))
+
+    expect(screen.getByText(/进程内模式或只读/)).toBeTruthy()
+    expect(screen.getByRole<HTMLInputElement>('radio', { name: 'Mobile' }).disabled).toBe(true)
+    expect(screen.getByRole<HTMLInputElement>('spinbutton', { name: '轮询超时' }).disabled).toBe(
+      true,
+    )
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: '恢复默认' }).disabled).toBe(true)
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: '保存' }).disabled).toBe(true)
+  })
+
+  it('进程内设置显示非持久化提示并禁用偏好修改', () => {
+    mountPanel({ prefs: createPrefs(DEFAULT_PREFS, { mode: 'memory' }) })
+    fireEvent.click(screen.getByRole('tab', { name: '生成偏好' }))
+
+    expect(screen.getByText(/进程内模式或只读/)).toBeTruthy()
+    expect(screen.getByRole<HTMLInputElement>('radio', { name: 'Web' }).disabled).toBe(true)
+    expect(screen.getByRole<HTMLSelectElement>('combobox', { name: '默认尺寸' }).disabled).toBe(
+      true,
+    )
+  })
+
   it('草稿恢复为保存值后立即重新禁用保存按钮', () => {
     mountPanel()
     fireEvent.click(screen.getByRole('tab', { name: '生成偏好' }))
