@@ -517,6 +517,8 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
       // best-effort：只读/内存态偏好写不进时不阻断切换，用户可手动改回。
       // patch 已经写入但 HMR 尚未落位时也要先清空旧 Provider 私有模型 ID；
       // 否则它稍后落位或下次重启后会收到不兼容的显式 model。
+      // 重置与 pending 提示可能同时成立：分段收集后合并展示，避免后者覆盖前者。
+      const notices: string[] = []
       if (activeAfterSwitch === target || result.pending === true) {
         const current = prefs.getSnapshot().value
         if (
@@ -526,14 +528,17 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
           try {
             await prefs.set('wireframeModel', '')
             await prefs.set('highFidelityModel', '')
-            setProviderNotice(t('panel.provider.modelsReset'))
+            notices.push(t('panel.provider.modelsReset'))
           } catch {
             // 偏好不可写：切换本身已成功，重置跳过
           }
         }
       }
       if (result.pending === true && activeAfterSwitch !== target) {
-        setProviderNotice(t('panel.provider.switchPending'))
+        notices.push(t('panel.provider.switchPending'))
+      }
+      if (notices.length > 0) {
+        setProviderNotice(notices.join(' '))
       }
     } catch (err) {
       setTestResult(err instanceof Error ? err.message : String(err))

@@ -71,6 +71,12 @@ export interface PrefScope<T> {
  */
 export const HISTORY_PAGE_SIZE = 5
 
+/**
+ * 成功消息里告警段的起始标记——与宿主 index.ts 的 RESULT_NOTICE_MARKERS 必须
+ * 保持一致（同 HISTORY_PAGE_SIZE 的双副本约定）；工具卡片凭标记截取告警区展示。
+ */
+export const RESULT_NOTICE_MARKERS = [' 注意: ', ' 其中 '] as const
+
 /** 锚点在过滤后列表中的索引 → 所在页码（1-based）；无锚点(-1)返回 null。 */
 export function anchorPageOf(anchorIndex: number, pageSize: number): number | null {
   return anchorIndex < 0 ? null : Math.floor(anchorIndex / pageSize) + 1

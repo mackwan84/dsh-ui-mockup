@@ -251,6 +251,22 @@ export function agentImageReference(name: string): string {
   return `${IMAGE_DIR}/${basename(name)}`
 }
 
+/**
+ * 成功消息里告警段的起始标记：客户端卡片凭标记截取告警区展示
+ * （src/client/shared.ts 持同值副本 RESULT_NOTICE_MARKERS，改动需同步）。
+ */
+export const RESULT_NOTICE_MARKERS = [' 注意: ', ' 其中 '] as const
+
+/** 「部分下载失败」告警段：前缀是客户端截取的定位标记，勿改。 */
+export function buildFailuresNotice(failures: readonly string[]): string {
+  return `${RESULT_NOTICE_MARKERS[0]}有 ${failures.length} 张下载失败(${failures.join('; ')}), 其余图片已保留。`
+}
+
+/** 「附件超限」告警段：前缀是客户端截取的定位标记，勿改。 */
+export function buildOversizeNotice(oversize: number): string {
+  return `${RESULT_NOTICE_MARKERS[1]}${oversize} 张超过会话附件大小上限, 仅保存到 DSH 设计资产库, 未在对话中展示。`
+}
+
 /** 模型可见错误只保留语义路径，避免底层 readFile 异常带出资产库绝对位置。 */
 function modelVisibleError(error: unknown, workspaceRoot: string | undefined): string {
   const message = error instanceof Error ? error.message : String(error)
@@ -873,7 +889,8 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
               const store = storeOf(workspaceRoot)
               await mkdir(store.imagesDir, { recursive: true })
               await writeFile(resolve(store.imagesDir, fileName), buffer)
-              // 模型可见路径写真实物理位置（资产库绝对路径），避免 agent 去工作区找不到
+              // images[].path 保留资产库绝对路径：历史页/图片路由凭它定位文件；
+              // 模型只见 output.render 投影出的语义引用（design/images/<文件名>）与附件块
               const relPath = resolve(store.imagesDir, fileName)
               let entry: ImageEntry
               if (
@@ -968,10 +985,10 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
             message += ` 当前生效模型 ${anchorSkippedForModel} 不支持参考图(I2I), 已跳过风格锚点注入; 请改用 qwen-image 或 wan2.7-image 系列。`
           }
           if (failures.length > 0) {
-            message += ` 注意: 有 ${failures.length} 张下载失败(${failures.join('; ')}), 其余图片已保留。`
+            message += buildFailuresNotice(failures)
           }
           if (oversize > 0) {
-            message += ` 其中 ${oversize} 张超过会话附件大小上限, 仅保存到 DSH 设计资产库, 未在对话中展示。`
+            message += buildOversizeNotice(oversize)
           }
           return { ok: true, message, images }
         } catch (error) {
