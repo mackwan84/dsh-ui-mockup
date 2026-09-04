@@ -506,10 +506,18 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
         'provider/switch',
         { provider: target },
       )
+      let activeAfterSwitch = result.active
+      if (result.pending === true) {
+        // 8秒边界后热重载可能恰在响应与客户端刷新之间完成；以最新权威状态
+        // 决定是显示 pending，还是执行目标提供方的模型重置。
+        activeAfterSwitch = await refreshProviderStatus()
+      }
       // 切换落位后重置模型分层默认：模型 ID 是提供方私有的，旧提供方的值
       // 残留会被当作显式 model 直传新网关而必败（INVALID_PARAMETER）。
       // best-effort：只读/内存态偏好写不进时不阻断切换，用户可手动改回。
-      if (result.active === target && result.pending !== true) {
+      // patch 已经写入但 HMR 尚未落位时也要先清空旧 Provider 私有模型 ID；
+      // 否则它稍后落位或下次重启后会收到不兼容的显式 model。
+      if (activeAfterSwitch === target || result.pending === true) {
         const current = prefs.getSnapshot().value
         if (
           current !== undefined &&
@@ -523,6 +531,9 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
             // 偏好不可写：切换本身已成功，重置跳过
           }
         }
+      }
+      if (result.pending === true && activeAfterSwitch !== target) {
+        setProviderNotice(t('panel.provider.switchPending'))
       }
     } catch (err) {
       setTestResult(err instanceof Error ? err.message : String(err))

@@ -63,6 +63,7 @@ export const zh = {
   'panel.provider.inactive': '未启用',
   'panel.provider.modelsReset':
     '已随切换把模型分层默认重置为「跟随提供方默认」——旧提供方的模型 ID 对新提供方无效。',
+  'panel.provider.switchPending': '提供方切换尚未完成；请稍后重试，或检查 DSH 配置与日志。',
   'panel.credential.title': '凭据（{credential}）',
   'panel.credential.ready': '凭据已配置',
   'panel.credential.missing': '未配置 {credential}',
@@ -211,6 +212,8 @@ export const en = {
   'panel.provider.inactive': 'Disabled',
   'panel.provider.modelsReset':
     "Model defaults were reset to 'follow provider default' on switch — the previous provider's model IDs are not valid here.",
+  'panel.provider.switchPending':
+    'Provider switching has not completed. Retry shortly, or check the DSH configuration and logs.',
   'panel.credential.title': 'Credentials ({credential})',
   'panel.credential.ready': 'API key configured',
   'panel.credential.missing': '{credential} not configured',
