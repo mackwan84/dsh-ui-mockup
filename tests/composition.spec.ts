@@ -478,6 +478,15 @@ describe('ui-mockup real dynamic composition', () => {
       expect(files[0]!.startsWith('mockup-')).toBe(true)
       expect(String(value.message)).toContain(`design/images/${files[0]}`)
       expect(String(value.message)).not.toContain(store)
+      // 钉住「只向 Agent 暴露语义路径」：模型可见的是 output.render 投影
+      // （附件块 + 文本消息），value.images[].path 的绝对路径不进模型上下文
+      const rendered = (
+        definition as unknown as {
+          output: { render: (args: unknown, value: unknown) => unknown }
+        }
+      ).output.render({}, value)
+      expect(JSON.stringify(rendered)).not.toContain(store)
+      expect(JSON.stringify(rendered)).toContain('design/images/')
       expect(booted.attachments.saved).toHaveLength(1)
       expect(booted.attachments.saved[0]!.mediaType).toBe('image/png')
       const history = await readFile(join(store, 'history.jsonl'), 'utf8')
@@ -1298,6 +1307,14 @@ describe('ui-mockup real dynamic composition', () => {
       expect(images).toHaveLength(1)
       expect(String(value.message)).toContain(`design/images/${basename(images[0]!.path)}`)
       expect(String(value.message)).not.toContain(store)
+      // 编辑路径同样钉住 render 投影脱敏（与生成路径同一条 checklist 声明）
+      const renderedEdit = (
+        definition as unknown as {
+          output: { render: (args: unknown, value: unknown) => unknown }
+        }
+      ).output.render({}, value)
+      expect(JSON.stringify(renderedEdit)).not.toContain(store)
+      expect(JSON.stringify(renderedEdit)).toContain('design/images/')
       expect(booted.attachments.saved).toHaveLength(1)
       const history = await readFile(join(store, 'history.jsonl'), 'utf8')
       expect(history).toContain('"status":"edited"')

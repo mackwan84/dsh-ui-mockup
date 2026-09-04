@@ -385,12 +385,11 @@ describe('resilience', () => {
   }
 
   it('maps an exhausted sync request window to the TIMEOUT code', async () => {
-    vi.useFakeTimers()
+    // 必须用真实定时器：vi.useFakeTimers() 无法 fake AbortSignal.timeout 的内部
+    // 定时器，虚拟推进不会触发超时。窗口取 200ms 真实挂钟，避免拖慢套件。
     mockFetch(hangUntilAbort)
-    const promise = provider({ requestTimeoutMs: 1_000 }).generate(wireframeSpec)
-    const expectation = expect(promise).rejects.toMatchObject({ code: 'TIMEOUT' })
-    await vi.advanceTimersByTimeAsync(5_000)
-    await expectation
+    const promise = provider({ requestTimeoutMs: 200 }).generate(wireframeSpec)
+    await expect(promise).rejects.toMatchObject({ code: 'TIMEOUT' })
   })
 
   it('propagates caller abort during the request without mapping it to TIMEOUT', async () => {

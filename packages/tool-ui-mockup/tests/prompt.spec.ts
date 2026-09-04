@@ -95,9 +95,10 @@ describe('buildPrompt', () => {
     expect(prompt).toContain('数据可视化图表')
     expect(prompt).toContain('漏斗类图表必须用分层梯形或横条表达阶段数据')
     expect(prompt).toContain('低保真手绘线框风格')
+    // 负向断言只保留有区分度的：旧模板含 Balsamiq 与「商品卡片」示例，
+    // 新模板均已移除（「商品名称」「¥99」两版都不含，断言恒真，已剔除）
     expect(prompt).not.toContain('Balsamiq')
-    expect(prompt).not.toContain('商品名称')
-    expect(prompt).not.toContain('¥99')
+    expect(prompt).not.toContain('商品卡片')
   })
 
   it('高保真模板不再用“状态完整”诱导同页展示多种组件状态', () => {

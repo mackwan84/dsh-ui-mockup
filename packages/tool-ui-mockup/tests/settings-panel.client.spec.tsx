@@ -274,7 +274,9 @@ describe('Provider switch state', () => {
     fireEvent.click(screen.getByRole('tab', { name: '提供方与模型' }))
     fireEvent.click(await screen.findByRole('radio', { name: '火山方舟 Volcengine' }))
 
+    // 模型已清空但切换未落位：两条提示合并展示，谁也不覆盖谁
     expect(await screen.findByText(/切换尚未完成/)).toBeTruthy()
+    expect(screen.getByText(/已随切换把模型分层默认重置/)).toBeTruthy()
     expect(screen.getByRole<HTMLSelectElement>('combobox', { name: '线框图' }).value).toBe('')
     expect(screen.getByRole<HTMLSelectElement>('combobox', { name: '高保真' }).value).toBe('')
   })
