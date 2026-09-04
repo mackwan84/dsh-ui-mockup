@@ -1,8 +1,6 @@
-# dsh-ui-mockup · 产品实施计划
+# dsh-ui-mockup · 架构与实现
 
-> 本文档是 dsh-ui-mockup 的正式实施依据，对应经用户确认的全部需求（需求研讨记录保存在
-> harness 工作区 `design/ui-mockup-plugin-plan.md`，本文为其产品化整理版）。
-> 动手前以本文为准；变更需求先更新本文。
+> 当前实现版本：0.1.3。本文记录仓库结构、能力边界与经验证的关键实现事实。
 
 ## 1. 产品目标
 
@@ -36,16 +34,16 @@ dsh-ui-mockup/
 ## 3. 安装与使用
 
 ```sh
-# 产品形态（发布到 npm 后）
-dsh plugin --profile web add @mackwan84/dsh-ui-mockup-bundle
+# 产品形态
+dsh plugin --profile web add @mackwan84/dsh-ui-mockup-bundle@0.1.3
 # → pnpm 安装 → 检测 dsh.bundle.patch → 自动挂载 → 工具立即可用
 
-# 开发期（未发布）
+# 开发期
 dsh plugin --profile web add /path/to/dsh-ui-mockup/bundle/ui-mockup
 dsh plugin --profile web add github:mackwan84/dsh-ui-mockup#main   # 需 prepare 构建脚本
 ```
 
-用户侧一次配置：`.env` 写入 `DASHSCOPE_API_KEY`（或设置面板填写），之后零配置使用。
+用户侧一次配置：为生效提供方配置 `DASHSCOPE_API_KEY` 或 `ARK_API_KEY`（也可在设置面板填写），之后零配置使用。
 
 ## 4. 依赖策略
 
@@ -58,8 +56,8 @@ dsh plugin --profile web add github:mackwan84/dsh-ui-mockup#main   # 需 prepare
 
 | 里程碑 | 内容                                                                   | 验收                                                      |
 | ------ | ---------------------------------------------------------------------- | --------------------------------------------------------- |
-| M1     | 骨架 + image Service + 百炼 Provider + Host 工具                       | `dsh plugin add` 本地装进 web profile，会话里能生成一张图 |
-| M2     | 客户端卡片（tool.call.toolview）+ 图片路由（webServer）+ i18n 双语字典 | 卡片渲染、语言切换实时生效                                |
+| M1 ✅  | 骨架 + image Service + 百炼 Provider + Host 工具                       | `dsh plugin add` 本地装进 web profile，会话里能生成一张图 |
+| M2 ✅  | 客户端卡片（tool.call.toolview）+ 图片路由（webServer）+ i18n 双语字典 | 卡片渲染、语言切换实时生效                                |
 | M3 ✅  | 设置面板 4 页 + 资产库生成历史 + 风格锚点联动                          | 按已确认线框实现（design/spec.md），面板功能闭环          |
 | M4 ✅  | 火山 Provider + I2I / 指令编辑模式 + 双提供方组合行切换                | 双提供方切换可用                                          |
 
@@ -97,16 +95,17 @@ dsh plugin --profile web add github:mackwan84/dsh-ui-mockup#main   # 需 prepare
 ### 6.3 Consumer 工具（tool-ui-mockup）
 
 - 工具 `ui_mockup`（参数/模板/结果呈现沿用 MVP 验证实现）：
-  - 参数：description（必填）、fidelity（用户选）、platform、style、count、model、size、reference、apiKey（仅后备，正常走 credentials）；
-  - 模板：wireframe Balsamiq 风黑白线框 + 中文区块标注；high-fidelity 风格词 + 中文文案完整性；reference 时加"与基准图一致"约束；
-  - 结果：落盘资产库 `$DSH_HOME/mockups/<工作区>/images/` → `attachments.saveImage` → 工具结果图片块呈现；
+  - 参数：description、fidelity（必填），以及 platform、style、count、model、size、reference；编辑时成对传 baseImage + editNote；凭据不属于工具参数；
+  - 模板：wireframe 使用无品牌名的低保真手绘线框 + 中文短标签；high-fidelity 使用风格词、单状态组件与低文字密度约束；reference 时追加与基准图一致约束；
+  - 结果：落盘资产库 `$DSH_HOME/mockups/<工作区>/images/` → `attachments.saveImage` → 工具结果图片块呈现；模型只看到 `design/images/<文件名>` 语义引用；
+  - 历史：逐行 JSONL；损坏行读取时跳过，坏尾行缺换行时先补分隔符再追加；历史写入失败不丢生成图片；
   - **限流自动退避重试**（Throttling/RateQuota → 25s × 2 次）。
 - 提示词注入（systemPrompt section）：何时主动提议草图、fidelity 选择、确认后写 `design/spec.md`、spec 未确认不写前端代码；
 - 设计锁定：用户确认后提炼 `design/spec.md`（配色、字体、间距、组件清单、页面清单）。
 
 ### 6.4 客户端 UI
 
-- **工具卡片**：`tool.call.toolview` keyed `ui_mockup`——图片内嵌、确认/选用/修改意见按钮（消息带文件名）、打开原图；
+- **工具卡片**：`tool.call.toolview` keyed `ui_mockup`——图片内嵌、确认/选用/修改意见按钮（模型可见消息固定中文）、打开原图；空意见禁止提交，部分下载与附件超限告警保持可见；
 - **图片路由**：webServer prefix `/ui-mockup/images` 服务资产库图片（cwd 经信任源全集校验）；
 - **设置面板 4 页**（已确认线框）：概览 / 提供方与模型 / 生成偏好 / 生成历史；
   视觉跟随 DSH 主题（主题令牌 + 原生控件，浅/深色自适应），不做独立风格探索；
@@ -128,7 +127,7 @@ dsh plugin --profile web add github:mackwan84/dsh-ui-mockup#main   # 需 prepare
 ## 7. 配置面
 
 1. 凭据：credentials 能力 + `.env`（`DASHSCOPE_API_KEY` / 火山 `ARK_API_KEY`），不进会话日志；
-2. cordis.yml config：model、size、输出目录、轮询超时等 tunable 全部 validated Config；
+2. cordis.yml config：默认保真度、平台、数量、模型、size、轮询超时等 tunable 全部 validated Config；历史与图片输出目录由 DSH 资产库固定管理；
 3. 设置面板（settings 插槽）为 UI 入口，settings service 为源、yml 为初始值。
 
 ## 8. 已验证的关键事实与陷阱（来自 MVP 实测）
@@ -143,10 +142,9 @@ dsh plugin --profile web add github:mackwan84/dsh-ui-mockup#main   # 需 prepare
 - qwen-image-3.0-pro 默认思考模式、耗时可 >5 分钟：轮询窗口 ≥10 分钟；
 - 限流错误：`Throttling.RateQuota` → 25s×2 退避；
 - 国际网关 `dashscope-us.aliyuncs.com` 与国内 key 不通；火山走 `ARK_API_KEY`；
-- web fetch 服务仅 GET（动态插件环境）；动态插件必须 `shell.resolve()` 再 `shell.run()`；正式包无此限制；
 - 工具 schema DSL：不支持 minimum/maximum、value schema 不支持 required、参数根 additionalProperties 省略或 true、
   value 对象须显式 additionalProperties 且声明 items 全部字段；
-- 视觉提取依赖多模态模型：Consumer 提炼 spec 时经 `ctx.llm` 指定 image 模态模型（或要求会话用多模态模型）。
+- 规格提炼由会话 Agent 完成：多模态模型可以直接读图；纯文本模型必须向用户索要口述，并明确标注规格未经模型读图核对。
 
 ### 8.1 火山方舟事实（M4，2026 调研核对）
 

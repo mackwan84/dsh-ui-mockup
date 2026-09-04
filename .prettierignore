@@ -5,3 +5,6 @@ pnpm-lock.yaml
 dist/
 coverage/
 **/lib/
+
+# 浏览器验收原始证据包含逐秒采样、DOM 快照和服务响应，保持采集时字节不变
+docs/test-evidence/

@@ -2,7 +2,7 @@
 
 阿里云百炼图像生成 Provider，实现 `@mackwan84/dsh-image` 的 `ImageGenerationService`：
 
-- **qwen-image 3.0 系列**：`/api/v1/services/aigc/image-generation/generation` 异步任务（`input.messages` 结构，支持 1-3 张参考图的 I2I 风格一致）；
+- **qwen-image 3.0 系列**：`/api/v1/services/aigc/image-generation/generation` 异步任务（`input.messages` 结构，本 Provider 支持单张参考图的 I2I 风格一致）；
 - **Wan 2.7 系列**：同一新版异步端点与 `input.messages` 结构，仅支持
   `wan2.7-image` / `wan2.7-image-pro`，支持文生图与单参考图 I2I；
 - 任务轮询、**限流自动退避重试**（`Throttling.RateQuota` → 25s × 2）、`AbortSignal` 取消；
