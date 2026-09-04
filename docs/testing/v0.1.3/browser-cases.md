@@ -4,7 +4,7 @@
 > 编制日期：2026-09-03
 > 被测基线：0.1.3；发布准备 `6fed34c`，验收修复 `c38b068`，自动化回归 `712dc47`，刷新续时修复 `9d38ac8`，审查修复 `1cd6c7a`，审查回归 `268c0b6`
 > 对比基线：v0.1.2；覆盖本轮全部变更及受影响的产品流程。
-> 最终验收结论见 [0.1.3发布检查清单](release-checklist-v0.1.3.md)。原始截图、DOM快照和运行日志由外部测试制品保存，不提交Git。
+> 最终验收结论见 [0.1.3发布检查清单](../../releases/v0.1.3.md)。原始截图、DOM快照和运行日志由外部测试制品保存，不提交Git。
 
 ## 1. 执行范围与判定口径
 
@@ -93,7 +93,7 @@ fidelity 是必填工具参数；“保真度偏好”不等于工具可省略 f
 
 ### 2.3 测试数据
 
-固定参数保存在 [CRM 测试数据](test-data/v0.1.3-crm.json)，浏览器实际生成从该文件取值。每次运行在 description 前添加 QA013-CRM 加用例和运行序号，便于历史检索；不得换回非 CRM 主题。D01～D04 在 `samples`，D06/D07 在 `editNote`/`feedbackSpecial`，D08 时序/锚点/分页在 `historyFixture`，D09 会话名在 `sessionFixture`，D10 模型参数在 `invalidModelFixture`。
+固定参数保存在 [CRM 测试数据](data/crm.json)，浏览器实际生成从该文件取值。每次运行在 description 前添加 QA013-CRM 加用例和运行序号，便于历史检索；不得换回非 CRM 主题。D01～D04 在 `samples`，D06/D07 在 `editNote`/`feedbackSpecial`，D08 时序/锚点/分页在 `historyFixture`，D09 会话名在 `sessionFixture`，D10 模型参数在 `invalidModelFixture`。
 
 | 数据                | 固定内容或准备方式                                                                                                                                                                                                                 |
 | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -461,18 +461,18 @@ PRV-02、KEY-01、CARD-01、CARD-02。
 
 ## 9. 事实依据与旧计划关系
 
-| 事实                                            | 代码或文档依据                                                                                                                                                                                                                                  |
-| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 版本、安装、支持宽度、用户使用说明              | [README](../README.md)、[产品文档](product-guide.md)、[bundle清单](../bundle/ui-mockup/package.json)                                                                                                                                            |
-| 计时挂载/停表、按钮针对首图、意见发送           | [toolview.tsx](../packages/tool-ui-mockup/src/client/toolview.tsx)                                                                                                                                                                              |
-| 中英耗时与反馈文案                              | [locales.ts](../packages/tool-ui-mockup/src/client/locales.ts)                                                                                                                                                                                  |
-| 三类生成模板                                    | [prompt.ts](../packages/tool-ui-mockup/src/prompt.ts)                                                                                                                                                                                           |
-| 火山超时、取消、串行多图、编辑及错误映射        | [火山Provider](../packages/image-volcengine/src/index.ts)                                                                                                                                                                                       |
-| 百炼异步轮询、限流、Wan2.7                      | [百炼Provider](../packages/image-dashscope/src/index.ts)                                                                                                                                                                                        |
-| 历史读取、追加、图片路由、规格提示、工具时限    | [工具宿主](../packages/tool-ui-mockup/src/index.ts)                                                                                                                                                                                             |
-| 历史字段校验、每页5条、搜索、偏好范围           | [prefs.ts](../packages/tool-ui-mockup/src/prefs.ts)                                                                                                                                                                                             |
-| 历史页入口、搜索提交、偏好保存/恢复、提供方切换 | [settings-panel.tsx](../packages/tool-ui-mockup/src/client/settings-panel.tsx)                                                                                                                                                                  |
-| 0.1.3新增自动化覆盖依据                         | [卡片测试](../packages/tool-ui-mockup/tests/toolview.client.spec.tsx)、[提示词测试](../packages/tool-ui-mockup/tests/prompt.spec.ts)、[火山测试](../packages/image-volcengine/tests/provider.spec.ts)、[组合测试](../tests/composition.spec.ts) |
-| 最终桌面范围与发布结论                          | [0.1.3发布检查清单](release-checklist-v0.1.3.md)                                                                                                                                                                                                |
+| 事实                                            | 代码或文档依据                                                                                                                                                                                                                                                          |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 版本、安装、支持宽度、用户使用说明              | [README](../../../README.md)、[产品文档](../../guides/product-guide.md)、[bundle清单](../../../bundle/ui-mockup/package.json)                                                                                                                                           |
+| 计时挂载/停表、按钮针对首图、意见发送           | [toolview.tsx](../../../packages/tool-ui-mockup/src/client/toolview.tsx)                                                                                                                                                                                                |
+| 中英耗时与反馈文案                              | [locales.ts](../../../packages/tool-ui-mockup/src/client/locales.ts)                                                                                                                                                                                                    |
+| 三类生成模板                                    | [prompt.ts](../../../packages/tool-ui-mockup/src/prompt.ts)                                                                                                                                                                                                             |
+| 火山超时、取消、串行多图、编辑及错误映射        | [火山Provider](../../../packages/image-volcengine/src/index.ts)                                                                                                                                                                                                         |
+| 百炼异步轮询、限流、Wan2.7                      | [百炼Provider](../../../packages/image-dashscope/src/index.ts)                                                                                                                                                                                                          |
+| 历史读取、追加、图片路由、规格提示、工具时限    | [工具宿主](../../../packages/tool-ui-mockup/src/index.ts)                                                                                                                                                                                                               |
+| 历史字段校验、每页5条、搜索、偏好范围           | [prefs.ts](../../../packages/tool-ui-mockup/src/prefs.ts)                                                                                                                                                                                                               |
+| 历史页入口、搜索提交、偏好保存/恢复、提供方切换 | [settings-panel.tsx](../../../packages/tool-ui-mockup/src/client/settings-panel.tsx)                                                                                                                                                                                    |
+| 0.1.3新增自动化覆盖依据                         | [卡片测试](../../../packages/tool-ui-mockup/tests/toolview.client.spec.tsx)、[提示词测试](../../../packages/tool-ui-mockup/tests/prompt.spec.ts)、[火山测试](../../../packages/image-volcengine/tests/provider.spec.ts)、[组合测试](../../../tests/composition.spec.ts) |
+| 最终桌面范围与发布结论                          | [0.1.3发布检查清单](../../releases/v0.1.3.md)                                                                                                                                                                                                                           |
 
 本手册取代0.1.1时期的旧浏览器总计划。后续版本可以复用用例结构，但必须按新版本重新执行并形成独立发布结论。

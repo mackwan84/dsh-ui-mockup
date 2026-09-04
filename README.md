@@ -99,11 +99,11 @@ patch（`~/.dsh/cordis.patch.yml`，只增改这两行、不触碰其他内容�
 
 ## 开发
 
-- [docs/product-guide.md](docs/product-guide.md) — 产品文档（是什么 / 怎么用 / FAQ，含 mermaid 流程图与时序图）
-- [docs/implementation-plan.md](docs/implementation-plan.md) — 当前架构、能力边界与关键实现事实
-- [docs/volcengine-ark-image-api-facts.md](docs/volcengine-ark-image-api-facts.md) — 火山方舟接口与模型事实
-- [docs/browser-test-cases-v0.1.3.md](docs/browser-test-cases-v0.1.3.md) — 0.1.3 可复用浏览器回归用例
-- [docs/release-checklist-v0.1.3.md](docs/release-checklist-v0.1.3.md) — 发布门禁、最终验收结论与已知限制
+- [docs/README.md](docs/README.md) — 完整文档导航与维护约定
+- [docs/guides/product-guide.md](docs/guides/product-guide.md) — 产品使用指南与 FAQ
+- [docs/architecture/overview.md](docs/architecture/overview.md) — 当前架构、能力边界与关键实现事实
+- [docs/testing/v0.1.3/browser-cases.md](docs/testing/v0.1.3/browser-cases.md) — 0.1.3 可复用浏览器回归用例
+- [docs/releases/v0.1.3.md](docs/releases/v0.1.3.md) — 发布门禁、最终验收结论与已知限制
 
 常用命令：
 

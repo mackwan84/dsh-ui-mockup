@@ -63,7 +63,7 @@ dsh plugin --profile web add @mackwan84/dsh-ui-mockup-bundle@0.1.3
 ```
 
 安装完成即自动挂载（`dsh.bundle.patch`），重启 `dsh web` 后工具出现在会话中。
-开发期安装方式见 [README](../README.md) 与 [implementation-plan](implementation-plan.md)。
+开发期安装方式见 [README](../../README.md) 与 [implementation-plan](../architecture/overview.md)。
 
 ### 4.2 配置 API Key（二选一）
 
@@ -159,8 +159,8 @@ Seedream 均可按基准图保持配色、字体、圆角一致。
 
 ## 7. 开发与贡献
 
-- 仓库结构、依赖策略与里程碑见 [implementation-plan.md](implementation-plan.md)；
-- 发布门禁与0.1.3验收结论见 [release-checklist-v0.1.3.md](release-checklist-v0.1.3.md)；
+- 仓库结构、依赖策略与里程碑见 [implementation-plan.md](../architecture/overview.md)；
+- 发布门禁与0.1.3验收结论见 [release-checklist-v0.1.3.md](../releases/v0.1.3.md)；
 - 本地开发：`pnpm install && pnpm build && pnpm test`（含 Loader 真实组合测试）；
 - 真实 API 冒烟：`DASHSCOPE_API_KEY=sk-xxx npx tsx scripts/generate-smoke.ts`
   （火山分支：`ARK_API_KEY=ark-xxx npx tsx scripts/generate-smoke.ts --provider volcengine`）；

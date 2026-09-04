@@ -25,6 +25,13 @@ dsh-ui-mockup/
 │   └── ui-mockup/                     # @mackwan84/dsh-ui-mockup-bundle · dsh.bundle.patch 挂载行
 │                                      #   （两行 Provider：dashscope 启用 / volcengine disabled: true）
 └── docs/
+    ├── README.md                       # 文档导航与维护约定
+    ├── guides/                         # 当前产品使用指南
+    ├── architecture/                   # 当前架构与治理决策
+    ├── references/                     # 带来源的外部技术事实
+    ├── testing/vX.Y.Z/                 # 按版本冻结的用例与测试数据
+    ├── releases/                       # 按版本冻结的发布结论
+    └── assets/                         # 长期文档引用素材
 ```
 
 - **capability seam 三件套**：Service Definition / Provider / Consumer，与 DSH 仓库规范一致；
