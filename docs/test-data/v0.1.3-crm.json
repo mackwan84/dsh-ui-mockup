@@ -46,6 +46,31 @@
     "QA013-CRM H11 CRM",
     "QA013-CRM H12 CRM"
   ],
+  "historyFixture": {
+    "D08": {
+      "writeOrder": "H01～H12 依次写入",
+      "timeBase": "2026-09-01T00:00:00Z",
+      "timeStepSeconds": 1,
+      "timeNote": "H01 为 2026-09-01T00:00:01Z，此后每条 +1s，至 H12 为 12Z",
+      "files": "每行 files 指向一张真实隔离图片（环境相关资产，写入时替换为隔离环境真实路径并保证原图存在）",
+      "anchor": "H03",
+      "pagination": "12 条 = 3 页 5/5/2；初始 H12～H08，第二页 H07～H03，第三页 H02～H01，锚点 H03 在第 2 页"
+    }
+  },
+  "sessionFixture": {
+    "D09": {
+      "sessions": ["CRM验收-A", "CRM验收-B"],
+      "descriptionPrefixes": ["QA013-CRM-SESSION-A", "QA013-CRM-SESSION-B"],
+      "note": "两会话同属 qa-ui-mockup-crm 工作区，按产品规则共享历史与锚点；用于回看与计时检查，不用于证明工作区隔离"
+    }
+  },
+  "invalidModelFixture": {
+    "D10": {
+      "invalidModel": "qa-invalid-model",
+      "legacyWanModel": "wan2.6-image",
+      "note": "分别用于无效模型拒绝与旧版本 Wan 拒绝（GEN-04）"
+    }
+  },
   "scopeExclusions": {
     "HIS-15": "用户指定唯一工作区；不执行跨工作区测试，不以同工作区多会话替代。"
   }
