@@ -331,3 +331,9 @@ dist/
 
 # ui_mockup 工具运行时输出
 design/*
+
+# 本地验收与文档生成制品
+.artifacts/
+
+# 兼容旧版验收采集路径
+/docs/test-evidence/

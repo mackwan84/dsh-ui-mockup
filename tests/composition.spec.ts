@@ -1,7 +1,7 @@
 import { mkdtempSync, realpathSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { Context, Service } from '@deepseek-ai/cordis'
 import Include from '@deepseek-ai/cordis-plugin-include'
@@ -360,6 +360,9 @@ describe('ui-mockup real dynamic composition', () => {
       expect(booted.systemPrompt.sections.map((section) => section.name)).toContain(
         'ui-mockup-usage',
       )
+      expect(
+        booted.systemPrompt.sections.find((section) => section.name === 'ui-mockup-usage')?.text,
+      ).toContain('整图指令重绘')
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
@@ -473,6 +476,17 @@ describe('ui-mockup real dynamic composition', () => {
       const files = await readdir(join(store, 'images'))
       expect(files).toHaveLength(1)
       expect(files[0]!.startsWith('mockup-')).toBe(true)
+      expect(String(value.message)).toContain(`design/images/${files[0]}`)
+      expect(String(value.message)).not.toContain(store)
+      // 钉住「只向 Agent 暴露语义路径」：模型可见的是 output.render 投影
+      // （附件块 + 文本消息），value.images[].path 的绝对路径不进模型上下文
+      const rendered = (
+        definition as unknown as {
+          output: { render: (args: unknown, value: unknown) => unknown }
+        }
+      ).output.render({}, value)
+      expect(JSON.stringify(rendered)).not.toContain(store)
+      expect(JSON.stringify(rendered)).toContain('design/images/')
       expect(booted.attachments.saved).toHaveLength(1)
       expect(booted.attachments.saved[0]!.mediaType).toBe('image/png')
       const history = await readFile(join(store, 'history.jsonl'), 'utf8')
@@ -572,6 +586,8 @@ describe('ui-mockup real dynamic composition', () => {
       )
       expect(value.ok).toBe(false)
       expect(value.message).toContain('INVALID_PARAMETER')
+      expect(String(value.message)).not.toContain(dir)
+      expect(String(value.message)).toContain('../../etc/passwd')
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
@@ -596,6 +612,11 @@ describe('ui-mockup real dynamic composition', () => {
       expect(ok.status).toBe(200)
       expect(ok.body).toEqual(png)
       expect(ok.headers?.['Content-Type']).toBe('image/png')
+
+      // 合法文件名但资产不存在：明确返回 404，不与路径/工作区拒绝的 400 混淆
+      const missing = await dispatchRoute(route!.handler, '/ui-mockup/images/mockup-missing.png')
+      expect(missing.status).toBe(404)
+      expect(missing.body).toBeUndefined()
 
       // 路径逃逸（URL 规范化后脱离前缀）：拒绝
       const escaped = await dispatchRoute(route!.handler, '/ui-mockup/images/../../secret.png')
@@ -1138,6 +1159,76 @@ describe('ui-mockup real dynamic composition', () => {
     }
   })
 
+  it('skips corrupted history lines and still serves the valid entries', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+    try {
+      const epStore = storeDirFor(dir)
+      await mkdir(join(epStore, 'images'), { recursive: true })
+      // 损坏行来源：进程中断的半截 JSON、非 JSON 垃圾、空行（验收 §5「历史损坏行」场景）
+      await writeFile(
+        join(epStore, 'history.jsonl'),
+        [
+          JSON.stringify({
+            time: '2026-08-27T00:00:01Z',
+            files: ['design/images/mockup-ok1.png'],
+            description: '损坏行之间的有效记录',
+            model: 'qwen-image-3.0',
+            fidelity: 'wireframe',
+            platform: 'web',
+            status: 'generated',
+          }),
+          '{"time": "2026-08-27T00:00:02Z", "files": [',
+          'not json at all',
+          '',
+          JSON.stringify({
+            time: '2026-08-27T00:00:03Z',
+            files: ['design/images/mockup-ok2.png'],
+            description: '较新的有效记录',
+            model: 'qwen-image-3.0',
+            fidelity: 'wireframe',
+            platform: 'web',
+            status: 'generated',
+          }),
+          '',
+        ].join('\n'),
+      )
+
+      const booted = await bootComposition(dir)
+      const listed = valueOf<{
+        entries: Array<{ description: string }>
+        total: number
+      }>(await booted.connection.call('/ui-mockup', 'history/list', { cwd: dir }))
+      // 损坏行被跳过而非报错；有效条目按新→旧排列
+      expect(listed.total).toBe(2)
+      expect(listed.entries.map((entry) => entry.description)).toEqual([
+        '较新的有效记录',
+        '损坏行之间的有效记录',
+      ])
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('treats an unreadable history file as an empty list instead of failing', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+    try {
+      const epStore = storeDirFor(dir)
+      await mkdir(join(epStore, 'images'), { recursive: true })
+      // 用同名目录占位：readFile 抛 EISDIR，确定性模拟磁盘损坏/不可读，
+      // 不依赖文件权限（避免 root 环境下 chmod 用例失效）
+      await mkdir(join(epStore, 'history.jsonl'))
+
+      const booted = await bootComposition(dir)
+      const listed = valueOf<{ entries: unknown[]; total: number }>(
+        await booted.connection.call('/ui-mockup', 'history/list', { cwd: dir }),
+      )
+      expect(listed.total).toBe(0)
+      expect(listed.entries).toEqual([])
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   it('boots the volcengine provider when the bundle row flips disabled', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
     try {
@@ -1214,6 +1305,16 @@ describe('ui-mockup real dynamic composition', () => {
       // 结果落资产库 + 附件 + 历史标记 edited
       const images = value.images as Array<{ path: string }>
       expect(images).toHaveLength(1)
+      expect(String(value.message)).toContain(`design/images/${basename(images[0]!.path)}`)
+      expect(String(value.message)).not.toContain(store)
+      // 编辑路径同样钉住 render 投影脱敏（与生成路径同一条 checklist 声明）
+      const renderedEdit = (
+        definition as unknown as {
+          output: { render: (args: unknown, value: unknown) => unknown }
+        }
+      ).output.render({}, value)
+      expect(JSON.stringify(renderedEdit)).not.toContain(store)
+      expect(JSON.stringify(renderedEdit)).toContain('design/images/')
       expect(booted.attachments.saved).toHaveLength(1)
       const history = await readFile(join(store, 'history.jsonl'), 'utf8')
       expect(history).toContain('"status":"edited"')
@@ -1243,6 +1344,63 @@ describe('ui-mockup real dynamic composition', () => {
       )
       expect(value.ok).toBe(false)
       expect(String(value.message)).toContain('成对')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('缺失的语义基准图只回显语义路径，不泄露资产库绝对路径', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+    try {
+      const booted = await bootComposition(dir, { provider: 'volcengine' })
+      const definition = booted.tools.registered.find((item) => item.name === 'ui_mockup')!
+      const execute = definition.execute as (
+        args: Record<string, unknown>,
+        exec: { signal: AbortSignal; agent?: { session: { header: { cwd?: string } } } },
+      ) => Promise<Record<string, unknown>>
+      const value = await execute(
+        {
+          description: '编辑缺失基准图',
+          fidelity: 'high-fidelity',
+          platform: 'web',
+          baseImage: 'design/images/mockup-missing.png',
+          editNote: '把按钮改成橙色',
+        },
+        { signal: new AbortController().signal, agent: { session: { header: { cwd: dir } } } },
+      )
+
+      expect(value.ok).toBe(false)
+      expect(String(value.message)).toContain('design/images/mockup-missing.png')
+      expect(String(value.message)).not.toContain(storeDirFor(dir))
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('语义图片路径穿越在翻译层拒绝且不泄露资产库父目录', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+    try {
+      const booted = await bootComposition(dir, { provider: 'volcengine' })
+      const definition = booted.tools.registered.find((item) => item.name === 'ui_mockup')!
+      const execute = definition.execute as (
+        args: Record<string, unknown>,
+        exec: { signal: AbortSignal; agent?: { session: { header: { cwd?: string } } } },
+      ) => Promise<Record<string, unknown>>
+      const reference = 'design/images/../../outside.png'
+      const value = await execute(
+        {
+          description: '编辑越界基准图',
+          fidelity: 'high-fidelity',
+          baseImage: reference,
+          editNote: '把按钮改成橙色',
+        },
+        { signal: new AbortController().signal, agent: { session: { header: { cwd: dir } } } },
+      )
+
+      expect(value.ok).toBe(false)
+      expect(String(value.message)).toContain('INVALID_PARAMETER')
+      expect(String(value.message)).toContain(reference)
+      expect(String(value.message)).not.toContain(resolve(storeDirFor(dir), '..'))
     } finally {
       await rm(dir, { recursive: true, force: true })
     }

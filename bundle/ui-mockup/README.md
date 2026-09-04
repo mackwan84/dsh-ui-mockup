@@ -20,12 +20,13 @@ id 定向的 `disabled` 翻转写入 DSH home 用户层（`~/.dsh/cordis.patch.y
 ```
 
 设置窗口「UI 草图 · 提供方与模型」页经 `provider/status` 端点如实显示当前生效方
-（端点读 image 槽位的 providerId，不从面板偏好推断）。
+（端点读 image 槽位的 providerId，不从面板偏好推断）。热重载超过等待窗口时面板显示
+“切换尚未完成”，并清除旧提供方的模型默认值，避免稍后落位时发送不兼容模型 ID。
 
 ## 安装
 
 ```sh
-dsh plugin --profile web add @mackwan84/dsh-ui-mockup-bundle@0.1.2
+dsh plugin --profile web add @mackwan84/dsh-ui-mockup-bundle@0.1.3
 
 # 开发期（本仓库 checkout）
 dsh plugin --profile web add /path/to/dsh-ui-mockup/bundle/ui-mockup

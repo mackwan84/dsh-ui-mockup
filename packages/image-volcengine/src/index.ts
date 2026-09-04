@@ -423,17 +423,34 @@ export default class VolcengineImageProvider extends ImageGenerationService {
     // 同步生成是单次长请求：官方未公布网关超时上限，超时取配置窗口与调用方
     // signal 的先到者（AbortSignal.any 原生组合，任一触发即中断请求）。
     const timeout = AbortSignal.timeout(this.config.requestTimeoutMs)
-    const res = await fetch(this.config.baseUrl + path, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify(body),
-      redirect: 'error',
-      signal: signal === undefined ? timeout : AbortSignal.any([signal, timeout]),
-    })
-    const text = await res.text()
+    let res: Response
+    let text: string
+    try {
+      res = await fetch(this.config.baseUrl + path, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify(body),
+        redirect: 'error',
+        signal: signal === undefined ? timeout : AbortSignal.any([signal, timeout]),
+      })
+      text = await res.text()
+    } catch (error) {
+      // 调用方取消（会话中断）原样上抛，工具层凭 signal.aborted 如实归因；
+      // 内部超时窗口耗尽映射为 TIMEOUT 码，与百炼轮询窗口语义对齐，
+      // 否则裸 DOMException 只能落成无错误码的泛化失败消息
+      if (signal?.aborted) throw error
+      const name = error instanceof Error ? error.name : ''
+      if (name === 'TimeoutError' || name === 'AbortError') {
+        throw new ImageProviderError(
+          'TIMEOUT',
+          `生成请求超过 ${this.config.requestTimeoutMs}ms 未完成: 方舟同步 API 无轮询, 可减少张数重试或调大 requestTimeoutMs`,
+        )
+      }
+      throw error
+    }
     let data: JsonObject
     try {
       data = JSON.parse(text) as JsonObject

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { realpathSync } from 'node:fs'
-import { access, appendFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
-import { basename, join, resolve } from 'node:path'
+import { access, appendFile, mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { basename, join, resolve, sep } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { load as loadYaml, dump as dumpYaml } from 'js-yaml'
@@ -215,7 +215,9 @@ const USAGE_SECTION = {
     "- 布局与信息架构待确认: fidelity='wireframe'(面板分层默认里的线框图模型, 速度快)。",
     "- 视觉风格待确认: fidelity='high-fidelity'(面板分层默认里的高保真模型, 质量优先), 建议 count=2~4 一次给多个方向供用户选择。",
     '- 同一个站点的多个页面在高保真阶段应传 reference=已确认页面的图, 保持风格一致(图生图模式)。',
-    '- 用户对生成的图提出修改意见: 优先走编辑模式(同时传 baseImage=上一版生成图路径 与 editNote=修改指令, 只重绘要改的部分, 更快且更贴近原稿); 大改布局或换风格时才在 description 中写修改后的完整描述整体重新生成。',
+    '- 用户对生成的图提出修改意见: 优先走编辑模式(同时传 baseImage=上一版生成图路径 与 editNote=修改指令, 在原图上整图指令重绘, 通常更贴近原稿); 大改布局或换风格时才在 description 中写修改后的完整描述整体重新生成。',
+    '- 工具结果中的生成图统一用 design/images/<文件名> 引用; 不要读取资产库绝对路径, 不要把图片复制进项目来绕过路径校验。',
+    '- 编辑调用仍必须传 description、fidelity、baseImage、editNote 四个字段; baseImage 使用 design/images/<文件名>, 不要省略 required 字段。',
     '- 编辑模式当前仅火山方舟 Provider 支持; 生效提供方为阿里云百炼时编辑调用会返回 NOT_IMPLEMENTED, 此时改用整体重新生成。',
     '- 模型分层默认由设置面板管理; 用户没有点名具体模型时不要传 model 参数, 否则会绕过面板配置(面板未配置时回落生效提供方的内置分层默认)。',
     '',
@@ -243,6 +245,38 @@ export const Config = PrefsSchema
 
 /** 语义路径（agent / reference 兼容层，映射到资产库物理路径）。 */
 const IMAGE_DIR = 'design/images'
+
+/** 给 Agent 的稳定语义引用；隐藏资产库物理位置，避免为了复用生成图而复制文件。 */
+export function agentImageReference(name: string): string {
+  return `${IMAGE_DIR}/${basename(name)}`
+}
+
+/**
+ * 成功消息里告警段的起始标记：客户端卡片凭标记截取告警区展示
+ * （src/client/shared.ts 持同值副本 RESULT_NOTICE_MARKERS，改动需同步）。
+ */
+export const RESULT_NOTICE_MARKERS = [' 注意: ', ' 其中 '] as const
+
+/** 「部分下载失败」告警段：前缀是客户端截取的定位标记，勿改。 */
+export function buildFailuresNotice(failures: readonly string[]): string {
+  return `${RESULT_NOTICE_MARKERS[0]}有 ${failures.length} 张下载失败(${failures.join('; ')}), 其余图片已保留。`
+}
+
+/** 「附件超限」告警段：前缀是客户端截取的定位标记，勿改。 */
+export function buildOversizeNotice(oversize: number): string {
+  return `${RESULT_NOTICE_MARKERS[1]}${oversize} 张超过会话附件大小上限, 仅保存到 DSH 设计资产库, 未在对话中展示。`
+}
+
+/** 模型可见错误只保留语义路径，避免底层 readFile 异常带出资产库绝对位置。 */
+function modelVisibleError(error: unknown, workspaceRoot: string | undefined): string {
+  const message = error instanceof Error ? error.message : String(error)
+  if (workspaceRoot === undefined) return message
+  const store = storeOf(workspaceRoot)
+  return message
+    .replaceAll(store.imagesDir, IMAGE_DIR)
+    .replaceAll(store.root, 'design')
+    .replaceAll(workspaceRoot, '.')
+}
 
 import { homedir } from 'node:os'
 
@@ -305,12 +339,25 @@ function translateReference(reference: string, workspaceRoot: string): string {
   const store = storeOf(workspaceRoot)
   if (reference === 'design' || reference === 'design/') return store.root
   if (reference.startsWith('design/images/')) {
-    return resolve(store.imagesDir, reference.slice('design/images/'.length))
+    return resolveSemanticReference(
+      store.imagesDir,
+      reference.slice('design/images/'.length),
+      reference,
+    )
   }
   if (reference.startsWith('design/')) {
-    return resolve(store.root, reference.slice('design/'.length))
+    return resolveSemanticReference(store.root, reference.slice('design/'.length), reference)
   }
   return reference
+}
+
+/** 语义路径只能在对应资产根内解析；拒绝后仍回显调用方原始相对路径。 */
+function resolveSemanticReference(root: string, suffix: string, source: string): string {
+  const target = resolve(root, suffix)
+  if (target !== root && !target.startsWith(`${root}${sep}`)) {
+    throw new ImageProviderError('INVALID_PARAMETER', `图片语义路径 ${source} 逃逸出 design/`)
+  }
+  return target
 }
 
 /** 偏好生效值：settings 服务可用时以命名空间 resolved 值为准；
@@ -365,6 +412,33 @@ async function writeFileAtomic(path: string, content: string): Promise<void> {
   const tmp = `${path}.tmp-${process.pid}-${randomUUID().slice(0, 8)}`
   await writeFile(tmp, content)
   await rename(tmp, path)
+}
+
+/**
+ * 追加一条历史记录。已有坏尾行不改写，只在缺少换行时补一个分隔符，
+ * 确保本次合法 JSON 不会和半截旧内容粘成同一行。
+ */
+export async function appendHistoryLine(path: string, line: string): Promise<void> {
+  let prefix = '\n'
+  try {
+    const handle = await open(path, 'r')
+    try {
+      const { size } = await handle.stat()
+      if (size === 0) {
+        prefix = ''
+      } else {
+        const last = Buffer.alloc(1)
+        await handle.read(last, 0, 1, size - 1)
+        if (last[0] === 0x0a) prefix = ''
+      }
+    } finally {
+      await handle.close()
+    }
+  } catch (error) {
+    // 文件不存在按空文件处理；只有写权限时无法读末字节，补一个空行仍可安全追加。
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') prefix = ''
+  }
+  await appendFile(path, `${prefix}${line}\n`, 'utf8')
 }
 
 async function writeAnchor(workspaceRoot: string, fileName: string): Promise<void> {
@@ -542,7 +616,7 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
     tools.register({
       name: 'ui_mockup',
       description:
-        '调用外部图像生成接口, 为界面/页面生成线框图(wireframe)或高保真(high-fidelity)设计草图, 供用户在编写实现代码之前确认界面方向。图片显示在对话中并保存到 DSH 设计资产库($DSH_HOME/mockups/<工作区>/images/)。用户需要修改时, 用修改后的完整描述再次调用。模型分层默认由设置面板「提供方与模型」管理(未配置时回落生效提供方的内置分层默认); 用户未点名模型时不要传 model 参数, 以免绕过面板配置。传 reference 参数可用已确认的图作为风格基准(图生图), 保持多页面风格一致。接口限流时自动退避重试。需要生效提供方的凭据(阿里云百炼 DASHSCOPE_API_KEY 或火山方舟 ARK_API_KEY, 取决于面板生效提供方, 通过凭据服务或环境变量提供)。',
+        '调用外部图像生成接口, 为界面/页面生成线框图(wireframe)或高保真(high-fidelity)设计草图, 供用户在编写实现代码之前确认界面方向。图片显示在对话中并保存到 DSH 设计资产库($DSH_HOME/mockups/<工作区>/images/)。用户需要修改时优先传 description、fidelity、baseImage、editNote, 其中生成图用 design/images/<文件名> 引用, 不要复制图片到项目。模型分层默认由设置面板「提供方与模型」管理(未配置时回落生效提供方的内置分层默认); 用户未点名模型时不要传 model 参数, 以免绕过面板配置。传 reference 参数可用已确认的图作为风格基准(图生图), 保持多页面风格一致。接口限流时自动退避重试。需要生效提供方的凭据(阿里云百炼 DASHSCOPE_API_KEY 或火山方舟 ARK_API_KEY, 取决于面板生效提供方, 通过凭据服务或环境变量提供)。',
       parameters: {
         type: 'object',
         properties: {
@@ -589,7 +663,7 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
           baseImage: {
             type: 'string',
             description:
-              '可选: 待编辑的基准图路径(相对工作区, 生成图可写 design/images/mockup-xxx.png)。与 editNote 成对出现时走指令编辑(整图重绘), 此时忽略 description 之外的生成参数。',
+              '可选: 待编辑的基准图路径, 生成图使用 design/images/mockup-xxx.png。与 editNote 成对出现时走指令编辑(整图重绘); 编辑调用仍必须传 required 的 description 和 fidelity, 不要复制资产库图片到项目。',
           },
           editNote: {
             type: 'string',
@@ -650,6 +724,7 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
         },
       },
       async execute(args, exec): Promise<MockupValue> {
+        let workspaceRoot: string | undefined
         try {
           if (typeof args.description !== 'string' || args.description.trim() === '') {
             return { ok: false, message: '缺少 description 参数: 请描述要生成的界面内容。' }
@@ -675,7 +750,7 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
           // 退化为会话 cwd、进程级 fallback，避免图片落到宿主进程 CWD。
           // 统一 canonical 化：sandboxPolicy 返回值本身已 canonical，但 fallback
           // 分支的 header.cwd 未规范化；同时与路由白名单的比对口径保持一致。
-          const workspaceRoot = canonicalRoot(
+          workspaceRoot = canonicalRoot(
             sandboxPolicy?.resolve(session === undefined ? {} : { session })?.workspaceRoot ??
               session?.header.cwd ??
               '.',
@@ -814,7 +889,8 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
               const store = storeOf(workspaceRoot)
               await mkdir(store.imagesDir, { recursive: true })
               await writeFile(resolve(store.imagesDir, fileName), buffer)
-              // 模型可见路径写真实物理位置（资产库绝对路径），避免 agent 去工作区找不到
+              // images[].path 保留资产库绝对路径：历史页/图片路由凭它定位文件；
+              // 模型只见 output.render 投影出的语义引用（design/images/<文件名>）与附件块
               const relPath = resolve(store.imagesDir, fileName)
               let entry: ImageEntry
               if (
@@ -877,28 +953,28 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
           // 生成历史元数据：设置面板历史页的数据来源（M3 消费）。
           // 写失败不阻断结果返回，但留 debug 日志：历史页缺记录时可据此排查。
           const historyWrite = storeOf(workspaceRoot)
-          void appendFile(
-            historyWrite.historyFile,
-            `${JSON.stringify({
-              time: new Date().toISOString(),
-              files: images.map((image) => image.path),
-              description: args.description,
-              model: generated.model,
-              fidelity,
-              platform,
-              ...(spec.size !== undefined ? { size: spec.size } : {}),
-              status: isEdit ? 'edited' : 'generated',
-            })}\n`,
-          ).catch((error: unknown) => {
-            ctx
-              .logger('ui-mockup')
-              .debug(
-                `history.jsonl 写入失败: ${error instanceof Error ? error.message : String(error)}`,
-              )
+          const historyRecord = JSON.stringify({
+            time: new Date().toISOString(),
+            files: images.map((image) => image.path),
+            description: args.description,
+            model: generated.model,
+            fidelity,
+            platform,
+            ...(spec.size !== undefined ? { size: spec.size } : {}),
+            status: isEdit ? 'edited' : 'generated',
           })
+          await appendHistoryLine(historyWrite.historyFile, historyRecord).catch(
+            (error: unknown) => {
+              ctx
+                .logger('ui-mockup')
+                .debug(
+                  `history.jsonl 写入失败: ${error instanceof Error ? error.message : String(error)}`,
+                )
+            },
+          )
 
           const label = fidelity === 'wireframe' ? '线框图' : '高保真设计稿'
-          const paths = images.map((image) => image.path).join(', ')
+          const paths = images.map((image) => agentImageReference(image.name)).join(', ')
           let message = isEdit
             ? `已用模型 ${generated.model} 按编辑指令在基准图上重绘, 生成 ${images.length} 张新版本。图片已保存到 ${paths}, 请在对话中查看并反馈。`
             : `已用模型 ${generated.model} 生成 ${images.length} 张${label}。图片已保存到 ${paths}, 请在对话中查看并反馈; 需要修改时直接描述要改的地方。确认无误后我会将设计提炼为 design/spec.md 作为实现规格。`
@@ -909,19 +985,22 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
             message += ` 当前生效模型 ${anchorSkippedForModel} 不支持参考图(I2I), 已跳过风格锚点注入; 请改用 qwen-image 或 wan2.7-image 系列。`
           }
           if (failures.length > 0) {
-            message += ` 注意: 有 ${failures.length} 张下载失败(${failures.join('; ')}), 其余图片已保留。`
+            message += buildFailuresNotice(failures)
           }
           if (oversize > 0) {
-            message += ` 其中 ${oversize} 张超过会话附件大小上限, 仅保存到工作区, 未在对话中展示。`
+            message += buildOversizeNotice(oversize)
           }
           return { ok: true, message, images }
         } catch (error) {
           if (error instanceof ImageProviderError) {
-            return { ok: false, message: `生成失败 [${error.code}]: ${error.message}` }
+            return {
+              ok: false,
+              message: `生成失败 [${error.code}]: ${modelVisibleError(error, workspaceRoot)}`,
+            }
           }
           return {
             ok: false,
-            message: `生成失败: ${error instanceof Error ? error.message : String(error)}`,
+            message: `生成失败: ${modelVisibleError(error, workspaceRoot)}`,
           }
         }
       },

@@ -371,6 +371,34 @@ describe('resilience', () => {
     controller.abort()
     await expectation
   })
+
+  // 挂起 fetch：不主动返回，信号中止时以中止原因拒绝（与 undici 真实行为一致）
+  function hangUntilAbort(_url: string, init: RequestInit): Promise<Response> {
+    return new Promise((_resolve, reject) => {
+      const signal = init.signal
+      if (signal == null) return
+      const onAbort = () =>
+        reject(signal.reason instanceof Error ? signal.reason : new Error(String(signal.reason)))
+      if (signal.aborted) onAbort()
+      else signal.addEventListener('abort', onAbort, { once: true })
+    })
+  }
+
+  it('maps an exhausted sync request window to the TIMEOUT code', async () => {
+    // 必须用真实定时器：vi.useFakeTimers() 无法 fake AbortSignal.timeout 的内部
+    // 定时器，虚拟推进不会触发超时。窗口取 200ms 真实挂钟，避免拖慢套件。
+    mockFetch(hangUntilAbort)
+    const promise = provider({ requestTimeoutMs: 200 }).generate(wireframeSpec)
+    await expect(promise).rejects.toMatchObject({ code: 'TIMEOUT' })
+  })
+
+  it('propagates caller abort during the request without mapping it to TIMEOUT', async () => {
+    mockFetch(hangUntilAbort)
+    const controller = new AbortController()
+    const promise = provider().generate(wireframeSpec, controller.signal)
+    controller.abort()
+    await expect(promise).rejects.toMatchObject({ name: 'AbortError' })
+  })
 })
 
 describe('edit', () => {

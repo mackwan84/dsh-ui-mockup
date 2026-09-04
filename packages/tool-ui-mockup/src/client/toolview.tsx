@@ -4,13 +4,13 @@
  * `t`（i18n）和 `inputActions`（反馈按钮通过 setDraft + submit 发送消息）。
  * 视觉与 DSH 原生一致：Button 原语 + --dsw-alias-* 主题令牌。
  */
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ToolCallViewProps } from '@deepseek-ai/dsh-client-ui-tool/client'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { imageUrl } from './shared.js'
-import type { NS } from './locales.js'
+import { imageUrl, RESULT_NOTICE_MARKERS } from './shared.js'
+import { zh, type NS } from './locales.js'
 
 type Props = ToolCallViewProps & PropsLocale<typeof NS> & { anchor?: ToolviewAnchorFace }
 
@@ -28,16 +28,33 @@ interface ImageRef {
 }
 
 /** 反馈按钮发送给 agent 的消息正文（中文固定，模型可见文本不随 UI 语言切换）。 */
-function buildFeedbackMessage(
-  t: Props['t'],
-  name: string,
-  index: number,
-  opinion?: string,
-): string {
+function buildFeedbackMessage(name: string, index: number, opinion?: string): string {
   if (opinion !== undefined && opinion.trim() !== '') {
-    return t('card.feedbackMessage', { opinion: opinion.trim(), name })
+    return formatModelMessage('card.feedbackMessage', { opinion: opinion.trim(), name })
   }
-  return t('card.selectMessage', { n: index + 1, name })
+  return formatModelMessage('card.selectMessage', { n: index + 1, name })
+}
+
+/** 模型可见反馈固定中文；UI 控件文案仍由传入的 t 跟随当前界面语言。 */
+function formatModelMessage(
+  key: 'card.confirmMessage' | 'card.selectMessage' | 'card.feedbackMessage',
+  params: Record<string, string | number>,
+): string {
+  let text: string = zh[key]
+  for (const [name, value] of Object.entries(params)) {
+    // 函数式替换：用户意见里的 $& / $` / $' 等组合在字符串替换串中会被当作
+    // 模式解释（占位符漏进消息或内容被吞），函数返回值则原样插入
+    text = text.replaceAll(`{${name}}`, () => String(value))
+  }
+  return text
+}
+
+/** 成功路径只显示需要用户处理的告警，不重复内部存储路径等完整工具文本。 */
+function resultNotice(message: string): string {
+  const starts = RESULT_NOTICE_MARKERS.map((marker) => message.indexOf(marker)).filter(
+    (index) => index >= 0,
+  )
+  return starts.length === 0 ? '' : message.slice(Math.min(...starts)).trim()
 }
 
 export function UiMockupToolview({ block, inputActions, cwd, t, anchor }: Props) {
@@ -50,6 +67,24 @@ export function UiMockupToolview({ block, inputActions, cwd, t, anchor }: Props)
   const [anchoredNames, setAnchoredNames] = useState<ReadonlySet<string>>(new Set())
   const [anchorError, setAnchorError] = useState('')
 
+  // 生成耗时反馈：运行中工具块的事件时间会随会话持久化，刷新后仍能延续计时；
+  // 旧数据缺少时间（或时间为 0 等损坏值）时才回退到卡片挂载时间。出图后块带 kind 即停表。
+  // 这里只说明本地已等待时长，不能据此判断远端任务进度或存活状态。
+  const pending = !('kind' in block)
+  const [mountedAt] = useState(() => Date.now())
+  const startedAt =
+    pending && Number.isFinite(block.time) && block.time > 0 ? block.time : mountedAt
+  const elapsedSinceStart = () => Math.max(0, Math.round((Date.now() - startedAt) / 1000))
+  const [elapsedSeconds, setElapsedSeconds] = useState(elapsedSinceStart)
+  useEffect(() => {
+    if (!pending) return undefined
+    setElapsedSeconds(elapsedSinceStart())
+    const timer = setInterval(() => {
+      setElapsedSeconds(elapsedSinceStart())
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [pending, startedAt])
+
   const setAnchor = async (name: string) => {
     if (anchor === undefined) return
     setAnchorError('')
@@ -61,10 +96,20 @@ export function UiMockupToolview({ block, inputActions, cwd, t, anchor }: Props)
     }
   }
 
-  if (!('kind' in block)) {
+  if (pending) {
+    // 首秒仍显示纯「生成中…」，避免一闪而过的「0 秒」噪音；
+    // 之后按秒/分秒两档展示已耗时
+    const minutes = Math.floor(elapsedSeconds / 60)
+    const seconds = elapsedSeconds % 60
+    const label =
+      elapsedSeconds < 1
+        ? t('card.generating')
+        : minutes < 1
+          ? t('card.generatingSeconds', { n: seconds })
+          : t('card.generatingMinutes', { m: minutes, s: seconds })
     return (
       <div style={{ padding: '8px 0', fontSize: 13, color: 'var(--dsw-alias-label-tertiary)' }}>
-        {t('card.generating')}
+        {label}
       </div>
     )
   }
@@ -74,6 +119,7 @@ export function UiMockupToolview({ block, inputActions, cwd, t, anchor }: Props)
     .filter((item) => item.type === 'text')
     .map((item) => item.text)
     .join('')
+  const notice = resultNotice(message)
 
   if (images.length === 0) {
     return (
@@ -133,6 +179,19 @@ export function UiMockupToolview({ block, inputActions, cwd, t, anchor }: Props)
           )
         })}
       </div>
+      {notice !== '' && (
+        <div
+          role="status"
+          // 主题无 label 级 warning 令牌；警示文字统一用 state 系琥珀令牌（与原生 chat/plan 一致）
+          style={{
+            fontSize: 12,
+            lineHeight: '18px',
+            color: 'var(--dsw-alias-state-warn-primary)',
+          }}
+        >
+          {notice}
+        </div>
+      )}
       {anchorError !== '' && (
         <div style={{ fontSize: 12, color: 'var(--dsw-alias-label-error)' }}>{anchorError}</div>
       )}
@@ -142,7 +201,11 @@ export function UiMockupToolview({ block, inputActions, cwd, t, anchor }: Props)
           variant="primary"
           size="sm"
           onClick={() =>
-            send(t('card.confirmMessage', { name: images[0]!.attachment.name ?? 'mockup-1.png' }))
+            send(
+              formatModelMessage('card.confirmMessage', {
+                name: images[0]!.attachment.name ?? 'mockup-1.png',
+              }),
+            )
           }
         >
           {t('card.confirm')}
@@ -157,7 +220,7 @@ export function UiMockupToolview({ block, inputActions, cwd, t, anchor }: Props)
               const index = Number(raw)
               setSelected('')
               const name = (images[index]!.attachment as ImageRef).name ?? `mockup-${index + 1}.png`
-              send(buildFeedbackMessage(t, name, index))
+              send(buildFeedbackMessage(name, index))
             }}
             style={{
               height: 28,
@@ -265,9 +328,11 @@ export function UiMockupToolview({ block, inputActions, cwd, t, anchor }: Props)
             <Button
               variant="primary"
               size="sm"
+              disabled={opinion.trim() === ''}
               onClick={() => {
+                if (opinion.trim() === '') return
                 const name = images[0]!.attachment.name ?? 'mockup-1.png'
-                send(buildFeedbackMessage(t, name, 0, opinion))
+                send(buildFeedbackMessage(name, 0, opinion))
                 setOpinion('')
                 setShowFeedback(false)
               }}
