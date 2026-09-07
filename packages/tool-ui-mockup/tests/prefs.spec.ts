@@ -80,6 +80,26 @@ describe('parseHistoryLine', () => {
     expect(parseHistoryLine('')).toBeNull()
     expect(parseHistoryLine(JSON.stringify({ time: 1, description: 'x', files: [] }))).toBeNull()
   })
+
+  it('parses the incremental fastPreview flag and tolerates legacy rows without it', () => {
+    // 旧行缺字段：照常解析为 undefined，不视为方向稿
+    expect(parseHistoryLine(line)?.fastPreview).toBeUndefined()
+    const draftLine = JSON.stringify({
+      time: '2026-09-04T10:00:00.000Z',
+      files: ['design/images/mockup-2.png'],
+      description: '方向稿',
+      fastPreview: true,
+    })
+    expect(parseHistoryLine(draftLine)?.fastPreview).toBe(true)
+    // 非布尔值不采信（历史行可能损坏）
+    const junkLine = JSON.stringify({
+      time: '2026-09-04T10:00:00.000Z',
+      files: ['design/images/mockup-3.png'],
+      description: '损坏标记',
+      fastPreview: 'yes',
+    })
+    expect(parseHistoryLine(junkLine)?.fastPreview).toBeUndefined()
+  })
 })
 
 describe('filterHistory', () => {

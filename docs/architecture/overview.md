@@ -1,6 +1,6 @@
 # dsh-ui-mockup · 架构与实现
 
-> 当前实现版本：0.1.3。本文记录仓库结构、能力边界与经验证的关键实现事实。
+> 当前实现版本：0.2.0。本文记录仓库结构、能力边界与经验证的关键实现事实。
 
 ## 1. 产品目标
 
@@ -42,7 +42,7 @@ dsh-ui-mockup/
 
 ```sh
 # 产品形态
-dsh plugin --profile web add @mackwan84/dsh-ui-mockup-bundle@0.1.3
+dsh plugin --profile web add @mackwan84/dsh-ui-mockup-bundle@0.2.0
 # → pnpm 安装 → 检测 dsh.bundle.patch → 自动挂载 → 工具立即可用
 
 # 开发期
@@ -61,12 +61,13 @@ dsh plugin --profile web add github:mackwan84/dsh-ui-mockup#main   # 需 prepare
 
 ## 5. 里程碑
 
-| 里程碑 | 内容                                                                   | 验收                                                      |
-| ------ | ---------------------------------------------------------------------- | --------------------------------------------------------- |
-| M1 ✅  | 骨架 + image Service + 百炼 Provider + Host 工具                       | `dsh plugin add` 本地装进 web profile，会话里能生成一张图 |
-| M2 ✅  | 客户端卡片（tool.call.toolview）+ 图片路由（webServer）+ i18n 双语字典 | 卡片渲染、语言切换实时生效                                |
-| M3 ✅  | 设置面板 4 页 + 资产库生成历史 + 风格锚点联动                          | 按已确认线框实现（design/spec.md），面板功能闭环          |
-| M4 ✅  | 火山 Provider + I2I / 指令编辑模式 + 双提供方组合行切换                | 双提供方切换可用                                          |
+| 里程碑 | 内容                                                                                                                | 验收                                                                |
+| ------ | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| M1 ✅  | 骨架 + image Service + 百炼 Provider + Host 工具                                                                    | `dsh plugin add` 本地装进 web profile，会话里能生成一张图           |
+| M2 ✅  | 客户端卡片（tool.call.toolview）+ 图片路由（webServer）+ i18n 双语字典                                              | 卡片渲染、语言切换实时生效                                          |
+| M3 ✅  | 设置面板 4 页 + 资产库生成历史 + 风格锚点联动                                                                       | 按已确认线框实现（design/spec.md），面板功能闭环                    |
+| M4 ✅  | 火山 Provider + I2I / 指令编辑模式 + 双提供方组合行切换                                                             | 双提供方切换可用                                                    |
+| M5 ✅  | 标注弹窗（矩形/画笔/箭头 + 编号坐标文本反馈）+ `fastPreview` 方向稿 + 方向稿模型档 + 精修按钮 + 历史方向稿字段/过滤 | 标注链路 3 项客户端回归 + fastPreview 组合语义/设锚提示组合测试通过 |
 
 每里程碑交付：单元测试、真实组合测试（Loader 真 cordis.yml）、README、invariant、打包发布检查。
 
@@ -102,21 +103,24 @@ dsh plugin --profile web add github:mackwan84/dsh-ui-mockup#main   # 需 prepare
 ### 6.3 Consumer 工具（tool-ui-mockup）
 
 - 工具 `ui_mockup`（参数/模板/结果呈现沿用 MVP 验证实现）：
-  - 参数：description、fidelity（必填），以及 platform、style、count、model、size、reference；编辑时成对传 baseImage + editNote；凭据不属于工具参数；
+  - 参数：description、fidelity（必填），以及 platform、style、count、model、size、reference、fastPreview；编辑时成对传 baseImage + editNote；凭据不属于工具参数；
+  - `fastPreview`（0.2.0）：仅 high-fidelity 生效，用「方向稿模型」档快速产出方向稿；模型解析顺序为显式 `model` → `draftModel` 偏好（空串回落 `wireframeModel`）→ Provider 内置分层默认；与 `fidelity='wireframe'` 组合时忽略并在结果消息说明（工具 schema DSL 无法表达条件约束，执行层显式处理）；
   - 模板：wireframe 使用无品牌名的低保真手绘线框 + 中文短标签；high-fidelity 使用风格词、单状态组件与低文字密度约束；reference 时追加与基准图一致约束；
   - 结果：落盘资产库 `$DSH_HOME/mockups/<工作区>/images/` → `attachments.saveImage` → 工具结果图片块呈现；模型只看到 `design/images/<文件名>` 语义引用；
-  - 历史：逐行 JSONL；损坏行读取时跳过，坏尾行缺换行时先补分隔符再追加；历史写入失败不丢生成图片；
-  - **限流自动退避重试**（Throttling/RateQuota → 25s × 2 次）。
-- 提示词注入（systemPrompt section）：何时主动提议草图、fidelity 选择、确认后写 `design/spec.md`、spec 未确认不写前端代码；
+  - 历史：逐行 JSONL；损坏行读取时跳过，坏尾行缺换行时先补分隔符再追加；历史写入失败不丢生成图片；0.2.0 起方向稿记 `fastPreview: true`（纯增量字段，旧行兼容）；
+  - **限流自动退避重试**（Throttling/RateQuota → 25s × 2 次）；
+  - **标注反馈处理（0.2.0）**：卡片标注弹窗提交的消息形如「对 design/images/<名> 的标注反馈（ISO 时间戳）：编号区域（归一化坐标）：①…。意见：…」；提示词规则要求按编号区域空间语言组织 editNote/description、`baseImage` 恒传原图语义路径、同一图多轮标注以最新为准；`execute` 编辑分支对「标注图命名特征 + 文件不存在」的 baseImage 返回可操作错误（硬防护，避免误报「文件不存在」）。
+- 提示词注入（systemPrompt section）：何时主动提议草图、fidelity 选择、确认后写 `design/spec.md`、spec 未确认不写前端代码、标注反馈消息的解读规则；
 - 设计锁定：用户确认后提炼 `design/spec.md`（配色、字体、间距、组件清单、页面清单）。
 
 ### 6.4 客户端 UI
 
-- **工具卡片**：`tool.call.toolview` keyed `ui_mockup`——图片内嵌、确认/选用/修改意见按钮（模型可见消息固定中文）、打开原图；运行中按持久化的工具调用事件时间计时，刷新后续表；空意见禁止提交，部分下载与附件超限告警保持可见；
+- **工具卡片**：`tool.call.toolview` keyed `ui_mockup`——图片内嵌（点击进入标注弹窗）、确认/选用/修改意见按钮（模型可见消息固定中文）；方向稿结果卡显示「按这版精修」按钮（解析 `block.call.argsRaw` 中 `fastPreview === true`，窗口截断 `call` 为 null 或解析失败时静默不显示）；运行中按持久化的工具调用事件时间计时，刷新后续表；空意见禁止提交，部分下载与附件超限告警保持可见；「打开原图」入口在标注弹窗底部；
+- **标注弹窗（0.2.0）**：叠层架构——底图 `<img>` 渲染（显示不需要像素），标注画在同尺寸透明 canvas 叠层（纯几何，几何计算全部在 `src/annotation.ts` 纯函数模块，可 node 环境单测）；矩形/画笔/箭头三工具、自动编号徽标、1x/2x 两档缩放（视口中心保持）、三色/撤销/清空；提交时编号归一化坐标投影 + 意见经 `inputActions.setDraft + submit` 发出；无标注提交退化为纯文字反馈；弹窗焦点陷阱 + Esc 关闭，不承诺键盘绘制等价能力（canvas 圈选本质不可键盘操作）；
 - **图片路由**：webServer prefix `/ui-mockup/images` 服务资产库图片（cwd 经信任源全集校验）；
-- **设置面板 4 页**（已确认线框）：概览 / 提供方与模型 / 生成偏好 / 生成历史；
+- **设置面板 4 页**（已确认线框）：概览 / 提供方与模型（含方向稿模型档）/ 生成偏好 / 生成历史（方向稿标签 + 「只看方向稿」服务端过滤）；
   视觉跟随 DSH 主题（主题令牌 + 原生控件，浅/深色自适应），不做独立风格探索；
-  「快速使用」文案以修正版为准（见 §6.4.1）。
+  「快速使用」文案以修正版为准（见 §6.4.1）；方向稿设锚返回一次性提示（anchor/set 端点按历史标记返回 `hint`，卡片琥珀色展示）。
 
 #### 6.4.1 概览页「快速使用」修正文案（线框图为杜撰，禁止采纳）
 
@@ -170,6 +174,35 @@ dsh plugin --profile web add github:mackwan84/dsh-ui-mockup#main   # 需 prepare
 - seedream 4.0 无 `seed`/`guidance_scale`（3.0 代参数）；组图走 `sequential_image_generation`
   （本仓未用，多图串行拆单图）；
 - 网关同步超时上限官方未公布：`requestTimeoutMs` 配置化，默认 300s。
+
+### 8.2 宿主客户端契约事实（0.2.0，2026-09-04 核对本仓已安装包 0.1.1-rc.2）
+
+- `ctx.conversation` 的声明类型是 `IConversation`（仅 `input / blocks / send / updateQueue / cancel / loadOlder`，
+  「The outward face only; the concrete service stays inside this plugin」）；`createDraftImages(files)`
+  只在具体类 `ConversationController` 上（`dsh-client-ui-conversation/lib/types/client/service.d.ts`），
+  **不在对外契约内**。S0-a spike 结论为「三档」中的第 ② 档：运行时可用（该类以
+  `super(ctx, "conversation")` 自注册、无代理收窄，`lib/client.js` 内定义 `createDraftImages` 与
+  `draftAttachments` Map），类型面未公开——0.2.1 标注图附件路径以此为前提，实施时必须
+  `typeof fn === 'function'` 特性探测 + try/catch + 降级坐标文本，且附退出条件（上游纳入公开面即迁移，探测失败即永久降级）；
+- `InputActions` = `setDraft / addImages(ids): boolean / removeImage / pruneImages / submit`，不暴露 `state`：
+  `addImages` 准入忙时返回 false；`setDraft` 整体覆写且读不到当前草稿（反馈按钮清掉用户正在输入的内容是既有行为，本迭代未扩大）；
+- `DraftAttachmentId` 无公开生产者（`addImages` 在公开面但 ids 只能经内部 `createDraftImages` 产生）——向上游请求按此契约缺口陈述；
+- 图片草稿/附件：composer 接受 png/jpeg/webp/gif；attachment provider 另有部署级 `mediaTypes` 白名单，
+  违规抛 `UNSUPPORTED_IMAGE_TYPE`；宿主附件规范化默认长边 2048px、编码 4MiB（宿主
+  `docs/subsystems/attachment.zh.md`，宿主仓事实，引用前按治理规则落 `docs/references/`）；
+- `ConnectionHandle.rpc`（客户端）/ `HostConnectionRpc.handle`（宿主）为公开契约
+  （「Generic logical RPC channels」/「通用 RPC 通道注册表」，`dsh-client-connection` 类型产物）：
+  面板 `/ui-mockup` 私有 RPC 是被认可的插件通道，非技术债务；
+- `ToolResultNode.call` 为 `{ name, argsRaw } | null`（窗口截断为 null，
+  `dsh-client-runtime/lib/types/client/sessions/conversation.d.ts`）：方向稿「按这版精修」按钮据此判定可见性；
+- 测试环境事实：vitest jsdom 无 canvas 2D（`getContext` 返回 null 并打 not-implemented 噪音），
+  无 `PointerEvent`、`MouseEvent` 构造可携带 `clientX` 而 `PointerEvent` 不存在——
+  标注几何全部拆纯函数在 node 环境单测，画布绘制留给浏览器用例。
+
+百炼图像编辑能力与思考模式开关的调研结论（S0-b）见
+[百炼图像编辑与思考模式开关事实清单](../references/dashscope-image-edit-and-thinking-mode.md)：
+编辑可用（同异步端点零管线改动，进 0.2.1）；`enable_thinking` 默认 `true` 是 pro 耗时主因，
+是否落地为 Provider 行为变更待产品决策。
 
 ## 9. 门禁与交付物
 

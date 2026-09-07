@@ -216,6 +216,7 @@ const USAGE_SECTION = {
     "- 视觉风格待确认: fidelity='high-fidelity'(面板分层默认里的高保真模型, 质量优先), 建议 count=2~4 一次给多个方向供用户选择。",
     '- 同一个站点的多个页面在高保真阶段应传 reference=已确认页面的图, 保持风格一致(图生图模式)。',
     '- 用户对生成的图提出修改意见: 优先走编辑模式(同时传 baseImage=上一版生成图路径 与 editNote=修改指令, 在原图上整图指令重绘, 通常更贴近原稿); 大改布局或换风格时才在 description 中写修改后的完整描述整体重新生成。',
+    '- 用户反馈形如"对 design/images/<名> 的标注反馈(时间): 编号区域(归一化坐标): …。意见: …"时: 编号区域(①②③等)是用户在该图上圈选标记的区域的归一化坐标(x、y 均在 [0,1], 原点在图像左上角, 附文字投影说明区域位置)。按编号区域与用户意见逐条用空间语言组织 editNote 或 description。编辑时 baseImage 仍必须传原图的语义路径 design/images/<原图名>: 标注图不在资产库, 只用于定位修改区域, 不能作为 baseImage。同一张图有多轮标注反馈时只以最新一轮为准。',
     '- 工具结果中的生成图统一用 design/images/<文件名> 引用; 不要读取资产库绝对路径, 不要把图片复制进项目来绕过路径校验。',
     '- 编辑调用仍必须传 description、fidelity、baseImage、editNote 四个字段; baseImage 使用 design/images/<文件名>, 不要省略 required 字段。',
     '- 编辑模式当前仅火山方舟 Provider 支持; 生效提供方为阿里云百炼时编辑调用会返回 NOT_IMPLEMENTED, 此时改用整体重新生成。',
@@ -360,6 +361,22 @@ function resolveSemanticReference(root: string, suffix: string, source: string):
   return target
 }
 
+/**
+ * 标注图命名特征：模型可能按反馈消息措辞编造「标注图」路径当 baseImage。
+ * 命中该特征且文件不存在时给出可操作错误，避免误报成普通的「文件不存在」。
+ */
+const ANNOTATED_BASE_IMAGE_PATTERN = /annotated|标注/
+
+/** 文件不存在判定：任何读取失败都按缺失处理（仅用于硬防护分支）。 */
+async function fileMissing(path: string): Promise<boolean> {
+  try {
+    await access(path)
+    return false
+  } catch {
+    return true
+  }
+}
+
 /** 偏好生效值：settings 服务可用时以命名空间 resolved 值为准；
  * 缺席（纯内存部署）时退化为 cordis.yml 配置层覆盖内置默认。 */
 export function effectivePrefs(
@@ -402,6 +419,25 @@ async function readAnchor(workspaceRoot: string, requireExists = true): Promise<
   } catch {
     return null
   }
+}
+
+/**
+ * 判定某张图是否来自方向稿（fastPreview）生成：扫描历史行（坏行跳过）。
+ * 历史里的文件是 design/images/<名> 语义路径，按 basename 比对。
+ */
+async function historyFileIsFastPreview(historyFile: string, file: string): Promise<boolean> {
+  let raw: string
+  try {
+    raw = await readFile(historyFile, 'utf8')
+  } catch {
+    return false
+  }
+  for (const line of raw.split('\n')) {
+    const entry = parseHistoryLine(line)
+    if (entry === null || entry.fastPreview !== true) continue
+    if (entry.files.some((path) => basename(path) === file)) return true
+  }
+  return false
 }
 
 /**
@@ -651,6 +687,11 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
             description:
               '可选: 显式覆盖模型。默认取设置面板「提供方与模型」的分层默认(未配置时回落生效提供方的内置分层默认)。用户未点名具体模型时请省略本参数, 否则会绕过面板配置。',
           },
+          fastPreview: {
+            type: 'boolean',
+            description:
+              '可选: 高保真方向稿快速档(仅 fidelity=high-fidelity 生效): 用设置面板「方向稿模型」快速产出方向稿供确认方向, 用户确认方向后同一描述去掉本参数跑精修档。fidelity=wireframe 时忽略本参数。',
+          },
           size: {
             type: 'string',
             description: '可选: 覆盖默认画幅, 如 "1024*1024"、"1280*720"、"720*1280"。',
@@ -774,11 +815,34 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
             }
           }
           const isEdit = baseImageArg !== undefined
+          // fastPreview 组合语义（工具 schema DSL 无法表达条件约束，执行层显式处理）：
+          // 仅高保真生效；线框档本身已是快模型，传了也忽略并在结果里说明。
+          const fastPreview = args.fastPreview === true && fidelity === 'high-fidelity'
+          const fastPreviewIgnored = args.fastPreview === true && fidelity === 'wireframe'
+          // 宿主侧硬防护：标注图随会话消息附件存在、不落资产库。命中命名特征
+          // 且文件确实不存在时返回可操作错误（仅提示词约束时，路径校验的报错
+          // 会指向「文件不存在」，用户难归因）。
+          if (isEdit && ANNOTATED_BASE_IMAGE_PATTERN.test(baseImageArg)) {
+            const resolvedBase = translateReference(baseImageArg, workspaceRoot)
+            if (await fileMissing(resolvedBase)) {
+              return {
+                ok: false,
+                message:
+                  '标注图不在资产库, 不能作为 baseImage: 标注图只随用户反馈消息附在对话里, 用于定位修改区域。baseImage 必须传原图的语义路径 design/images/<原图名>, 并在 editNote 中按编号区域用空间语言描述要改什么。',
+              }
+            }
+          }
+          // 模型解析顺序：显式 model 参数 → 分层偏好（fastPreview 时先方向稿模型，
+          // 空串回落线框档模型）→ Provider 内置分层默认（空串一路回落）。
+          const tierModel = fastPreview
+            ? prefs.draftModel || prefs.wireframeModel
+            : fidelity === 'high-fidelity'
+              ? prefs.highFidelityModel
+              : prefs.wireframeModel
           const effectiveModel =
             typeof args.model === 'string' && args.model.trim() !== ''
               ? args.model
-              : (fidelity === 'high-fidelity' ? prefs.highFidelityModel : prefs.wireframeModel) ||
-                undefined
+              : tierModel || undefined
           // 风格锚点联动：调用未显式传 reference 时自动引用当前锚点（I2I 保持多页风格一致）。
           // 参考图能力按生效提供方分流：DashScope 当前支持 qwen-image 与 Wan 2.7；
           // 其他自定义模型跳过注入并说明，否则 Provider 会以 INVALID_PARAMETER 拒绝且用户难以归因；
@@ -962,6 +1026,7 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
             platform,
             ...(spec.size !== undefined ? { size: spec.size } : {}),
             status: isEdit ? 'edited' : 'generated',
+            ...(fastPreview ? { fastPreview: true } : {}),
           })
           await appendHistoryLine(historyWrite.historyFile, historyRecord).catch(
             (error: unknown) => {
@@ -973,11 +1038,18 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
             },
           )
 
-          const label = fidelity === 'wireframe' ? '线框图' : '高保真设计稿'
+          const label =
+            fidelity === 'wireframe' ? '线框图' : fastPreview ? '高保真方向稿' : '高保真设计稿'
           const paths = images.map((image) => agentImageReference(image.name)).join(', ')
           let message = isEdit
             ? `已用模型 ${generated.model} 按编辑指令在基准图上重绘, 生成 ${images.length} 张新版本。图片已保存到 ${paths}, 请在对话中查看并反馈。`
             : `已用模型 ${generated.model} 生成 ${images.length} 张${label}。图片已保存到 ${paths}, 请在对话中查看并反馈; 需要修改时直接描述要改的地方。确认无误后我会将设计提炼为 design/spec.md 作为实现规格。`
+          if (fastPreviewIgnored) {
+            message += ' 线框档本身已是快模型, 已忽略 fastPreview。'
+          }
+          if (fastPreview) {
+            message += ' 本批为方向稿: 请用户确认方向, 确认后同一描述去掉 fastPreview 跑精修档。'
+          }
           if (anchorInjected !== null) {
             message += ` 已按风格锚点 ${anchorInjected} 自动注入参考图(可在设置 · UI 草图 · 生成历史中解除)。`
           }
@@ -1165,10 +1237,12 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
               if (!rootOrError.ok) return rootOrError.error
               // 服务端分页：先按 query 过滤得到全量有序列表，再切片返回当前页，
               // 附带 total 与锚点在过滤后列表中的索引（客户端据此提示锚点所在页）。
+              // draftOnly 是纯增量过滤位（面板「只看方向稿」），旧客户端不传不受影响。
+              const draftOnly = body.draftOnly === true
               const all = filterHistory(
                 await readHistory(rootOrError.root),
                 typeof body.query === 'string' ? body.query : undefined,
-              )
+              ).filter((entry) => !draftOnly || entry.fastPreview === true)
               const pageSize = clampPageSize(body.pageSize)
               const totalPages = Math.max(1, Math.ceil(all.length / pageSize))
               const page = clampPage(body.page, totalPages)
@@ -1211,13 +1285,22 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
               const file = sanitizeAnchorFileName(body.file)
               if (file === null)
                 return rpcError('INVALID_PARAMETER', `不是合法的生成图文件名: ${String(body.file)}`)
+              const store = storeOf(rootOrError.root)
               try {
-                await access(resolve(storeOf(rootOrError.root).imagesDir, file))
+                await access(resolve(store.imagesDir, file))
               } catch {
                 return rpcError('NOT_FOUND', `工作区中没有这张生成图: ${file}`)
               }
+              // 方向稿设为风格锚点会把它注入后续所有生成——真实的质量陷阱：
+              // 提示而不禁止（用户可能确实只要方向一致）
+              const fastPreviewHint = (await historyFileIsFastPreview(store.historyFile, file))
+                ? '提示: 这张是方向稿(快模型生成), 设为锚点会注入后续所有生成; 若要精修视觉基准, 建议精修确认后改用高保真图。'
+                : undefined
               await writeAnchor(rootOrError.root, file)
-              return rpcOk({ anchorFile: file })
+              return rpcOk({
+                anchorFile: file,
+                ...(fastPreviewHint !== undefined ? { hint: fastPreviewHint } : {}),
+              })
             }
             case 'anchor/unset': {
               const rootOrError = trustedRoot(ctx, knownRoots, cwd)

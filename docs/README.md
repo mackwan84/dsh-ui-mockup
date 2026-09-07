@@ -8,12 +8,15 @@
 - [架构与实现](architecture/overview.md)
 - [文档信息架构与治理规范](architecture/documentation-governance.md)
 - [火山方舟图片接口参考](references/volcengine-ark-image-api.md)
+- [百炼图像编辑与思考模式开关事实清单](references/dashscope-image-edit-and-thinking-mode.md)
 
 ## 测试与发布
 
 - [0.1.3 浏览器测试用例](testing/v0.1.3/browser-cases.md)
 - [0.1.3 CRM 测试数据](testing/v0.1.3/data/crm.json)
 - [0.1.3 发布检查清单](releases/v0.1.3.md)
+- [0.2.0 浏览器测试用例](testing/v0.2.0/browser-cases.md)
+- [0.2.0 发布检查清单](releases/v0.2.0.md)
 
 ## 维护约定
 

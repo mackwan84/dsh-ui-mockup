@@ -9,14 +9,16 @@ import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ToolCallViewProps } from '@deepseek-ai/dsh-client-ui-tool/client'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { buildAnnotationFeedbackMessage, projectMarks } from '../annotation.js'
 import { imageUrl, RESULT_NOTICE_MARKERS } from './shared.js'
+import { AnnotateModal } from './annotate-modal.js'
 import { zh, type NS } from './locales.js'
 
 type Props = ToolCallViewProps & PropsLocale<typeof NS> & { anchor?: ToolviewAnchorFace }
 
 /** 卡片锚点注入面：由注册方闭包捕获 connection 提供，直连 RPC 不经 agent。 */
 export interface ToolviewAnchorFace {
-  set(file: string, cwd?: string): Promise<unknown>
+  set(file: string, cwd?: string): Promise<{ anchorFile: string; hint?: string }>
 }
 
 /** 图片附件引用（会话附件块里的 image 块所携带的最小结构）。 */
@@ -37,7 +39,7 @@ function buildFeedbackMessage(name: string, index: number, opinion?: string): st
 
 /** 模型可见反馈固定中文；UI 控件文案仍由传入的 t 跟随当前界面语言。 */
 function formatModelMessage(
-  key: 'card.confirmMessage' | 'card.selectMessage' | 'card.feedbackMessage',
+  key: 'card.confirmMessage' | 'card.selectMessage' | 'card.feedbackMessage' | 'card.refineMessage',
   params: Record<string, string | number>,
 ): string {
   let text: string = zh[key]
@@ -66,6 +68,10 @@ export function UiMockupToolview({ block, inputActions, cwd, t, anchor }: Props)
   // 本卡已设为锚点的图名集合（点击即时反馈；权威状态在历史页/概览页）
   const [anchoredNames, setAnchoredNames] = useState<ReadonlySet<string>>(new Set())
   const [anchorError, setAnchorError] = useState('')
+  // 设锚提示（如「这张是方向稿」）：宿主端点按历史标记返回，展示即完成提醒义务
+  const [anchorHint, setAnchorHint] = useState('')
+  // 标注弹窗目标图名（资产库语义文件名）；null 表示弹窗关闭
+  const [annotating, setAnnotating] = useState<string | null>(null)
 
   // 生成耗时反馈：运行中工具块的事件时间会随会话持久化，刷新后仍能延续计时；
   // 旧数据缺少时间（或时间为 0 等损坏值）时才回退到卡片挂载时间。出图后块带 kind 即停表。
@@ -88,9 +94,11 @@ export function UiMockupToolview({ block, inputActions, cwd, t, anchor }: Props)
   const setAnchor = async (name: string) => {
     if (anchor === undefined) return
     setAnchorError('')
+    setAnchorHint('')
     try {
-      await anchor.set(name, cwd)
+      const result = await anchor.set(name, cwd)
       setAnchoredNames((prev) => new Set(prev).add(name))
+      if (typeof result?.hint === 'string' && result.hint !== '') setAnchorHint(result.hint)
     } catch (err) {
       setAnchorError(err instanceof Error ? err.message : String(err))
     }
@@ -115,6 +123,19 @@ export function UiMockupToolview({ block, inputActions, cwd, t, anchor }: Props)
   }
 
   const images = block.content.filter((item) => item.type === 'image')
+  // 方向稿卡片入口：解析原始入参判定可见性。窗口截断时 call 为 null；
+  // argsRaw 解析失败静默不显示，不影响其它按钮。
+  const showRefine = (() => {
+    const call = (block as { call?: { argsRaw?: string } | null }).call
+    const argsRaw = call === null || call === undefined ? undefined : call.argsRaw
+    if (typeof argsRaw !== 'string' || argsRaw === '') return false
+    try {
+      const args = JSON.parse(argsRaw) as Record<string, unknown>
+      return args.fidelity === 'high-fidelity' && args.fastPreview === true
+    } catch {
+      return false
+    }
+  })()
   const message = block.content
     .filter((item) => item.type === 'text')
     .map((item) => item.text)
@@ -151,19 +172,34 @@ export function UiMockupToolview({ block, inputActions, cwd, t, anchor }: Props)
           const anchored = anchoredNames.has(name)
           return (
             <figure key={`${name}:${index}`} style={{ margin: 0 }}>
-              <img
-                src={imageUrl(name, cwd)}
-                alt={name}
-                loading="lazy"
+              {/* 点击图片进入标注弹窗（放大 + 圈选）；键盘可达，标题提示用途 */}
+              <button
+                type="button"
+                onClick={() => setAnnotating(name)}
+                title={t('card.annotateHint')}
+                aria-label={`${name}: ${t('card.annotateHint')}`}
                 style={{
-                  maxWidth: 240,
-                  maxHeight: 240,
-                  borderRadius: 8,
-                  border: `1px solid ${anchored ? 'var(--dsw-alias-brand-primary)' : 'var(--dsw-alias-border-l2)'}`,
-                  objectFit: 'contain',
-                  background: 'var(--dsw-alias-bg-layer-3)',
+                  background: 'none',
+                  border: 'none',
+                  padding: 0,
+                  cursor: 'pointer',
+                  display: 'block',
                 }}
-              />
+              >
+                <img
+                  src={imageUrl(name, cwd)}
+                  alt={name}
+                  loading="lazy"
+                  style={{
+                    maxWidth: 240,
+                    maxHeight: 240,
+                    borderRadius: 8,
+                    border: `1px solid ${anchored ? 'var(--dsw-alias-brand-primary)' : 'var(--dsw-alias-border-l2)'}`,
+                    objectFit: 'contain',
+                    background: 'var(--dsw-alias-bg-layer-3)',
+                  }}
+                />
+              </button>
               <figcaption
                 style={{
                   fontSize: 12,
@@ -195,6 +231,11 @@ export function UiMockupToolview({ block, inputActions, cwd, t, anchor }: Props)
       {anchorError !== '' && (
         <div style={{ fontSize: 12, color: 'var(--dsw-alias-label-error)' }}>{anchorError}</div>
       )}
+      {anchorHint !== '' && (
+        <div style={{ fontSize: 12, color: 'var(--dsw-alias-state-warn-primary)' }}>
+          {anchorHint}
+        </div>
+      )}
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
         <Button
@@ -210,6 +251,21 @@ export function UiMockupToolview({ block, inputActions, cwd, t, anchor }: Props)
         >
           {t('card.confirm')}
         </Button>
+        {showRefine && (
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={() =>
+              send(
+                formatModelMessage('card.refineMessage', {
+                  name: images[0]!.attachment.name ?? 'mockup-1.png',
+                }),
+              )
+            }
+          >
+            {t('card.refine')}
+          </Button>
+        )}
         {images.length > 1 && (
           <select
             value={selected}
@@ -289,17 +345,8 @@ export function UiMockupToolview({ block, inputActions, cwd, t, anchor }: Props)
               ))}
             </select>
           ))}
-        {/* 图片本体在资产库（不在工作区），打开原图走图片路由新开页 */}
-        {(() => {
-          const firstName = images[0]!.attachment.name ?? 'mockup-1.png'
-          return (
-            <a href={imageUrl(firstName, cwd)} target="_blank" rel="noreferrer">
-              <Button variant="ghost" size="sm">
-                {t('card.openOriginal')}
-              </Button>
-            </a>
-          )
-        })()}
+        {/* 「打开原图」入口移入标注弹窗底部（第 4 轮提案）：图片本体在资产库，
+            弹窗内走图片路由新开页 */}
         <Button variant="ghost" size="sm" onClick={() => setShowFeedback((value) => !value)}>
           {t('card.feedback')}
         </Button>
@@ -344,6 +391,30 @@ export function UiMockupToolview({ block, inputActions, cwd, t, anchor }: Props)
             </Button>
           </div>
         </div>
+      )}
+
+      {annotating !== null && (
+        <AnnotateModal
+          name={annotating}
+          cwd={cwd}
+          t={t}
+          onClose={() => setAnnotating(null)}
+          onSubmit={(opinion, marks, imageWidth, imageHeight) => {
+            // 有标注走编号坐标消息；无标注退化为现有纯文字意见消息
+            const projections = projectMarks(marks, imageWidth, imageHeight)
+            const text =
+              projections.length > 0
+                ? buildAnnotationFeedbackMessage({
+                    name: annotating,
+                    time: new Date(),
+                    projections,
+                    opinion,
+                  })
+                : buildFeedbackMessage(annotating, 0, opinion)
+            send(text)
+            setAnnotating(null)
+          }}
+        />
       )}
     </div>
   )

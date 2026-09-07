@@ -24,6 +24,30 @@ export const zh = {
   'card.setAnchorSelect': '设为锚点某一版…',
   'card.setAnchorOption': '第 {n} 版',
   'card.anchored': '风格锚点',
+  'card.annotateHint': '点击放大并圈选标注要修改的区域',
+  'card.refine': '按这版精修',
+  'card.refineMessage':
+    '请按 design/images/{name} 这一版方向精修：同一描述，改用精修档（不要传 fastPreview）。',
+
+  // 标注弹窗
+  'annotate.title': '标注修改区域',
+  'annotate.hint':
+    '用矩形、画笔或箭头圈选要修改的区域（自动编号 ①②③），编号与坐标会随意见一起发出。',
+  'annotate.toolRect': '矩形',
+  'annotate.toolBrush': '画笔',
+  'annotate.toolArrow': '箭头',
+  'annotate.color': '标注颜色',
+  'annotate.undo': '撤销',
+  'annotate.clear': '清空',
+  'annotate.zoomIn': '放大 2x',
+  'annotate.zoomOut': '回到 1x',
+  'annotate.cancel': '取消',
+  'annotate.imageLoadFailed': '图片加载失败，无法标注。',
+
+  // 面板：方向稿（0.2.0）
+  'panel.models.draft': '方向稿模型（fastPreview）',
+  'panel.history.draftOnly': '只看方向稿',
+  'panel.history.draftTag': '方向稿',
 
   // 设置面板：通用
   'panel.nav': 'UI 草图',
@@ -45,7 +69,7 @@ export const zh = {
   'panel.overview.step1Body': '需求研讨中助手会主动提议出草图，也可以直接说「出个草图」。',
   'panel.overview.step2Title': '如何反馈',
   'panel.overview.step2Body':
-    '生成图下方直接点「确认采用 / 选用第 N 版 / 提交修改意见」，或直接打字说。',
+    '点击生成图可放大并圈选标注要修改的区域；也可以在图片下方点「确认采用 / 选用第 N 版 / 提交修改意见」，或直接打字说。',
   'panel.overview.step3Title': '如何锁定',
   'panel.overview.step3Body': '确认后自动提炼进 design/spec.md，无需手动操作。',
   'panel.overview.statusLine': '当前提供方:{provider} · {credential}',
@@ -173,6 +197,28 @@ export const en = {
   'card.setAnchorSelect': 'Set a version as anchor…',
   'card.setAnchorOption': 'Version {n}',
   'card.anchored': 'Style anchor',
+  'card.annotateHint': 'Click to zoom in and mark the regions to change',
+  'card.refine': 'Refine this direction',
+  'card.refineMessage':
+    '请按 design/images/{name} 这一版方向精修：同一描述，改用精修档（不要传 fastPreview）。',
+
+  'annotate.title': 'Mark regions to change',
+  'annotate.hint':
+    'Use the rectangle, brush or arrow tool to mark regions (auto-numbered ①②③). Numbers and coordinates are sent with your feedback.',
+  'annotate.toolRect': 'Rectangle',
+  'annotate.toolBrush': 'Brush',
+  'annotate.toolArrow': 'Arrow',
+  'annotate.color': 'Mark color',
+  'annotate.undo': 'Undo',
+  'annotate.clear': 'Clear',
+  'annotate.zoomIn': 'Zoom to 2x',
+  'annotate.zoomOut': 'Back to 1x',
+  'annotate.cancel': 'Cancel',
+  'annotate.imageLoadFailed': 'Failed to load the image; annotation unavailable.',
+
+  'panel.models.draft': 'Direction-draft model (fastPreview)',
+  'panel.history.draftOnly': 'Drafts only',
+  'panel.history.draftTag': 'Direction draft',
 
   'panel.nav': 'UI Mockups',
   'panel.tab.overview': 'Overview',
@@ -194,7 +240,7 @@ export const en = {
     'The agent offers a sketch during requirement talks; you can also just say "sketch this".',
   'panel.overview.step2Title': 'How to give feedback',
   'panel.overview.step2Body':
-    'Click "confirm / use version N / submit feedback" under the image, or type it directly.',
+    'Click a generated image to zoom in and mark regions to change; or click "confirm / use version N / submit feedback" under the image, or type it directly.',
   'panel.overview.step3Title': 'How to lock it in',
   'panel.overview.step3Body':
     'On confirmation the design is distilled into design/spec.md automatically.',

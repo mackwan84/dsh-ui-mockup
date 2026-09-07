@@ -22,6 +22,10 @@ export interface MockupPrefs {
   wireframeModel: string
   /** 高保真默认模型；空串同上。 */
   highFidelityModel: string
+  /** 方向稿模型（fastPreview=true 时使用）；空串回落线框档模型，再空则
+   * 交由 Provider 内置分层默认。独立于线框档：面板档位标签语义不同，
+   * 混用会产生低质方向稿与难以解释的历史。 */
+  draftModel: string
   /** 默认画幅，如 "1280*720"；空串表示按平台默认。 */
   defaultSize: string
 }
@@ -35,6 +39,7 @@ export const DEFAULT_PREFS: MockupPrefs = {
   pollTimeoutMinutes: 10,
   wireframeModel: '',
   highFidelityModel: '',
+  draftModel: '',
   defaultSize: '',
 }
 
@@ -51,6 +56,7 @@ export const PrefsSchema = z
     pollTimeoutMinutes: z.number().min(1).max(60).default(10),
     wireframeModel: z.string().default(''),
     highFidelityModel: z.string().default(''),
+    draftModel: z.string().default(''),
     defaultSize: z.string().default(''),
   })
   .description('UI 草图偏好')
@@ -101,6 +107,8 @@ export interface HistoryEntry {
   platform?: string
   size?: string
   status?: string
+  /** 方向稿标记（0.2.0 起，纯增量字段；旧行缺字段照常解析为 undefined）。 */
+  fastPreview?: boolean
 }
 
 /** 解析一行历史 JSON；损坏行静默丢弃（历史只读展示，坏行不应拖垮整个面板）。 */
@@ -121,6 +129,7 @@ export function parseHistoryLine(line: string): HistoryEntry | null {
       platform: typeof raw.platform === 'string' ? raw.platform : undefined,
       size: typeof raw.size === 'string' && raw.size !== '' ? raw.size : undefined,
       status: typeof raw.status === 'string' ? raw.status : undefined,
+      fastPreview: raw.fastPreview === true ? true : undefined,
     }
   } catch {
     return null

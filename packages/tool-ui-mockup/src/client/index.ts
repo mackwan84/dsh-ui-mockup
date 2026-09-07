@@ -33,7 +33,8 @@ export function apply(ctx: ClientContext): void {
    * set/unset 闭包捕获 connection，直连 RPC 不绕 agent 消息流。
    */
   const anchorFace: ToolviewAnchorFace = {
-    set: (file: string, cwd?: string) => callPanel(connection, 'anchor/set', { file, cwd }),
+    set: (file: string, cwd?: string) =>
+      callPanel<{ anchorFile: string; hint?: string }>(connection, 'anchor/set', { file, cwd }),
   }
 
   ctx.slots.inject('tool.call.toolview', () =>

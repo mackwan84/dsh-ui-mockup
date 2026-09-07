@@ -21,6 +21,7 @@ const DEFAULT_PREFS: PanelPrefs = {
   pollTimeoutMinutes: 10,
   wireframeModel: '',
   highFidelityModel: '',
+  draftModel: '',
   defaultSize: '',
 }
 
