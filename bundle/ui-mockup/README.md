@@ -5,6 +5,15 @@ dsh-ui-mockup 的安装层：一个声明 `dsh.bundle.patch` 的 npm 包，把
 `@mackwan84/dsh-image-volcengine`（火山方舟图像 Provider，预置但 `disabled: true`）与
 `@mackwan84/dsh-tool-ui-mockup`（ui_mockup 工具）挂载进 profile 组合。
 
+## 主要能力
+
+- 线框图、高保真方向稿与按方向精修；
+- 生成图卡片、风格锚点、生成历史与方向稿筛选；
+- 标注弹窗的矩形/画笔/箭头、选择/移动、显式删除与缩放；
+- DashScope / Volcengine 双 Provider、分层模型默认、凭据状态与连接测试。
+
+完整功能、截图和已知限制见[GitHub 项目 README](https://github.com/mackwan84/dsh-ui-mockup#readme)。
+
 ## 提供方切换
 
 `ctx.image` 是单槽位服务，同一时刻只允许一个 Provider 生效。bundle 预置两行 Provider，
