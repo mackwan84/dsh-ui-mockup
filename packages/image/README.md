@@ -4,11 +4,11 @@
 
 - `ImageGenerationService`：抽象服务基类，实现类加载即注册为 `ctx.image`；
 - `ImageGenerateSpec` / `ImageEditSpec` / `ImageGenerateResult`：请求与结果类型；
-- `ImageProviderError`：统一错误（`MISSING_CREDENTIAL` / `RATE_LIMITED` / `TASK_FAILED` / `TIMEOUT` / `NOT_IMPLEMENTED` / `HTTP_ERROR` / `BAD_RESPONSE` / `INVALID_PARAMETER`）。
+- `ImageProviderError`：统一错误（`MISSING_CREDENTIAL` / `RATE_LIMITED` / `TASK_FAILED` / `TIMEOUT` / `NOT_IMPLEMENTED` / `HTTP_ERROR` / `NETWORK_ERROR` / `BAD_RESPONSE` / `INVALID_PARAMETER`）。
 
 ## 语义约定
 
-- 实现只对基础设施失败 reject；业务失败以 `ImageProviderError` 携带错误码；
+- Provider 失败统一以 `ImageProviderError` reject；连接中断等传输失败（undici 统一抛 `TypeError`）使用 `NETWORK_ERROR`，调用方主动取消仍原样上抛，非传输类异常（如编程错误）也原样上抛；
 - 结果 URL 有有效期，Consumer 须立即下载保存；
 - 实现必须尊重 `AbortSignal`（中断请求与轮询）。
 

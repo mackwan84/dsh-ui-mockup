@@ -387,6 +387,73 @@ describe('generate · Wan 2.7', () => {
 })
 
 describe('resilience', () => {
+  it('maps a task-creation connection failure to NETWORK_ERROR', async () => {
+    mockFetch(() => Promise.reject(new TypeError('fetch failed')))
+    await expect(provider().generate(wireframeSpec)).rejects.toMatchObject({
+      code: 'NETWORK_ERROR',
+      message: expect.stringContaining('fetch failed') as unknown,
+    })
+  })
+
+  it('does not disguise a non-transport failure as NETWORK_ERROR', async () => {
+    // undici 的传输失败统一是 TypeError；其它异常（如编程错误）原样上抛，
+    // 否则排障会被错误引向网络方向
+    const bug = new RangeError('invalid header value')
+    mockFetch(() => Promise.reject(bug))
+    await expect(provider().generate(wireframeSpec)).rejects.toBe(bug)
+  })
+
+  it('maps a polling connection failure to NETWORK_ERROR', async () => {
+    mockFetch([
+      () =>
+        new Response(JSON.stringify({ output: { task_id: 't', task_status: 'PENDING' } }), {
+          status: 200,
+        }),
+      () => Promise.reject(new TypeError('socket closed')),
+    ])
+    await expect(provider().generate(wireframeSpec)).rejects.toMatchObject({
+      code: 'NETWORK_ERROR',
+      message: expect.stringContaining('socket closed') as unknown,
+    })
+  })
+
+  it('maps a polling response-body connection reset to NETWORK_ERROR', async () => {
+    let call = 0
+    mockFetch(() => {
+      call += 1
+      if (call === 1) {
+        return new Response(JSON.stringify({ output: { task_id: 't', task_status: 'PENDING' } }), {
+          status: 200,
+        })
+      }
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.error(new TypeError('response body reset'))
+        },
+      })
+      return new Response(body, { status: 200 })
+    })
+    await expect(
+      provider({ pollTimeoutMs: 5, pollIntervalMs: 1 }).generate(wireframeSpec),
+    ).rejects.toMatchObject({
+      code: 'NETWORK_ERROR',
+      message: expect.stringContaining('response body reset') as unknown,
+    })
+  })
+
+  it('maps a 401 task-creation response to MISSING_CREDENTIAL', async () => {
+    mockFetch([
+      () =>
+        new Response(
+          JSON.stringify({ code: 'InvalidApiKey', message: 'Invalid API-key provided.' }),
+          { status: 401 },
+        ),
+    ])
+    await expect(provider().generate(wireframeSpec)).rejects.toMatchObject({
+      code: 'MISSING_CREDENTIAL',
+    })
+  })
+
   it('retries rate-limited task creation with backoff', async () => {
     vi.useFakeTimers()
     const calls = mockFetch([
@@ -504,7 +571,7 @@ describe('resilience', () => {
     await expectation
   })
 
-  it('fails fast on a poll response carrying an error code instead of idling to timeout', async () => {
+  it('maps a 401 polling response to MISSING_CREDENTIAL instead of idling to timeout', async () => {
     const calls = mockFetch([
       () =>
         new Response(JSON.stringify({ output: { task_id: 't', task_status: 'PENDING' } }), {
@@ -518,7 +585,7 @@ describe('resilience', () => {
     ])
     await expect(
       provider({ pollTimeoutMs: 600_000 }).generate(wireframeSpec),
-    ).rejects.toMatchObject({ code: 'TASK_FAILED' })
+    ).rejects.toMatchObject({ code: 'MISSING_CREDENTIAL' })
     expect(calls).toHaveLength(2)
   })
 

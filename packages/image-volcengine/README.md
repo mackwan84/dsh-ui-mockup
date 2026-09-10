@@ -42,7 +42,9 @@
 
 本包无模型可见内容；错误以 `ImageProviderError.code` 区分可重试、限流、凭据与参数问题：
 401/`AuthenticationError` → `MISSING_CREDENTIAL`，429 → `RATE_LIMITED`（退避重试），
-400/`InvalidParameter` → `INVALID_PARAMETER`，其余非 2xx → `HTTP_ERROR`。
+400/`InvalidParameter` → `INVALID_PARAMETER`，其余非 2xx → `HTTP_ERROR`，连接中断等 fetch
+传输失败（undici 统一抛 `TypeError`）→ `NETWORK_ERROR`。调用方主动取消保持原始取消错误；同步窗口耗尽仍为 `TIMEOUT`；
+非传输类异常（如编程错误）原样上抛，不冒充 `NETWORK_ERROR`。
 
 ## Known Limitations
 

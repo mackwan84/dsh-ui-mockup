@@ -25,6 +25,8 @@
 ## Model Experience
 
 本包无模型可见内容；错误以 `ImageProviderError.code` 区分可重试、限流、凭据与参数问题。
+创建或轮询阶段的 401/`InvalidApiKey` → `MISSING_CREDENTIAL`；连接中断等 fetch 传输失败（undici 统一抛 `TypeError`）→
+`NETWORK_ERROR`；调用方主动取消保持原始取消错误，不误报为网络失败；非传输类异常（如编程错误）也原样上抛。
 
 ## Wan 2.7 尺寸
 

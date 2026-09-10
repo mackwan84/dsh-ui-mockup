@@ -71,6 +71,7 @@ export type ImageProviderErrorCode =
   | 'TIMEOUT'
   | 'NOT_IMPLEMENTED'
   | 'HTTP_ERROR'
+  | 'NETWORK_ERROR'
   | 'BAD_RESPONSE'
 
 /** 图像服务统一错误：携带机器可读错误码与面向用户的消息。 */
