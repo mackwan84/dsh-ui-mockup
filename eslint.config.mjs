@@ -9,11 +9,11 @@ import tseslint from 'typescript-eslint'
  *   workspace 包映射到 src），与 `pnpm typecheck` 保持同一解析视图，
  *   避免包内 tsconfig 经 node_modules → lib/ 解析造成的依赖构建产物问题；
  * - 代码格式一律交给 Prettier，eslint-config-prettier 关闭与之冲突的规则；
- * - 只校验本仓库维护的源码，构建产物在 ignores 中排除。
+ * - 只校验本仓库维护的源码，构建产物与浏览器验收临时制品在 ignores 中排除。
  */
 export default tseslint.config(
   {
-    ignores: ['dist/', 'coverage/', '**/lib/'],
+    ignores: ['dist/', 'coverage/', '**/lib/', '.artifacts/'],
   },
   eslint.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,

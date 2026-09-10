@@ -449,7 +449,10 @@ export default class VolcengineImageProvider extends ImageGenerationService {
           `生成请求超过 ${this.config.requestTimeoutMs}ms 未完成: 方舟同步 API 无轮询, 可减少张数重试或调大 requestTimeoutMs`,
         )
       }
-      throw error
+      // undici 的连接/读写失败统一抛 TypeError（fetch failed、terminated 等）；
+      // 其它异常（如非法 header 值这类编程错误）原样上抛，不冒充网络问题
+      if (!(error instanceof TypeError)) throw error
+      throw new ImageProviderError('NETWORK_ERROR', `连接方舟图像网关失败: ${error.message}`)
     }
     let data: JsonObject
     try {

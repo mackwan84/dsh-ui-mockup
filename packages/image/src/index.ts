@@ -12,7 +12,7 @@ declare module '@deepseek-ai/cordis' {
  * 实现类加载为插件即注册为 `ctx.image`（一个实现 per context，重复加载是配置错误）。
  *
  * 语义约定：
- * - `generate` 仅因基础设施失败 reject；参数/凭据/限流/任务失败以 {@link ImageProviderError} 携带错误码。
+ * - Provider 失败以 {@link ImageProviderError} 携带机器可读错误码；调用方主动取消保持原始取消错误。
  * - 返回的图片 URL 有有效期，Consumer 须立即下载保存。
  * - 实现必须尊重传入的 `signal` 取消（中断进行中的请求与轮询）。
  */

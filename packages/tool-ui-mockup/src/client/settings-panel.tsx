@@ -43,6 +43,8 @@ export interface PanelPrefs {
   pollTimeoutMinutes: number
   wireframeModel: string
   highFidelityModel: string
+  /** 方向稿模型（fastPreview）；面板本地默认须与宿主 DEFAULT_PREFS 同步。 */
+  draftModel: string
   defaultSize: string
 }
 
@@ -55,6 +57,7 @@ const PANEL_DEFAULTS: PanelPrefs = {
   pollTimeoutMinutes: 10,
   wireframeModel: '',
   highFidelityModel: '',
+  draftModel: '',
   defaultSize: '',
 }
 
@@ -367,11 +370,23 @@ function OverviewPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
       </p>
       <Card title={t('panel.overview.quickTitle')}>
         {QUICK_STEPS.map(({ Icon, title, body }) => (
-          <div key={title} className="ui-mockup-quick-step" style={{ display: 'flex', gap: 8 }}>
+          <div
+            key={title}
+            className="ui-mockup-quick-step"
+            style={{ display: 'flex', alignItems: 'flex-start', flexWrap: 'nowrap', gap: 8 }}
+          >
             <span aria-hidden style={{ flex: 'none', color: tokens.labelSecondary, marginTop: 2 }}>
               <Icon size={16} />
             </span>
-            <p style={{ margin: 0, lineHeight: '20px' }}>
+            <p
+              style={{
+                flex: '1 1 0%',
+                minWidth: 0,
+                margin: 0,
+                lineHeight: '20px',
+                overflowWrap: 'anywhere',
+              }}
+            >
               <strong style={{ fontSize: 13 }}>{t(title)}</strong>
               <br />
               <span style={{ fontSize: 13, color: tokens.labelSecondary }}>{t(body)}</span>
@@ -437,6 +452,12 @@ const HIGH_FIDELITY_MODEL_HINTS: Record<ProviderId, string[]> = {
   dashscope: ['', 'qwen-image-3.0-pro', 'qwen-image-2.0-pro', 'wan2.7-image-pro'],
   volcengine: ['', 'doubao-seedream-5-0-pro-260628', 'doubao-seedream-5-0-260128'],
   unknown: ['', 'qwen-image-3.0-pro'],
+}
+/** 方向稿（fastPreview）候选：定位是快速档，只列各家快模型。 */
+const DRAFT_MODEL_HINTS: Record<ProviderId, string[]> = {
+  dashscope: ['', 'qwen-image-3.0', 'wan2.7-image'],
+  volcengine: ['', 'doubao-seedream-4-5-251128'],
+  unknown: ['', 'qwen-image-3.0'],
 }
 
 /** 生效提供方 id（宿主 provider/status 端点返回；unknown = 未挂载 image 服务）。 */
@@ -523,11 +544,14 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
         const current = prefs.getSnapshot().value
         if (
           current !== undefined &&
-          (current.wireframeModel !== '' || current.highFidelityModel !== '')
+          (current.wireframeModel !== '' ||
+            current.highFidelityModel !== '' ||
+            current.draftModel !== '')
         ) {
           try {
             await prefs.set('wireframeModel', '')
             await prefs.set('highFidelityModel', '')
+            await prefs.set('draftModel', '')
             notices.push(t('panel.provider.modelsReset'))
           } catch {
             // 偏好不可写：切换本身已成功，重置跳过
@@ -895,8 +919,26 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
             ))}
           </select>
         </FieldRow>
+        <FieldRow label={t('panel.models.draft')}>
+          <select
+            aria-label={t('panel.models.draft')}
+            className="ui-mockup-model-select"
+            value={snap.value?.draftModel ?? ''}
+            onChange={(event) =>
+              void writePref(prefs, 'draftModel', event.target.value.trim(), setWriteError)
+            }
+            style={{ ...selectStyle, width: 'min(260px, 100%)' }}
+          >
+            <option value="">{t('panel.models.followDefault')}</option>
+            {DRAFT_MODEL_HINTS[providerId].filter(Boolean).map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
+        </FieldRow>
         <Notice>
-          {`${t('panel.models.wireframe')}: ${WIREFRAME_MODEL_HINTS[providerId].filter(Boolean).join(', ')} · ${t('panel.models.highFidelity')}: ${HIGH_FIDELITY_MODEL_HINTS[providerId].filter(Boolean).join(', ')}`}
+          {`${t('panel.models.wireframe')}: ${WIREFRAME_MODEL_HINTS[providerId].filter(Boolean).join(', ')} · ${t('panel.models.highFidelity')}: ${HIGH_FIDELITY_MODEL_HINTS[providerId].filter(Boolean).join(', ')} · ${t('panel.models.draft')}: ${DRAFT_MODEL_HINTS[providerId].filter(Boolean).join(', ')}`}
         </Notice>
       </Card>
     </div>
@@ -1174,6 +1216,8 @@ interface HistoryRow extends Record<string, unknown> {
   platform?: string
   size?: string
   anchored: boolean
+  /** 方向稿标记（0.2.0 起，旧行缺字段为 undefined）。 */
+  fastPreview?: boolean
 }
 
 function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
@@ -1188,6 +1232,8 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
   const [page, setPage] = useState(1)
   const [queryDraft, setQueryDraft] = useState('')
   const [appliedQuery, setAppliedQuery] = useState('')
+  // 「只看方向稿」过滤位：纯增量参数，宿主端服务端过滤后再分页
+  const [draftOnly, setDraftOnly] = useState(false)
   const [error, setError] = useState('')
   const [confirmingClear, setConfirmingClear] = useState(false)
   // 并发防护：连续翻页/搜索时多个 history/list 在飞，单调序号丢弃过期响应，
@@ -1197,7 +1243,7 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
   // 服务端分页：宿主按 page/pageSize 切片返回当前页 + total + 锚点索引；
   // 页码越界由宿主钳制后回传 data.page，客户端直接采用，无需本地 clamp。
   const reload = useCallback(
-    async (needle: string, targetPage: number) => {
+    async (needle: string, targetPage: number, onlyDraft: boolean) => {
       const seq = ++requestSeq.current
       setError('')
       try {
@@ -1213,6 +1259,7 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
           query: needle,
           page: targetPage,
           pageSize: HISTORY_PAGE_SIZE,
+          ...(onlyDraft ? { draftOnly: true } : {}),
         })
         if (seq !== requestSeq.current) return
         setRows(data.entries)
@@ -1229,13 +1276,22 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
   )
 
   useEffect(() => {
-    void reload('', 1)
-    // 列表仅在 cwd/连接变化(reload 标识)时自动重载；搜索/翻页由交互显式触发。
+    // 工作区/连接变化后拉的是全量未过滤列表，过滤位必须一并复位：
+    // 否则「只看方向稿」仍显示为勾选，但列表已是全量数据，
+    // 后续翻页又会重新带上 draftOnly，造成 total/page 与内容错位。
+    setDraftOnly(false)
+    void reload('', 1, false)
+    // 列表仅在 cwd/连接变化(reload 标识)时自动重载；搜索/翻页/过滤由交互显式触发。
   }, [reload])
 
   const submitSearch = () => {
     setAppliedQuery(queryDraft)
-    void reload(queryDraft, 1)
+    void reload(queryDraft, 1, draftOnly)
+  }
+
+  const toggleDraftOnly = (next: boolean) => {
+    setDraftOnly(next)
+    void reload(appliedQuery, 1, next)
   }
 
   const totalPages = Math.max(1, Math.ceil(total / HISTORY_PAGE_SIZE))
@@ -1244,7 +1300,7 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
   const act = async (endpoint: string, payload: Record<string, unknown>, stayPage = page) => {
     try {
       await callPanel(connection, endpoint, payload)
-      await reload(appliedQuery, stayPage)
+      await reload(appliedQuery, stayPage, draftOnly)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
@@ -1278,6 +1334,23 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
         <Button variant="outline" size="sm" onClick={submitSearch}>
           {t('panel.history.search')}
         </Button>
+        <label
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            fontSize: 12,
+            color: tokens.labelSecondary,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={draftOnly}
+            onChange={(event) => toggleDraftOnly(event.target.checked)}
+          />
+          {t('panel.history.draftOnly')}
+        </label>
         {/* 两段确认拆为确认/取消双按钮：同按钮 onBlur 重置会让键盘用户
             Tab 离开时意外丢失确认态，双按钮语义明确且无障碍友好 */}
         {confirmingClear ? (
@@ -1398,6 +1471,20 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
               <div style={{ fontSize: 12, lineHeight: '17px', color: tokens.labelTertiary }}>
                 {formatTime(row.time)} · {row.model ?? '—'} · {row.size ?? '—'} ·{' '}
                 {t('panel.history.fileCount', { n: row.files.length })}
+                {row.fastPreview === true && (
+                  <span
+                    style={{
+                      marginLeft: 6,
+                      padding: '0 6px',
+                      borderRadius: 999,
+                      fontSize: 11,
+                      background: 'var(--dsw-alias-bg-module-platform)',
+                      color: tokens.labelSecondary,
+                    }}
+                  >
+                    {t('panel.history.draftTag')}
+                  </span>
+                )}
               </div>
             </div>
             <div
@@ -1434,7 +1521,11 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
           }}
         >
           <span>🚩 {t('panel.history.anchorOnPage', { n: anchorPage })}</span>
-          <Button variant="ghost" size="sm" onClick={() => void reload(appliedQuery, anchorPage)}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => void reload(appliedQuery, anchorPage, draftOnly)}
+          >
             {t('panel.history.goToAnchor')}
           </Button>
         </div>
@@ -1462,7 +1553,7 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
               variant="ghost"
               size="sm"
               disabled={page <= 1}
-              onClick={() => void reload(appliedQuery, page - 1)}
+              onClick={() => void reload(appliedQuery, page - 1, draftOnly)}
             >
               {t('panel.history.prev')}
             </Button>
@@ -1472,7 +1563,7 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
                 variant={p === page ? 'primary' : 'ghost'}
                 size="sm"
                 className="ui-mockup-history-page-number"
-                onClick={() => void reload(appliedQuery, p)}
+                onClick={() => void reload(appliedQuery, p, draftOnly)}
               >
                 {p}
               </Button>
@@ -1481,7 +1572,7 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
               variant="ghost"
               size="sm"
               disabled={page >= totalPages}
-              onClick={() => void reload(appliedQuery, page + 1)}
+              onClick={() => void reload(appliedQuery, page + 1, draftOnly)}
             >
               {t('panel.history.next')}
             </Button>

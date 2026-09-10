@@ -218,3 +218,54 @@ describe('UiMockupToolview 反馈与告警', () => {
     expect(screen.getByText(/其中 1 张超过会话附件大小上限/)).toBeDefined()
   })
 })
+
+describe('UiMockupToolview 方向稿精修按钮', () => {
+  function blockWithArgs(argsRaw: string | null) {
+    return {
+      ...settledBlock(['mockup-1.png']),
+      call: argsRaw === null ? null : { name: 'ui_mockup', argsRaw },
+    }
+  }
+
+  it('argsRaw 携带 fastPreview 时显示按钮并发送固定中文精修消息', () => {
+    const setDraft = vi.fn()
+    const submit = vi.fn()
+    render(
+      <UiMockupToolview
+        {...propsOf(
+          blockWithArgs(
+            JSON.stringify({ description: 'x', fidelity: 'high-fidelity', fastPreview: true }),
+          ),
+        )}
+        inputActions={{
+          setDraft,
+          submit,
+          addImages: () => true,
+          removeImage: () => {},
+          pruneImages: () => {},
+        }}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '按这版精修' }))
+    expect(setDraft).toHaveBeenLastCalledWith(
+      '请按 design/images/mockup-1.png 这一版方向精修：同一描述，改用精修档（不要传 fastPreview）。',
+    )
+    expect(submit).toHaveBeenCalledTimes(1)
+  })
+
+  it('非方向稿、窗口截断（call 为 null）与损坏的 argsRaw 都不显示按钮', () => {
+    const cases = [
+      JSON.stringify({ description: 'x' }),
+      JSON.stringify({ fastPreview: false }),
+      JSON.stringify({ fidelity: 'wireframe', fastPreview: true }),
+      null,
+      '{坏掉的 JSON',
+    ]
+    for (const argsRaw of cases) {
+      const { unmount } = render(<UiMockupToolview {...propsOf(blockWithArgs(argsRaw))} />)
+      expect(screen.queryByRole('button', { name: '按这版精修' })).toBeNull()
+      unmount()
+    }
+  })
+})

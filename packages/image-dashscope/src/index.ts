@@ -99,6 +99,28 @@ function isRateLimitCode(code: unknown): code is string {
   return typeof code === 'string' && (code.includes('Throttling') || code.includes('RateQuota'))
 }
 
+/** 百炼鉴权失败在创建与轮询端点的包裹不同，按状态码和稳定错误码统一归因。 */
+function isAuthenticationFailure(status: number, code: unknown): boolean {
+  return status === 401 || code === 'InvalidApiKey'
+}
+
+/**
+ * undici 的连接/读写失败统一抛 TypeError（fetch failed、terminated 等）。
+ * 据此区分真正的传输问题与其它异常（如非法 header 值这类编程错误），
+ * 后者不应冒充成 NETWORK_ERROR 把排障方向带向网络。
+ */
+function isTransportFailure(error: unknown): boolean {
+  return error instanceof TypeError
+}
+
+/** 将 fetch 传输异常纳入 Provider 统一错误契约，同时保留底层原因用于排障。 */
+function networkError(operation: string, error: unknown): ImageProviderError {
+  return new ImageProviderError(
+    'NETWORK_ERROR',
+    `${operation}: ${error instanceof Error ? error.message : String(error)}`,
+  )
+}
+
 type DashscopeModelFamily = 'qwen' | 'wan27'
 
 /** 只接受当前已适配的模型族，避免把未知模型猜测性地发往旧端点。 */
@@ -270,6 +292,12 @@ export default class DashscopeImageProvider extends ImageGenerationService {
         }
         throw new ImageProviderError('RATE_LIMITED', textOf(last.data.message ?? code))
       }
+      if (isAuthenticationFailure(last.status, code)) {
+        throw new ImageProviderError(
+          'MISSING_CREDENTIAL',
+          `HTTP ${last.status}: ${textOf(last.data.message ?? code ?? '鉴权失败')}`,
+        )
+      }
       break
     }
     if (last.status !== 200) {
@@ -305,13 +333,39 @@ export default class DashscopeImageProvider extends ImageGenerationService {
         : this.config.pollTimeoutMs
     const deadline = Date.now() + timeoutMs
     for (;;) {
-      const res = await fetch(`${this.config.baseUrl}/api/v1/tasks/${taskId}`, {
-        headers: { Authorization: `Bearer ${apiKey}` },
-        redirect: 'error',
-        signal,
-      })
-      const data = (await res.json().catch(() => ({}))) as JsonObject
+      let res: Response
+      try {
+        res = await fetch(`${this.config.baseUrl}/api/v1/tasks/${taskId}`, {
+          headers: { Authorization: `Bearer ${apiKey}` },
+          redirect: 'error',
+          signal,
+        })
+      } catch (error) {
+        if (signal?.aborted) throw error
+        if (!isTransportFailure(error)) throw error
+        throw networkError(`轮询任务 ${taskId} 时连接百炼网关失败`, error)
+      }
+      let raw: string
+      try {
+        raw = await res.text()
+      } catch (error) {
+        if (signal?.aborted) throw error
+        if (!isTransportFailure(error)) throw error
+        throw networkError(`读取百炼任务 ${taskId} 响应时连接中断`, error)
+      }
+      let data: JsonObject
+      try {
+        data = JSON.parse(raw) as JsonObject
+      } catch {
+        data = {}
+      }
       const code = typeof data.code === 'string' && data.code !== '' ? data.code : undefined
+      if (isAuthenticationFailure(res.status, code)) {
+        throw new ImageProviderError(
+          'MISSING_CREDENTIAL',
+          `轮询任务 ${taskId} 鉴权失败: HTTP ${res.status}${code !== undefined ? ` (${code})` : ''}: ${textOf(data.message ?? code ?? '鉴权失败')}`,
+        )
+      }
       // 携带错误码的响应（鉴权失效/任务不存在/参数非法等）是确定性失败：
       // 立即终止，而不是空转轮询到超时把真实根因掩盖成 TIMEOUT。
       if (code !== undefined) {
@@ -347,18 +401,26 @@ export default class DashscopeImageProvider extends ImageGenerationService {
     apiKey: string,
     signal?: AbortSignal,
   ): Promise<{ status: number; data: JsonObject }> {
-    const res = await fetch(this.config.baseUrl + path, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-        'X-DashScope-Async': 'enable',
-      },
-      body: JSON.stringify(body),
-      redirect: 'error',
-      signal,
-    })
-    const text = await res.text()
+    let res: Response
+    let text: string
+    try {
+      res = await fetch(this.config.baseUrl + path, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+          'X-DashScope-Async': 'enable',
+        },
+        body: JSON.stringify(body),
+        redirect: 'error',
+        signal,
+      })
+      text = await res.text()
+    } catch (error) {
+      if (signal?.aborted) throw error
+      if (!isTransportFailure(error)) throw error
+      throw networkError('创建百炼图像任务时连接网关失败', error)
+    }
     let data: JsonObject
     try {
       data = JSON.parse(text) as JsonObject

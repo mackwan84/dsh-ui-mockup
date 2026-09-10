@@ -363,6 +363,14 @@ describe('ui-mockup real dynamic composition', () => {
       expect(
         booted.systemPrompt.sections.find((section) => section.name === 'ui-mockup-usage')?.text,
       ).toContain('整图指令重绘')
+      // 方向稿→精修是 M6 的主路径：使用规则必须告知 Agent 何时传 fastPreview
+      // 及确认后如何去掉它跑精修档，否则能力只存在于 schema 字段描述里
+      const usage =
+        booted.systemPrompt.sections.find((section) => section.name === 'ui-mockup-usage')?.text ??
+        ''
+      expect(usage).toContain('fastPreview=true')
+      expect(usage).toContain('去掉 fastPreview')
+      expect(usage).toContain("fidelity='wireframe' 时不要传 fastPreview")
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
@@ -413,6 +421,134 @@ describe('ui-mockup real dynamic composition', () => {
       expect(value.ok, String(value.message)).toBe(true)
       expect(String(value.message)).toContain('qwen-image-2.0')
       expect(String(value.message)).not.toContain('已用模型 qwen-image-3.0')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('fastPreview 高保真走方向稿模型，历史记 fastPreview，方向稿设锚给出提示', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+    try {
+      const booted = await bootComposition(dir)
+      // 模拟用户在面板配置方向稿模型（解析顺序：显式 model → draftModel → 回落）
+      booted.settings.resolved.draftModel = 'qwen-image-3.0'
+      booted.settings.resolved.highFidelityModel = 'qwen-image-3.0-pro'
+      const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00])
+      vi.stubGlobal('fetch', async (url: string) => {
+        if (url.includes('image-generation/generation')) {
+          return new Response(
+            JSON.stringify({ output: { task_id: 'task-draft', task_status: 'PENDING' } }),
+            { status: 200 },
+          )
+        }
+        if (url.includes('/api/v1/tasks/task-draft')) {
+          return new Response(
+            JSON.stringify({
+              output: {
+                task_id: 'task-draft',
+                task_status: 'SUCCEEDED',
+                choices: [{ message: { content: [{ image: 'https://oss.example/draft.png' }] } }],
+              },
+            }),
+            { status: 200 },
+          )
+        }
+        if (url.includes('oss.example')) {
+          return new Response(png, { status: 200, headers: { 'content-type': 'image/png' } })
+        }
+        throw new Error(`unexpected fetch: ${url}`)
+      })
+
+      const definition = booted.tools.registered.find((item) => item.name === 'ui_mockup')!
+      const execute = definition.execute as (
+        args: Record<string, unknown>,
+        exec: { signal: AbortSignal; agent?: { session: { header: { cwd?: string } } } },
+      ) => Promise<Record<string, unknown>>
+      const value = await execute(
+        {
+          description: '书店主页方向稿',
+          fidelity: 'high-fidelity',
+          platform: 'web',
+          fastPreview: true,
+        },
+        { signal: new AbortController().signal, agent: { session: { header: { cwd: dir } } } },
+      )
+
+      expect(value.ok, String(value.message)).toBe(true)
+      // 方向稿模型优先于高保真档；文案点明方向稿身份与后续精修路径
+      expect(String(value.message)).toContain('qwen-image-3.0')
+      expect(String(value.message)).toContain('方向稿')
+      expect(String(value.message)).toContain('精修')
+      expect(String(value.message)).not.toContain('qwen-image-3.0-pro')
+      const history = await readFile(join(storeDirFor(dir), 'history.jsonl'), 'utf8')
+      expect(history).toContain('"fastPreview":true')
+
+      // 方向稿设为风格锚点：提示而不禁止
+      const images = value.images as Array<{ path: string }>
+      const fileName = basename(images[0]!.path)
+      const anchored = await booted.connection.call('/ui-mockup', 'anchor/set', {
+        file: fileName,
+        cwd: dir,
+      })
+      expect(anchored.ok).toBe(true)
+      const anchorValue = (anchored as { ok: true; value: { anchorFile: string; hint?: string } })
+        .value
+      expect(anchorValue.anchorFile).toBe(fileName)
+      expect(anchorValue.hint).toContain('方向稿')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('fastPreview 与线框档组合时忽略并说明，不改变线框档模型解析', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+    try {
+      const booted = await bootComposition(dir)
+      const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00])
+      vi.stubGlobal('fetch', async (url: string) => {
+        if (url.includes('image-generation/generation')) {
+          return new Response(
+            JSON.stringify({ output: { task_id: 'task-wire', task_status: 'PENDING' } }),
+            { status: 200 },
+          )
+        }
+        if (url.includes('/api/v1/tasks/task-wire')) {
+          return new Response(
+            JSON.stringify({
+              output: {
+                task_id: 'task-wire',
+                task_status: 'SUCCEEDED',
+                choices: [{ message: { content: [{ image: 'https://oss.example/wire.png' }] } }],
+              },
+            }),
+            { status: 200 },
+          )
+        }
+        if (url.includes('oss.example')) {
+          return new Response(png, { status: 200, headers: { 'content-type': 'image/png' } })
+        }
+        throw new Error(`unexpected fetch: ${url}`)
+      })
+
+      const definition = booted.tools.registered.find((item) => item.name === 'ui_mockup')!
+      const execute = definition.execute as (
+        args: Record<string, unknown>,
+        exec: { signal: AbortSignal; agent?: { session: { header: { cwd?: string } } } },
+      ) => Promise<Record<string, unknown>>
+      const value = await execute(
+        {
+          description: '线框图带 fastPreview',
+          fidelity: 'wireframe',
+          platform: 'web',
+          fastPreview: true,
+        },
+        { signal: new AbortController().signal, agent: { session: { header: { cwd: dir } } } },
+      )
+
+      expect(value.ok, String(value.message)).toBe(true)
+      expect(String(value.message)).toContain('已忽略 fastPreview')
+      const history = await readFile(join(storeDirFor(dir), 'history.jsonl'), 'utf8')
+      expect(history).not.toContain('"fastPreview":true')
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
@@ -494,6 +630,60 @@ describe('ui-mockup real dynamic composition', () => {
       expect(history).toContain('"status":"generated"')
       // 工作区不再出现运行时产物目录
       await expect(readdir(join(dir, 'design'))).rejects.toThrow()
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('keeps generated images and warns the user when history persistence fails', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+    try {
+      const booted = await bootComposition(dir)
+      const store = storeDirFor(dir)
+      await mkdir(join(store, 'history.jsonl'), { recursive: true })
+      const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00])
+      vi.stubGlobal('fetch', async (url: string) => {
+        if (url.includes('image-generation/generation')) {
+          return new Response(JSON.stringify({ output: { task_id: 'task-history-failure' } }), {
+            status: 200,
+          })
+        }
+        if (url.includes('/api/v1/tasks/task-history-failure')) {
+          return new Response(
+            JSON.stringify({
+              output: {
+                task_status: 'SUCCEEDED',
+                choices: [{ message: { content: [{ image: 'https://oss.example/result.png' }] } }],
+              },
+            }),
+            { status: 200 },
+          )
+        }
+        if (url.includes('oss.example')) {
+          return new Response(pngBytes, {
+            status: 200,
+            headers: { 'content-type': 'image/png' },
+          })
+        }
+        throw new Error(`unexpected fetch: ${url}`)
+      })
+
+      const definition = booted.tools.registered.find((item) => item.name === 'ui_mockup')!
+      const execute = definition.execute as (
+        args: Record<string, unknown>,
+        exec: { signal: AbortSignal; agent?: { session: { header: { cwd?: string } } } },
+      ) => Promise<Record<string, unknown>>
+      const value = await execute(
+        { description: '历史写入降级提示', fidelity: 'wireframe', platform: 'web' },
+        { signal: new AbortController().signal, agent: { session: { header: { cwd: dir } } } },
+      )
+
+      expect(value.ok).toBe(true)
+      expect(value.images).toHaveLength(1)
+      expect(String(value.message)).toContain(' 注意: ')
+      expect(String(value.message)).toContain('历史记录写入失败')
+      expect(String(value.message)).toContain('图片仍可使用')
+      expect(await readdir(join(store, 'images'))).toHaveLength(1)
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
@@ -1401,6 +1591,36 @@ describe('ui-mockup real dynamic composition', () => {
       expect(String(value.message)).toContain('INVALID_PARAMETER')
       expect(String(value.message)).toContain(reference)
       expect(String(value.message)).not.toContain(resolve(storeDirFor(dir), '..'))
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('编造的标注图 baseImage 返回可操作错误而不是普通的文件不存在', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+    try {
+      const booted = await bootComposition(dir, { provider: 'volcengine' })
+      const definition = booted.tools.registered.find((item) => item.name === 'ui_mockup')!
+      const execute = definition.execute as (
+        args: Record<string, unknown>,
+        exec: { signal: AbortSignal; agent?: { session: { header: { cwd?: string } } } },
+      ) => Promise<Record<string, unknown>>
+      const fabricated = 'design/images/mockup-base.annotated.png'
+      const value = await execute(
+        {
+          description: '按标注改',
+          fidelity: 'high-fidelity',
+          baseImage: fabricated,
+          editNote: '把①区域改成下拉框',
+        },
+        { signal: new AbortController().signal, agent: { session: { header: { cwd: dir } } } },
+      )
+
+      expect(value.ok).toBe(false)
+      // 可操作错误指明原图语义路径的传法，并仍只回显语义路径不泄露资产库目录
+      expect(String(value.message)).toContain('标注图不在资产库')
+      expect(String(value.message)).toContain('design/images/<原图名>')
+      expect(String(value.message)).not.toContain(storeDirFor(dir))
     } finally {
       await rm(dir, { recursive: true, force: true })
     }

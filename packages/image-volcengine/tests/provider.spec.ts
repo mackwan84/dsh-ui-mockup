@@ -399,6 +399,22 @@ describe('resilience', () => {
     controller.abort()
     await expect(promise).rejects.toMatchObject({ name: 'AbortError' })
   })
+
+  it('maps a connection reset to NETWORK_ERROR instead of leaking a bare fetch failure', async () => {
+    mockFetch(() => Promise.reject(new TypeError('fetch failed')))
+    await expect(provider().generate(wireframeSpec)).rejects.toMatchObject({
+      code: 'NETWORK_ERROR',
+      message: expect.stringContaining('fetch failed') as unknown,
+    })
+  })
+
+  it('does not disguise a non-transport failure as NETWORK_ERROR', async () => {
+    // undici 的传输失败统一是 TypeError；其它异常（如编程错误）原样上抛，
+    // 否则排障会被错误引向网络方向
+    const bug = new RangeError('invalid header value')
+    mockFetch(() => Promise.reject(bug))
+    await expect(provider().generate(wireframeSpec)).rejects.toBe(bug)
+  })
 })
 
 describe('edit', () => {

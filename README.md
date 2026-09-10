@@ -13,6 +13,11 @@
 ## 功能特性
 
 - **内嵌展示**：生成图直接以卡片形式显示在对话中（带确认 / 选用 / 修改意见按钮），无需访问文件目录；
+- **标注式精准反馈（0.2.0）**：点生成图进入标注弹窗；默认“选择/移动”可拖动画布、选择已有标记，
+  选中后可点删除按钮或在画布聚焦时用 Delete / Backspace 删除；切换矩形 / 画笔 / 箭头后圈选区域，说明栏会按当前工具给出操作提示；支持可撤销删除/清空、自动编号
+  ①②③，以及适合窗口、50%、100%、150%、200%缩放；编号归一化坐标与意见一并反馈；
+- **方向稿与精修（0.2.0）**：高保真先用 `fastPreview` + 「方向稿模型」档快速出方向稿，
+  确认方向后点「按这版精修」跑精修档，避免 pro 档 1~5 分钟的等待打水漂；
 - **设计资产库**：生成图 / 锚点 / 历史集中存于 `$DSH_HOME/mockups/<工作区>/`（slug 与 DSH sessions 同款），
   项目工作区不再落运行时产物；`design/spec.md` 等交付物仍留在项目内；
 - **模型分层**：按保真度分层，默认随生效提供方（百炼：线框 `qwen-image-3.0` / 高保真
@@ -41,7 +46,7 @@
 ## 安装
 
 ```sh
-dsh plugin --profile web add @mackwan84/dsh-ui-mockup-bundle@0.1.3
+dsh plugin --profile web add @mackwan84/dsh-ui-mockup-bundle@0.2.0
 ```
 
 安装完成后重启 DSH。开发本仓库时可改用本地路径：
@@ -102,8 +107,8 @@ patch（`~/.dsh/cordis.patch.yml`，只增改这两行、不触碰其他内容�
 - [docs/README.md](docs/README.md) — 完整文档导航与维护约定
 - [docs/guides/product-guide.md](docs/guides/product-guide.md) — 产品使用指南与 FAQ
 - [docs/architecture/overview.md](docs/architecture/overview.md) — 当前架构、能力边界与关键实现事实
-- [docs/testing/v0.1.3/browser-cases.md](docs/testing/v0.1.3/browser-cases.md) — 0.1.3 可复用浏览器回归用例
-- [docs/releases/v0.1.3.md](docs/releases/v0.1.3.md) — 发布门禁、最终验收结论与已知限制
+- [docs/testing/v0.2.0/browser-cases.md](docs/testing/v0.2.0/browser-cases.md) — 0.2.0 可复用浏览器回归用例
+- [docs/releases/v0.2.0.md](docs/releases/v0.2.0.md) — 发布门禁、最终验收结论与已知限制
 
 常用命令：
 
