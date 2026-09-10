@@ -31,9 +31,9 @@ export const zh = {
 
   // 标注弹窗
   'annotate.title': '标注修改区域',
-  'annotate.hint':
-    '用抓手拖动画布并单击已有标记进行选择；按 Delete 删除选中标记。切换矩形、画笔或箭头后开始标注（自动编号 ①②③）。',
-  'annotate.toolPan': '抓手',
+  'annotate.hintPan': '拖动画布可移动图片；单击已有标记可选择。',
+  'annotate.hintDraw': '当前为{tool}工具。要选择或删除标记，请切换到「选择/移动」。',
+  'annotate.toolPan': '选择/移动',
   'annotate.toolRect': '矩形',
   'annotate.toolBrush': '画笔',
   'annotate.toolArrow': '箭头',
@@ -42,8 +42,11 @@ export const zh = {
   'annotate.clear': '清空',
   'annotate.zoomLabel': '缩放比例',
   'annotate.zoomFit': '适合窗口',
-  'annotate.canvasLabel': '标注画布：抓手拖动，单击已有标记选择，按 Delete 删除',
-  'annotate.selectedMark': '已选中标记 {n}，按 Delete 删除。',
+  'annotate.canvasLabel': '标注画布：选择/移动工具可拖动图片、单击已有标记进行选择，按 Delete 删除',
+  'annotate.selectedMark': '已选中标记 {n}',
+  'annotate.deleteSelected': '删除',
+  'annotate.deleteSelectedLabel': '删除选中标记 {n}',
+  'annotate.deleteShortcut': 'Delete',
   'annotate.cancel': '取消',
   'annotate.imageLoadFailed': '图片加载失败，无法标注。',
 
@@ -206,9 +209,9 @@ export const en = {
     '请按 design/images/{name} 这一版方向精修：同一描述，改用精修档（不要传 fastPreview）。',
 
   'annotate.title': 'Mark regions to change',
-  'annotate.hint':
-    'Use Hand to pan and click an existing mark to select it; press Delete to remove it. Switch to Rectangle, Brush, or Arrow to annotate (auto-numbered ①②③).',
-  'annotate.toolPan': 'Hand',
+  'annotate.hintPan': 'Drag to move the image; click an existing mark to select it.',
+  'annotate.hintDraw': 'Current tool: {tool}. To select or delete a mark, switch to Select / Move.',
+  'annotate.toolPan': 'Select / Move',
   'annotate.toolRect': 'Rectangle',
   'annotate.toolBrush': 'Brush',
   'annotate.toolArrow': 'Arrow',
@@ -218,8 +221,11 @@ export const en = {
   'annotate.zoomLabel': 'Zoom level',
   'annotate.zoomFit': 'Fit to window',
   'annotate.canvasLabel':
-    'Annotation canvas: drag with Hand, click a mark to select it, press Delete to remove it',
-  'annotate.selectedMark': 'Mark {n} selected. Press Delete to remove it.',
+    'Annotation canvas: Select / Move drags the image and selects existing marks; press Delete to remove one',
+  'annotate.selectedMark': 'Mark {n} selected',
+  'annotate.deleteSelected': 'Delete',
+  'annotate.deleteSelectedLabel': 'Delete selected mark {n}',
+  'annotate.deleteShortcut': 'Delete',
   'annotate.cancel': 'Cancel',
   'annotate.imageLoadFailed': 'Failed to load the image; annotation unavailable.',
 

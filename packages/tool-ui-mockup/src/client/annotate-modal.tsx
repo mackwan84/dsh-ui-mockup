@@ -16,7 +16,12 @@ import {
   type KeyboardEvent,
   type PointerEvent,
 } from 'react'
-import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
+import {
+  Button,
+  IconTrashOutline16,
+  IconWarningOutline16,
+  Pill,
+} from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   badgeAnchor,
   backingSize,
@@ -51,7 +56,8 @@ interface ColoredMark {
 /** 弹窗用到的文案键并集：宿主注入的 t 按 ui-mockup 命名空间收窄类型。 */
 export type AnnotateModalTextKey =
   | 'annotate.title'
-  | 'annotate.hint'
+  | 'annotate.hintPan'
+  | 'annotate.hintDraw'
   | 'annotate.toolPan'
   | 'annotate.toolRect'
   | 'annotate.toolBrush'
@@ -63,6 +69,9 @@ export type AnnotateModalTextKey =
   | 'annotate.zoomFit'
   | 'annotate.canvasLabel'
   | 'annotate.selectedMark'
+  | 'annotate.deleteSelected'
+  | 'annotate.deleteSelectedLabel'
+  | 'annotate.deleteShortcut'
   | 'annotate.cancel'
   | 'annotate.imageLoadFailed'
   | 'card.feedbackPlaceholder'
@@ -512,6 +521,18 @@ export function AnnotateModal({ name, cwd, t, onClose, onSubmit }: AnnotateModal
   }
 
   const disp = imageSize === null ? null : displaySize(imageSize.w, imageSize.h, zoom)
+  const modeHint =
+    tool === 'pan'
+      ? t('annotate.hintPan')
+      : t('annotate.hintDraw', {
+          tool: t(
+            tool === 'rect'
+              ? 'annotate.toolRect'
+              : tool === 'brush'
+                ? 'annotate.toolBrush'
+                : 'annotate.toolArrow',
+          ),
+        })
 
   return (
     <div
@@ -625,13 +646,116 @@ export function AnnotateModal({ name, cwd, t, onClose, onSubmit }: AnnotateModal
         </div>
 
         <div
-          style={{ padding: '8px 16px', fontSize: 12, color: 'var(--dsw-alias-label-tertiary)' }}
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'minmax(0, 1fr) auto',
+            alignItems: 'center',
+            columnGap: 8,
+            boxSizing: 'border-box',
+            height: 44,
+            padding: '8px 16px',
+            fontSize: 12,
+            color: 'var(--dsw-alias-label-secondary)',
+          }}
         >
-          {t('annotate.hint')}
-          {selectedIndex !== null && (
-            <span role="status" style={{ marginLeft: 8 }}>
-              {t('annotate.selectedMark', { n: numberLabel(selectedIndex + 1) })}
+          {tool === 'pan' ? (
+            <span
+              title={modeHint}
+              style={{
+                minWidth: 0,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {modeHint}
             </span>
+          ) : (
+            <span
+              role="note"
+              style={{
+                display: 'inline-flex',
+                gridColumn: '1 / -1',
+                alignItems: 'center',
+                gap: 4,
+                boxSizing: 'border-box',
+                minWidth: 0,
+                height: 28,
+                padding: '3px 8px',
+                borderRadius: 6,
+                border: '1px solid var(--dsw-alias-state-warn-primary)',
+                background: 'var(--dsw-alias-bg-layer-2)',
+                color: 'var(--dsw-alias-label-secondary)',
+              }}
+            >
+              <span
+                aria-hidden="true"
+                style={{
+                  display: 'inline-flex',
+                  color: 'var(--dsw-alias-state-warn-primary)',
+                }}
+              >
+                <IconWarningOutline16 size={16} />
+              </span>
+              <span
+                title={modeHint}
+                style={{
+                  minWidth: 0,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {modeHint}
+              </span>
+            </span>
+          )}
+          {selectedIndex !== null && (
+            <div
+              style={{
+                display: 'flex',
+                flexWrap: 'nowrap',
+                alignItems: 'center',
+                gap: 4,
+                height: 28,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              <span role="status">
+                <Pill active>
+                  {t('annotate.selectedMark', { n: numberLabel(selectedIndex + 1) })}
+                </Pill>
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={<IconTrashOutline16 size={16} />}
+                aria-label={t('annotate.deleteSelectedLabel', {
+                  n: numberLabel(selectedIndex + 1),
+                })}
+                onClick={deleteSelected}
+                style={{ color: 'var(--dsw-alias-state-error-primary)' }}
+              >
+                {t('annotate.deleteSelected')}
+              </Button>
+              <kbd
+                title={t('annotate.deleteShortcut')}
+                style={{
+                  minWidth: 42,
+                  padding: '0 6px',
+                  border: '1px solid var(--dsw-alias-border-l2)',
+                  borderRadius: 4,
+                  background: 'var(--dsw-alias-bg-layer-2)',
+                  color: 'var(--dsw-alias-label-tertiary)',
+                  fontFamily: 'inherit',
+                  fontSize: 11,
+                  lineHeight: '20px',
+                  textAlign: 'center',
+                }}
+              >
+                {t('annotate.deleteShortcut')}
+              </kbd>
+            </div>
           )}
         </div>
 

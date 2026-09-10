@@ -168,15 +168,15 @@ describe('标注反馈链路', () => {
     expect(scroller.scrollTop).toBe(50)
   })
 
-  it('默认抓手拖动画布且不创建标记', () => {
+  it('默认选择/移动工具拖动画布且不创建标记', () => {
     render(<UiMockupToolview {...propsOf(settledBlock(['mockup-pan.png']))} />)
     fireEvent.click(screen.getByRole('button', { name: /点击放大并圈选/ }))
     const images = screen.getAllByAltText('mockup-pan.png')
     simulateImageLoad(images[images.length - 1] as HTMLImageElement, 2000, 1000)
 
-    const hand = screen.queryByRole('button', { name: '抓手' })
-    expect(hand).not.toBeNull()
-    expect(hand?.getAttribute('aria-pressed')).toBe('true')
+    const selectAndMove = screen.queryByRole('button', { name: '选择/移动' })
+    expect(selectAndMove).not.toBeNull()
+    expect(selectAndMove?.getAttribute('aria-pressed')).toBe('true')
     const canvas = document.querySelector('canvas')!
     prepareCanvas(canvas)
     expect(canvas.style.cursor).toBe('grab')
@@ -194,7 +194,40 @@ describe('标注反馈链路', () => {
     expect(screen.queryByText(/已选中标记/)).toBeNull()
   })
 
-  it('抓手单选已有标记，Delete 删除后剩余标记重新编号', () => {
+  it('工具切换时显示对应操作提示，绘图模式明确引导回选择/移动', () => {
+    render(<UiMockupToolview {...propsOf(settledBlock(['mockup-mode-hint.png']))} />)
+    fireEvent.click(screen.getByRole('button', { name: /点击放大并圈选/ }))
+
+    expect(screen.getByText('拖动画布可移动图片；单击已有标记可选择。')).toBeDefined()
+
+    fireEvent.click(screen.getByRole('button', { name: '矩形' }))
+    expect(screen.getByRole('note').textContent).toBe(
+      '当前为矩形工具。要选择或删除标记，请切换到「选择/移动」。',
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '箭头' }))
+    expect(
+      screen.getByText('当前为箭头工具。要选择或删除标记，请切换到「选择/移动」。'),
+    ).toBeDefined()
+
+    fireEvent.click(screen.getByRole('button', { name: '选择/移动' }))
+    expect(screen.getByText('拖动画布可移动图片；单击已有标记可选择。')).toBeDefined()
+  })
+
+  it('说明栏固定为 44px，工具提示切换不改变高度约束', () => {
+    render(<UiMockupToolview {...propsOf(settledBlock(['mockup-stable-height.png']))} />)
+    fireEvent.click(screen.getByRole('button', { name: /点击放大并圈选/ }))
+
+    const hintRow = screen.getByText('拖动画布可移动图片；单击已有标记可选择。').parentElement
+    expect(hintRow?.style.height).toBe('44px')
+    expect(hintRow?.style.boxSizing).toBe('border-box')
+
+    fireEvent.click(screen.getByRole('button', { name: '矩形' }))
+    expect(screen.getByRole('note').parentElement).toBe(hintRow)
+    expect(hintRow?.style.height).toBe('44px')
+  })
+
+  it('选择/移动工具单选已有标记，显式删除按钮删除后剩余标记重新编号', () => {
     const setDraft = vi.fn()
     render(
       <UiMockupToolview
@@ -211,12 +244,13 @@ describe('标注反馈链路', () => {
     fireEvent.click(screen.getByRole('button', { name: '矩形' }))
     drawRect(canvas, [100, 100], [300, 300])
     drawRect(canvas, [500, 100], [700, 300])
-    fireEvent.click(screen.getByRole('button', { name: '抓手' }))
+    fireEvent.click(screen.getByRole('button', { name: '选择/移动' }))
     dispatchPointer(canvas, 'pointerdown', 200, 200)
     dispatchPointer(canvas, 'pointerup', 200, 200)
-    expect(screen.getByText('已选中标记 ①，按 Delete 删除。')).toBeDefined()
+    expect(screen.getByRole('status').textContent).toBe('已选中标记 ①')
+    expect(screen.getByText('Delete', { selector: 'kbd' })).toBeDefined()
 
-    fireEvent.keyDown(canvas, { key: 'Delete' })
+    fireEvent.click(screen.getByRole('button', { name: '删除选中标记 ①' }))
     expect(screen.queryByText(/已选中标记/)).toBeNull()
     fireEvent.change(screen.getByPlaceholderText('描述要修改的地方…'), {
       target: { value: '删除后编号验证' },
@@ -245,7 +279,7 @@ describe('标注反馈链路', () => {
     fireEvent.click(screen.getByRole('button', { name: '矩形' }))
     drawRect(canvas, [100, 100], [300, 300])
 
-    fireEvent.click(screen.getByRole('button', { name: '抓手' }))
+    fireEvent.click(screen.getByRole('button', { name: '选择/移动' }))
     dispatchPointer(canvas, 'pointerdown', 200, 200)
     dispatchPointer(canvas, 'pointerup', 200, 200)
     fireEvent.keyDown(canvas, { key: 'Backspace' })
@@ -260,7 +294,7 @@ describe('标注反馈链路', () => {
     const textarea = screen.getByPlaceholderText('描述要修改的地方…')
     fireEvent.change(textarea, { target: { value: '输入框防误删' } })
     fireEvent.keyDown(textarea, { key: 'Backspace' })
-    expect(screen.getByText('已选中标记 ①，按 Delete 删除。')).toBeDefined()
+    expect(screen.getByText('已选中标记 ①')).toBeDefined()
     fireEvent.click(screen.getByRole('button', { name: '提交并重新生成' }))
     expect(String(setDraft.mock.calls.at(-1)?.[0])).toContain('①区域 x:[0.05,0.15] y:[0.10,0.30]')
   })
@@ -304,20 +338,20 @@ describe('标注反馈链路', () => {
     fireEvent.click(screen.getByRole('button', { name: '矩形' }))
     drawRect(canvas, [100, 100], [300, 300])
 
-    fireEvent.click(screen.getByRole('button', { name: '抓手' }))
+    fireEvent.click(screen.getByRole('button', { name: '选择/移动' }))
     dispatchPointer(canvas, 'pointerdown', 200, 200)
     dispatchPointer(canvas, 'pointerup', 200, 200)
-    expect(screen.getByText('已选中标记 ①，按 Delete 删除。')).toBeDefined()
+    expect(screen.getByText('已选中标记 ①')).toBeDefined()
 
     // 工具条按钮与弹窗根节点持有焦点时按删除键：标记必须还在（选中态不变）
     fireEvent.keyDown(screen.getByRole('button', { name: '撤销' }), { key: 'Delete' })
-    expect(screen.getByText('已选中标记 ①，按 Delete 删除。')).toBeDefined()
+    expect(screen.getByText('已选中标记 ①')).toBeDefined()
     fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Backspace' })
-    expect(screen.getByText('已选中标记 ①，按 Delete 删除。')).toBeDefined()
+    expect(screen.getByText('已选中标记 ①')).toBeDefined()
 
     // 画布聚焦时才真正删除：选中态播报随之消失
     fireEvent.keyDown(canvas, { key: 'Delete' })
-    expect(screen.queryByText('已选中标记 ①，按 Delete 删除。')).toBeNull()
+    expect(screen.queryByText('已选中标记 ①')).toBeNull()
     expect(screen.getByRole<HTMLButtonElement>('button', { name: '清空' }).disabled).toBe(true)
   })
 
