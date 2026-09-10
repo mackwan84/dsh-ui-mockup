@@ -1,12 +1,12 @@
 /**
  * 标注反馈纯逻辑层：标记几何（原图像素坐标）、归一化包围盒、文本投影、
- * 编号、弹窗显示坐标映射（1x/2x、devicePixelRatio）与反馈消息模板。
+ * 编号、弹窗显示坐标映射（自适应/固定缩放、devicePixelRatio）与反馈消息模板。
  * 无 IO、无 DOM、无 ctx 依赖，客户端标注叠层与单元测试共用同一实现，
  * 避免两端口径漂移（对齐 prefs.ts 的分层风格）。
  */
 
 /** 标注工具类型：矩形圈选、自由画笔、箭头。 */
-export type AnnotationTool = 'rect' | 'brush' | 'arrow'
+export type AnnotationTool = 'pan' | 'rect' | 'brush' | 'arrow'
 
 /** 矩形圈选标记：左上角 + 宽高，原图像素坐标。 */
 export interface RectMark {
@@ -32,6 +32,62 @@ export interface ArrowMark {
 
 /** 一条标注（按创建顺序编号 ①②③）。 */
 export type AnnotationMark = RectMark | BrushMark | ArrowMark
+
+/** 画笔/箭头命中的点到线段距离；退化线段按端点距离处理。 */
+function distanceToSegment(
+  point: { x: number; y: number },
+  from: readonly [number, number],
+  to: readonly [number, number],
+): number {
+  const dx = to[0] - from[0]
+  const dy = to[1] - from[1]
+  if (dx === 0 && dy === 0) return Math.hypot(point.x - from[0], point.y - from[1])
+  const projection = Math.min(
+    1,
+    Math.max(0, ((point.x - from[0]) * dx + (point.y - from[1]) * dy) / (dx * dx + dy * dy)),
+  )
+  return Math.hypot(point.x - (from[0] + projection * dx), point.y - (from[1] + projection * dy))
+}
+
+/** 判断原图坐标点是否命中一条已有标记；线状标记使用调用方给出的原图像素容差。 */
+export function hitTestMark(
+  mark: AnnotationMark,
+  point: { x: number; y: number },
+  tolerance: number,
+): boolean {
+  if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) return false
+  const radius = Number.isFinite(tolerance) ? Math.max(0, tolerance) : 0
+  if (mark.tool === 'rect') {
+    const x0 = Math.min(mark.x, mark.x + mark.w)
+    const x1 = Math.max(mark.x, mark.x + mark.w)
+    const y0 = Math.min(mark.y, mark.y + mark.h)
+    const y1 = Math.max(mark.y, mark.y + mark.h)
+    return point.x >= x0 && point.x <= x1 && point.y >= y0 && point.y <= y1
+  }
+  if (mark.tool === 'arrow') return distanceToSegment(point, mark.from, mark.to) <= radius
+  if (mark.points.length === 1) {
+    const only = mark.points[0]!
+    return Math.hypot(point.x - only[0], point.y - only[1]) <= radius
+  }
+  for (let index = 1; index < mark.points.length; index++) {
+    if (distanceToSegment(point, mark.points[index - 1]!, mark.points[index]!) <= radius) {
+      return true
+    }
+  }
+  return false
+}
+
+/** 从后向前命中：后绘制的标记视觉上位于上层，应优先被选中。 */
+export function findTopmostMark(
+  marks: readonly AnnotationMark[],
+  point: { x: number; y: number },
+  tolerance: number,
+): number | null {
+  for (let index = marks.length - 1; index >= 0; index--) {
+    if (hitTestMark(marks[index]!, point, tolerance)) return index
+  }
+  return null
+}
 
 /** 归一化包围盒：各边 [0,1]，坐标原点在图像左上角。 */
 export interface NormalizedBox {
@@ -127,7 +183,7 @@ export function numberLabel(n: number): string {
 
 /**
  * 单条标记的文本投影（纯文本反馈通道的语义载体，按工具类型区分）。
- * 编号 1 基；退化标记返回 null（编号位次不受影响）。
+ * 编号 1 基；退化标记与非法图像尺寸返回 null（编号位次不受影响）。
  */
 export function projectMark(
   index: number,
@@ -137,6 +193,10 @@ export function projectMark(
 ): string | null {
   const label = numberLabel(index)
   if (mark.tool === 'arrow') {
+    // 箭头不经 markBounds（需要区分起点与终点，包围盒会丢方向），
+    // 尺寸校验必须在此处自己做，否则除零会把 "NaN" 写进模型可见文本。
+    if (!Number.isFinite(imageWidth) || !Number.isFinite(imageHeight)) return null
+    if (imageWidth <= 0 || imageHeight <= 0) return null
     const [fx, fy] = mark.from
     const [tx, ty] = mark.to
     return `${label}箭头 从(${fmt(fx / imageWidth)},${fmt(fy / imageHeight)}) 指向(${fmt(
@@ -163,14 +223,64 @@ export function projectMarks(
   return projections
 }
 
-/** 弹窗缩放档位：两档切换（2x 以点击位置为中心），不做自由缩放。 */
-export type ZoomLevel = 1 | 2
+/** 弹窗固定缩放档位；适合窗口由组件根据可用区域计算实际比例。 */
+export type ZoomLevel = 0.5 | 1 | 1.5 | 2
+
+/** 弹窗缩放模式：适合窗口或固定比例。 */
+export type ZoomMode = 'fit' | ZoomLevel
+
+/**
+ * 完整显示整张图所需比例：同时受可用宽高约束，小图不放大超过 100%。
+ * 尺寸不可用时回退 100%，避免初次测量期间产生 0/NaN 画布。
+ */
+export function fitZoom(
+  imageWidth: number,
+  imageHeight: number,
+  viewportWidth: number,
+  viewportHeight: number,
+): number {
+  if (
+    !Number.isFinite(imageWidth) ||
+    !Number.isFinite(imageHeight) ||
+    !Number.isFinite(viewportWidth) ||
+    !Number.isFinite(viewportHeight) ||
+    imageWidth <= 0 ||
+    imageHeight <= 0 ||
+    viewportWidth <= 0 ||
+    viewportHeight <= 0
+  ) {
+    return 1
+  }
+  return Math.min(1, viewportWidth / imageWidth, viewportHeight / imageHeight)
+}
+
+/** 固定比例切换后保持同一图像位置位于视口中心，结果不允许出现负滚动量。 */
+export function centeredScrollOffset(
+  scrollOffset: number,
+  viewportSize: number,
+  fromZoom: number,
+  toZoom: number,
+): number {
+  if (
+    !Number.isFinite(scrollOffset) ||
+    !Number.isFinite(viewportSize) ||
+    !Number.isFinite(fromZoom) ||
+    !Number.isFinite(toZoom) ||
+    viewportSize <= 0 ||
+    fromZoom <= 0 ||
+    toZoom <= 0
+  ) {
+    return Math.max(0, Number.isFinite(scrollOffset) ? scrollOffset : 0)
+  }
+  const imageCenter = (scrollOffset + viewportSize / 2) / fromZoom
+  return Math.max(0, imageCenter * toZoom - viewportSize / 2)
+}
 
 /** 给定缩放档下的显示尺寸（CSS 像素）。 */
 export function displaySize(
   imageWidth: number,
   imageHeight: number,
-  zoom: ZoomLevel,
+  zoom: number,
 ): { width: number; height: number } {
   return { width: imageWidth * zoom, height: imageHeight * zoom }
 }
@@ -190,12 +300,12 @@ export function backingSize(
 
 /**
  * 指针位置（相对显示区域左上角，CSS 像素）→ 原图像素坐标，钳在图像边界内。
- * 1x/2x 共用同一映射：显示尺寸是原图的 zoom 倍，故除以 zoom。
+ * 所有缩放模式共用同一映射：显示尺寸是原图的 zoom 倍，故除以 zoom。
  */
 export function pointerToImage(
   pointerX: number,
   pointerY: number,
-  zoom: ZoomLevel,
+  zoom: number,
   imageWidth: number,
   imageHeight: number,
 ): { x: number; y: number } {

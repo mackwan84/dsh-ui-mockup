@@ -370,11 +370,23 @@ function OverviewPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
       </p>
       <Card title={t('panel.overview.quickTitle')}>
         {QUICK_STEPS.map(({ Icon, title, body }) => (
-          <div key={title} className="ui-mockup-quick-step" style={{ display: 'flex', gap: 8 }}>
+          <div
+            key={title}
+            className="ui-mockup-quick-step"
+            style={{ display: 'flex', alignItems: 'flex-start', flexWrap: 'nowrap', gap: 8 }}
+          >
             <span aria-hidden style={{ flex: 'none', color: tokens.labelSecondary, marginTop: 2 }}>
               <Icon size={16} />
             </span>
-            <p style={{ margin: 0, lineHeight: '20px' }}>
+            <p
+              style={{
+                flex: '1 1 0%',
+                minWidth: 0,
+                margin: 0,
+                lineHeight: '20px',
+                overflowWrap: 'anywhere',
+              }}
+            >
               <strong style={{ fontSize: 13 }}>{t(title)}</strong>
               <br />
               <span style={{ fontSize: 13, color: tokens.labelSecondary }}>{t(body)}</span>
@@ -926,7 +938,7 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
           </select>
         </FieldRow>
         <Notice>
-          {`${t('panel.models.wireframe')}: ${WIREFRAME_MODEL_HINTS[providerId].filter(Boolean).join(', ')} · ${t('panel.models.highFidelity')}: ${HIGH_FIDELITY_MODEL_HINTS[providerId].filter(Boolean).join(', ')}`}
+          {`${t('panel.models.wireframe')}: ${WIREFRAME_MODEL_HINTS[providerId].filter(Boolean).join(', ')} · ${t('panel.models.highFidelity')}: ${HIGH_FIDELITY_MODEL_HINTS[providerId].filter(Boolean).join(', ')} · ${t('panel.models.draft')}: ${DRAFT_MODEL_HINTS[providerId].filter(Boolean).join(', ')}`}
         </Notice>
       </Card>
     </div>
@@ -1264,6 +1276,10 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
   )
 
   useEffect(() => {
+    // 工作区/连接变化后拉的是全量未过滤列表，过滤位必须一并复位：
+    // 否则「只看方向稿」仍显示为勾选，但列表已是全量数据，
+    // 后续翻页又会重新带上 draftOnly，造成 total/page 与内容错位。
+    setDraftOnly(false)
     void reload('', 1, false)
     // 列表仅在 cwd/连接变化(reload 标识)时自动重载；搜索/翻页/过滤由交互显式触发。
   }, [reload])

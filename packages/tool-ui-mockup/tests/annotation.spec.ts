@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import * as annotationModule from '../src/annotation.js'
 import {
   badgeAnchor,
   backingSize,
@@ -100,11 +101,126 @@ describe('projectMark / projectMarks', () => {
     )
     expect(projections).toEqual(['②区域 x:[0.00,1.00] y:[0.00,1.00]'])
   })
+
+  it('returns null for every tool when the image size is unusable', () => {
+    // 箭头不经 markBounds，曾经会除零把 "NaN" 写进模型可见文本；
+    // 三种工具必须与 markBounds 同口径返回 null
+    const marks: AnnotationMark[] = [
+      { tool: 'arrow', from: [400, 310], to: [1240, 310] },
+      { tool: 'rect', x: 240, y: 50, w: 520, h: 140 },
+      {
+        tool: 'brush',
+        points: [
+          [800, 600],
+          [1100, 720],
+        ],
+      },
+    ]
+    for (const mark of marks) {
+      expect(projectMark(1, mark, 0, 0)).toBeNull()
+      expect(projectMark(1, mark, Number.NaN, H)).toBeNull()
+      expect(projectMark(1, mark, W, Number.POSITIVE_INFINITY)).toBeNull()
+      expect(projectMark(1, mark, -W, H)).toBeNull()
+    }
+    expect(projectMarks(marks, 0, 0)).toEqual([])
+  })
+})
+
+describe('annotation hit testing', () => {
+  const hitTesting = annotationModule as unknown as {
+    hitTestMark?: (
+      mark: AnnotationMark,
+      point: { x: number; y: number },
+      tolerance: number,
+    ) => boolean
+    findTopmostMark?: (
+      marks: readonly AnnotationMark[],
+      point: { x: number; y: number },
+      tolerance: number,
+    ) => number | null
+  }
+
+  it('selects a rectangle by its interior and rejects an outside point', () => {
+    expect(hitTesting.hitTestMark).toBeTypeOf('function')
+    if (hitTesting.hitTestMark === undefined) return
+    const mark: AnnotationMark = { tool: 'rect', x: 100, y: 100, w: 200, h: 120 }
+    expect(hitTesting.hitTestMark(mark, { x: 200, y: 160 }, 8)).toBe(true)
+    expect(hitTesting.hitTestMark(mark, { x: 320, y: 160 }, 8)).toBe(false)
+  })
+
+  it('selects arrow and brush segments within a scale-adjusted tolerance', () => {
+    expect(hitTesting.hitTestMark).toBeTypeOf('function')
+    if (hitTesting.hitTestMark === undefined) return
+    const arrow: AnnotationMark = { tool: 'arrow', from: [0, 0], to: [100, 0] }
+    const brush: AnnotationMark = {
+      tool: 'brush',
+      points: [
+        [0, 0],
+        [100, 0],
+        [100, 100],
+      ],
+    }
+    expect(hitTesting.hitTestMark(arrow, { x: 50, y: 5 }, 6)).toBe(true)
+    expect(hitTesting.hitTestMark(arrow, { x: 50, y: 7 }, 6)).toBe(false)
+    expect(hitTesting.hitTestMark(brush, { x: 96, y: 50 }, 5)).toBe(true)
+    expect(hitTesting.hitTestMark(brush, { x: 90, y: 50 }, 5)).toBe(false)
+  })
+
+  it('returns the topmost matching mark', () => {
+    expect(hitTesting.findTopmostMark).toBeTypeOf('function')
+    if (hitTesting.findTopmostMark === undefined) return
+    const marks: AnnotationMark[] = [
+      { tool: 'rect', x: 0, y: 0, w: 200, h: 200 },
+      { tool: 'rect', x: 50, y: 50, w: 200, h: 200 },
+    ]
+    expect(hitTesting.findTopmostMark(marks, { x: 100, y: 100 }, 8)).toBe(1)
+    expect(hitTesting.findTopmostMark(marks, { x: 500, y: 500 }, 8)).toBeNull()
+  })
 })
 
 describe('display mapping', () => {
+  it('fits the whole image into the viewport without enlarging above 100%', () => {
+    const fitZoom = (
+      annotationModule as unknown as {
+        fitZoom?: (
+          imageWidth: number,
+          imageHeight: number,
+          viewportWidth: number,
+          viewportHeight: number,
+        ) => number
+      }
+    ).fitZoom
+    expect(fitZoom).toBeTypeOf('function')
+    if (fitZoom === undefined) return
+
+    expect(fitZoom(2560, 1440, 928, 460)).toBeCloseTo(460 / 1440)
+    expect(fitZoom(400, 200, 928, 460)).toBe(1)
+    expect(fitZoom(0, 1440, 928, 460)).toBe(1)
+    expect(fitZoom(2560, 1440, 0, 460)).toBe(1)
+  })
+
+  it('keeps the viewport center stable when switching fixed zoom levels', () => {
+    const centeredScrollOffset = (
+      annotationModule as unknown as {
+        centeredScrollOffset?: (
+          scrollOffset: number,
+          viewportSize: number,
+          fromZoom: number,
+          toZoom: number,
+        ) => number
+      }
+    ).centeredScrollOffset
+    expect(centeredScrollOffset).toBeTypeOf('function')
+    if (centeredScrollOffset === undefined) return
+
+    expect(centeredScrollOffset(100, 800, 1, 2)).toBe(600)
+    expect(centeredScrollOffset(600, 800, 2, 0.5)).toBe(0)
+  })
+
   it('scales display size by zoom level', () => {
+    expect(displaySize(1024, 576, 0.5)).toEqual({ width: 512, height: 288 })
     expect(displaySize(1024, 576, 1)).toEqual({ width: 1024, height: 576 })
+    expect(displaySize(1024, 576, 1.5)).toEqual({ width: 1536, height: 864 })
     expect(displaySize(1024, 576, 2)).toEqual({ width: 2048, height: 1152 })
   })
 
@@ -117,7 +233,9 @@ describe('display mapping', () => {
   })
 
   it('maps pointer to image coordinates for both zoom levels and clamps', () => {
+    expect(pointerToImage(100, 50, 0.5, 1024, 576)).toEqual({ x: 200, y: 100 })
     expect(pointerToImage(200, 100, 1, 1024, 576)).toEqual({ x: 200, y: 100 })
+    expect(pointerToImage(300, 150, 1.5, 1024, 576)).toEqual({ x: 200, y: 100 })
     expect(pointerToImage(400, 200, 2, 1024, 576)).toEqual({ x: 200, y: 100 })
     // 负值与越界钳在图像内
     expect(pointerToImage(-50, -50, 1, 1024, 576)).toEqual({ x: 0, y: 0 })

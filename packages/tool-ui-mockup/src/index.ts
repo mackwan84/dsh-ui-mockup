@@ -214,6 +214,7 @@ const USAGE_SECTION = {
     '- 用户提到界面、页面、UI、视觉风格时, 主动询问是否需要生成草图。',
     "- 布局与信息架构待确认: fidelity='wireframe'(面板分层默认里的线框图模型, 速度快)。",
     "- 视觉风格待确认: fidelity='high-fidelity'(面板分层默认里的高保真模型, 质量优先), 建议 count=2~4 一次给多个方向供用户选择。",
+    "- 高保真单张耗时 1~5 分钟, 方向本身还没定时先出方向稿: 传 fastPreview=true(面板分层默认里的方向稿模型, 快速档)让用户先确认方向; 用户确认方向或要求「按这版精修」后, 用同一 description 去掉 fastPreview 再跑一次精修档。fidelity='wireframe' 时不要传 fastPreview: 线框档本身已是快模型, 传了会被忽略。",
     '- 同一个站点的多个页面在高保真阶段应传 reference=已确认页面的图, 保持风格一致(图生图模式)。',
     '- 用户对生成的图提出修改意见: 优先走编辑模式(同时传 baseImage=上一版生成图路径 与 editNote=修改指令, 在原图上整图指令重绘, 通常更贴近原稿); 大改布局或换风格时才在 description 中写修改后的完整描述整体重新生成。',
     '- 用户反馈形如"对 design/images/<名> 的标注反馈(时间): 编号区域(归一化坐标): …。意见: …"时: 编号区域(①②③等)是用户在该图上圈选标记的区域的归一化坐标(x、y 均在 [0,1], 原点在图像左上角, 附文字投影说明区域位置)。按编号区域与用户意见逐条用空间语言组织 editNote 或 description。编辑时 baseImage 仍必须传原图的语义路径 design/images/<原图名>: 标注图不在资产库, 只用于定位修改区域, 不能作为 baseImage。同一张图有多轮标注反馈时只以最新一轮为准。',
@@ -266,6 +267,11 @@ export function buildFailuresNotice(failures: readonly string[]): string {
 /** 「附件超限」告警段：前缀是客户端截取的定位标记，勿改。 */
 export function buildOversizeNotice(oversize: number): string {
   return `${RESULT_NOTICE_MARKERS[1]}${oversize} 张超过会话附件大小上限, 仅保存到 DSH 设计资产库, 未在对话中展示。`
+}
+
+/** 历史追加失败是非致命降级：图片保留，但必须让用户知道本次不会出现在历史页。 */
+export function buildHistoryWriteFailureNotice(): string {
+  return `${RESULT_NOTICE_MARKERS[0]}历史记录写入失败，本次图片仍可使用，但不会出现在生成历史中；请检查 DSH 存储权限。`
 }
 
 /** 模型可见错误只保留语义路径，避免底层 readFile 异常带出资产库绝对位置。 */
@@ -1015,7 +1021,7 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
           knownRoots.add(workspaceRoot)
 
           // 生成历史元数据：设置面板历史页的数据来源（M3 消费）。
-          // 写失败不阻断结果返回，但留 debug 日志：历史页缺记录时可据此排查。
+          // 写失败不阻断结果返回；同时在结果中提示，避免用户误以为历史已持久化。
           const historyWrite = storeOf(workspaceRoot)
           const historyRecord = JSON.stringify({
             time: new Date().toISOString(),
@@ -1028,8 +1034,10 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
             status: isEdit ? 'edited' : 'generated',
             ...(fastPreview ? { fastPreview: true } : {}),
           })
+          let historyWriteFailed = false
           await appendHistoryLine(historyWrite.historyFile, historyRecord).catch(
             (error: unknown) => {
+              historyWriteFailed = true
               ctx
                 .logger('ui-mockup')
                 .debug(
@@ -1061,6 +1069,9 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
           }
           if (oversize > 0) {
             message += buildOversizeNotice(oversize)
+          }
+          if (historyWriteFailed) {
+            message += buildHistoryWriteFailureNotice()
           }
           return { ok: true, message, images }
         } catch (error) {

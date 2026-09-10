@@ -235,6 +235,18 @@ describe('OverviewPage visuals', () => {
     expect(container.textContent).not.toContain('🔒')
     expect(container.querySelectorAll('svg').length).toBeGreaterThanOrEqual(3)
   })
+
+  it('长文案只在文本列内换行，不把整段移到图标下方', async () => {
+    mountPanel()
+    const title = await screen.findByText('如何反馈')
+    const step = title.closest<HTMLElement>('.ui-mockup-quick-step')
+    const copy = title.closest<HTMLParagraphElement>('p')
+
+    expect(step?.style.flexWrap).toBe('nowrap')
+    expect(step?.style.alignItems).toBe('flex-start')
+    expect(copy?.style.flex).toBe('1 1 0%')
+    expect(copy?.style.minWidth).toBe('0')
+  })
 })
 
 describe('Provider switch state', () => {
@@ -263,6 +275,17 @@ describe('Provider switch state', () => {
     expect(screen.queryByText(/切换尚未完成/)).toBeNull()
     expect(screen.getByRole<HTMLSelectElement>('combobox', { name: '线框图' }).value).toBe('')
     expect(screen.getByRole<HTMLSelectElement>('combobox', { name: '高保真' }).value).toBe('')
+    expect(
+      screen.getByRole<HTMLSelectElement>('combobox', { name: '方向稿模型（fastPreview）' }).value,
+    ).toBe('')
+  })
+
+  it('模型候选说明覆盖三个档位，不漏方向稿', async () => {
+    mountPanel()
+    fireEvent.click(screen.getByRole('tab', { name: '提供方与模型' }))
+    // 三个档位都有控件，说明文案就不能只列两个
+    const notice = await screen.findByText(/线框图: .*高保真: /)
+    expect(notice.textContent).toContain('方向稿模型（fastPreview）: qwen-image-3.0, wan2.7-image')
   })
 
   it('pending 尚未落位时也清除即将失效的旧模型默认值', async () => {
@@ -499,5 +522,38 @@ describe('HistoryPage search', () => {
       const historyCalls = call.mock.calls.filter((args) => args[1] === 'history/list')
       expect(historyCalls.at(-1)?.[2]).toMatchObject({ query: '登录', page: 1 })
     })
+  })
+
+  it('工作区或连接变化后「只看方向稿」勾选态与请求参数一起复位', async () => {
+    const first = createConnection({ historyTotal: 6 })
+    const prefs = createPrefs()
+    const view = render(<UiMockupSection t={t} prefs={prefs} connection={first.connection} />)
+    fireEvent.click(screen.getByRole('tab', { name: '生成历史' }))
+    const draftOnly = await screen.findByRole<HTMLInputElement>('checkbox', {
+      name: '只看方向稿',
+    })
+    await waitFor(() => {
+      expect(first.call.mock.calls.filter((args) => args[1] === 'history/list')).toHaveLength(1)
+    })
+
+    fireEvent.click(draftOnly)
+    await waitFor(() => {
+      const historyCalls = first.call.mock.calls.filter((args) => args[1] === 'history/list')
+      expect(historyCalls.at(-1)?.[2]).toMatchObject({ draftOnly: true, page: 1 })
+    })
+    expect(draftOnly.checked).toBe(true)
+
+    // 换连接等价于切工作区：新请求拉全量，勾选态必须同步复位，
+    // 否则界面显示已过滤但内容是全量，后续翻页又会错位
+    const second = createConnection({ historyTotal: 6 })
+    view.rerender(<UiMockupSection t={t} prefs={prefs} connection={second.connection} />)
+    await waitFor(() => {
+      const historyCalls = second.call.mock.calls.filter((args) => args[1] === 'history/list')
+      expect(historyCalls).toHaveLength(1)
+      expect(historyCalls[0]?.[2]).not.toHaveProperty('draftOnly')
+    })
+    expect(screen.getByRole<HTMLInputElement>('checkbox', { name: '只看方向稿' }).checked).toBe(
+      false,
+    )
   })
 })

@@ -363,6 +363,14 @@ describe('ui-mockup real dynamic composition', () => {
       expect(
         booted.systemPrompt.sections.find((section) => section.name === 'ui-mockup-usage')?.text,
       ).toContain('整图指令重绘')
+      // 方向稿→精修是 M6 的主路径：使用规则必须告知 Agent 何时传 fastPreview
+      // 及确认后如何去掉它跑精修档，否则能力只存在于 schema 字段描述里
+      const usage =
+        booted.systemPrompt.sections.find((section) => section.name === 'ui-mockup-usage')?.text ??
+        ''
+      expect(usage).toContain('fastPreview=true')
+      expect(usage).toContain('去掉 fastPreview')
+      expect(usage).toContain("fidelity='wireframe' 时不要传 fastPreview")
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
@@ -622,6 +630,60 @@ describe('ui-mockup real dynamic composition', () => {
       expect(history).toContain('"status":"generated"')
       // 工作区不再出现运行时产物目录
       await expect(readdir(join(dir, 'design'))).rejects.toThrow()
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('keeps generated images and warns the user when history persistence fails', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+    try {
+      const booted = await bootComposition(dir)
+      const store = storeDirFor(dir)
+      await mkdir(join(store, 'history.jsonl'), { recursive: true })
+      const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00])
+      vi.stubGlobal('fetch', async (url: string) => {
+        if (url.includes('image-generation/generation')) {
+          return new Response(JSON.stringify({ output: { task_id: 'task-history-failure' } }), {
+            status: 200,
+          })
+        }
+        if (url.includes('/api/v1/tasks/task-history-failure')) {
+          return new Response(
+            JSON.stringify({
+              output: {
+                task_status: 'SUCCEEDED',
+                choices: [{ message: { content: [{ image: 'https://oss.example/result.png' }] } }],
+              },
+            }),
+            { status: 200 },
+          )
+        }
+        if (url.includes('oss.example')) {
+          return new Response(pngBytes, {
+            status: 200,
+            headers: { 'content-type': 'image/png' },
+          })
+        }
+        throw new Error(`unexpected fetch: ${url}`)
+      })
+
+      const definition = booted.tools.registered.find((item) => item.name === 'ui_mockup')!
+      const execute = definition.execute as (
+        args: Record<string, unknown>,
+        exec: { signal: AbortSignal; agent?: { session: { header: { cwd?: string } } } },
+      ) => Promise<Record<string, unknown>>
+      const value = await execute(
+        { description: '历史写入降级提示', fidelity: 'wireframe', platform: 'web' },
+        { signal: new AbortController().signal, agent: { session: { header: { cwd: dir } } } },
+      )
+
+      expect(value.ok).toBe(true)
+      expect(value.images).toHaveLength(1)
+      expect(String(value.message)).toContain(' 注意: ')
+      expect(String(value.message)).toContain('历史记录写入失败')
+      expect(String(value.message)).toContain('图片仍可使用')
+      expect(await readdir(join(store, 'images'))).toHaveLength(1)
     } finally {
       await rm(dir, { recursive: true, force: true })
     }

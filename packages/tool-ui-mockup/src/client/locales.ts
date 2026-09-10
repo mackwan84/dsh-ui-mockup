@@ -32,15 +32,18 @@ export const zh = {
   // 标注弹窗
   'annotate.title': '标注修改区域',
   'annotate.hint':
-    '用矩形、画笔或箭头圈选要修改的区域（自动编号 ①②③），编号与坐标会随意见一起发出。',
+    '用抓手拖动画布并单击已有标记进行选择；按 Delete 删除选中标记。切换矩形、画笔或箭头后开始标注（自动编号 ①②③）。',
+  'annotate.toolPan': '抓手',
   'annotate.toolRect': '矩形',
   'annotate.toolBrush': '画笔',
   'annotate.toolArrow': '箭头',
   'annotate.color': '标注颜色',
   'annotate.undo': '撤销',
   'annotate.clear': '清空',
-  'annotate.zoomIn': '放大 2x',
-  'annotate.zoomOut': '回到 1x',
+  'annotate.zoomLabel': '缩放比例',
+  'annotate.zoomFit': '适合窗口',
+  'annotate.canvasLabel': '标注画布：抓手拖动，单击已有标记选择，按 Delete 删除',
+  'annotate.selectedMark': '已选中标记 {n}，按 Delete 删除。',
   'annotate.cancel': '取消',
   'annotate.imageLoadFailed': '图片加载失败，无法标注。',
 
@@ -204,15 +207,19 @@ export const en = {
 
   'annotate.title': 'Mark regions to change',
   'annotate.hint':
-    'Use the rectangle, brush or arrow tool to mark regions (auto-numbered ①②③). Numbers and coordinates are sent with your feedback.',
+    'Use Hand to pan and click an existing mark to select it; press Delete to remove it. Switch to Rectangle, Brush, or Arrow to annotate (auto-numbered ①②③).',
+  'annotate.toolPan': 'Hand',
   'annotate.toolRect': 'Rectangle',
   'annotate.toolBrush': 'Brush',
   'annotate.toolArrow': 'Arrow',
   'annotate.color': 'Mark color',
   'annotate.undo': 'Undo',
   'annotate.clear': 'Clear',
-  'annotate.zoomIn': 'Zoom to 2x',
-  'annotate.zoomOut': 'Back to 1x',
+  'annotate.zoomLabel': 'Zoom level',
+  'annotate.zoomFit': 'Fit to window',
+  'annotate.canvasLabel':
+    'Annotation canvas: drag with Hand, click a mark to select it, press Delete to remove it',
+  'annotate.selectedMark': 'Mark {n} selected. Press Delete to remove it.',
   'annotate.cancel': 'Cancel',
   'annotate.imageLoadFailed': 'Failed to load the image; annotation unavailable.',
 

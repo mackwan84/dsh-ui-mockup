@@ -89,8 +89,7 @@
     overflow-wrap: anywhere;
   }
 
-  .ui-mockup-overview-status,
-  .ui-mockup-quick-step {
+  .ui-mockup-overview-status {
     flex-wrap: wrap;
   }
 
