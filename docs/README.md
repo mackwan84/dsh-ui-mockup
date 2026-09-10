@@ -16,6 +16,7 @@
 - [0.1.3 CRM 测试数据](testing/v0.1.3/data/crm.json)
 - [0.1.3 发布检查清单](releases/v0.1.3.md)
 - [0.2.0 浏览器测试用例](testing/v0.2.0/browser-cases.md)
+- [0.2.0 CRM 测试数据](testing/v0.2.0/data/crm.json)
 - [0.2.0 发布检查清单](releases/v0.2.0.md)
 
 ## 维护约定
