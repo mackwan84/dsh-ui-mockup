@@ -17,7 +17,13 @@
 - [0.1.3 发布检查清单](releases/v0.1.3.md)
 - [0.2.0 浏览器测试用例](testing/v0.2.0/browser-cases.md)
 - [0.2.0 CRM 测试数据](testing/v0.2.0/data/crm.json)
-- [0.2.0 发布检查清单](releases/v0.2.0.md)
+- [0.2.0 正式发布记录](releases/v0.2.0.md)
+
+## 界面截图
+
+- [UI 草图设置概览](assets/ui-mockup-overview.jpg)
+- [标注绘图模式提示](assets/ui-mockup-annotation-drawing.jpg)
+- [标记选中与删除](assets/ui-mockup-annotation-selected.jpg)
 
 ## 维护约定
 
