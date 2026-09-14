@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { ComponentProps } from 'react'
 import { UiMockupSection, type PanelPrefs } from '../src/client/settings-panel.js'
 import { zh } from '../src/client/locales.js'
@@ -281,6 +281,15 @@ describe('OverviewPage visuals', () => {
 })
 
 describe('Provider switch state', () => {
+  it('把三家提供方呈现为一个完整单选组，并明确标出当前使用项', async () => {
+    mountPanel({ activeProvider: 'openai-compat', baseUrl: 'https://gw.test/v1' })
+    fireEvent.click(screen.getByRole('tab', { name: '提供方与模型' }))
+
+    const providers = await screen.findByRole('radiogroup', { name: '提供方' })
+    expect(within(providers).getAllByRole('radio')).toHaveLength(3)
+    expect(within(providers).getByText('当前使用')).toBeTruthy()
+  })
+
   it('热重载超时返回 pending 时显示尚未完成提示', async () => {
     mountPanel({ pendingSwitch: true })
     fireEvent.click(screen.getByRole('tab', { name: '提供方与模型' }))
@@ -311,12 +320,15 @@ describe('Provider switch state', () => {
     ).toBe('')
   })
 
-  it('模型候选说明覆盖三个档位，不漏方向稿', async () => {
+  it('把三个档位的推荐模型分别放在对应字段旁，不漏方向稿', async () => {
     mountPanel()
     fireEvent.click(screen.getByRole('tab', { name: '提供方与模型' }))
-    // 三个档位都有控件，说明文案就不能只列两个
-    const notice = await screen.findByText(/线框图: .*高保真: /)
-    expect(notice.textContent).toContain('方向稿模型（fastPreview）: qwen-image-3.0, wan2.7-image')
+    const models = await screen.findByRole('region', { name: '模型分层默认' })
+    expect(
+      within(models)
+        .getAllByText(/^推荐：/)
+        .map((node) => node.textContent),
+    ).toEqual(['推荐：qwen-image-3.0', '推荐：qwen-image-3.0-pro', '推荐：qwen-image-3.0'])
   })
 
   it('pending 尚未落位时也清除即将失效的旧模型默认值', async () => {
@@ -338,6 +350,18 @@ describe('Provider switch state', () => {
 })
 
 describe('OpenAI 兼容连接配置卡', () => {
+  it('把网关、密钥和连接测试收拢到同一连接区域，并默认折叠其他配置方式', async () => {
+    mountPanel({ activeProvider: 'openai-compat', baseUrl: '' })
+    fireEvent.click(screen.getByRole('tab', { name: '提供方与模型' }))
+
+    const connection = await screen.findByRole('region', { name: '连接设置' })
+    expect(within(connection).getByLabelText('网关地址 baseUrl')).toBeTruthy()
+    expect(within(connection).getByLabelText('OPENAI_COMPAT_API_KEY 密钥')).toBeTruthy()
+    expect(within(connection).getByRole('button', { name: '测试连接' })).toBeTruthy()
+    const disclosure = within(connection).getByText('其他配置方式').closest('details')
+    expect(disclosure?.open).toBe(false)
+  })
+
   it('openai-compat 生效时回显生效地址，保存走 provider/baseurl/set', async () => {
     const { calls } = mountPanel({
       activeProvider: 'openai-compat',
@@ -386,6 +410,16 @@ describe('OpenAI 兼容连接配置卡', () => {
 })
 
 describe('模型发现建议与手填', () => {
+  it('在模型分层区域同时呈现三档可编辑模型', async () => {
+    mountPanel({ activeProvider: 'openai-compat' })
+    fireEvent.click(screen.getByRole('tab', { name: '提供方与模型' }))
+
+    const models = await screen.findByRole('region', { name: '模型分层默认' })
+    expect(within(models).getByRole('combobox', { name: '线框图' })).toBeTruthy()
+    expect(within(models).getByRole('combobox', { name: '高保真' })).toBeTruthy()
+    expect(within(models).getByRole('combobox', { name: '方向稿模型（fastPreview）' })).toBeTruthy()
+  })
+
   it('候选合并静态 hints 与网关建议（去重），且永远可手填任意模型名', async () => {
     mountPanel({
       activeProvider: 'openai-compat',
