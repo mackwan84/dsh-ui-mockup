@@ -96,16 +96,19 @@ DashScope 用 `DASHSCOPE_API_KEY`（阿里云百炼），火山方舟用 `ARK_AP
 
 ### 切换提供方（M4）
 
-安装包预置两行 Provider，火山方舟默认 `disabled: true`。在 **设置 · UI 草图 · 提供方与模型**
-页直接**点击提供方卡片**即可切换：插件把两行 id 定向 `disabled` 写入 DSH 用户层
-patch（`~/.dsh/cordis.patch.yml`，只增改这两行、不触碰其他内容），DSH 热重载组合后
-立即生效，无需重启：
+安装包预置三行 Provider（阿里云百炼、火山方舟、OpenAI 兼容网关），后两行默认
+`disabled: true`。在 **设置 · UI 草图 · 提供方与模型** 页直接**点击提供方卡片**即可切换：
+插件按「单选」把全部 Provider 行的 `disabled` 写入 DSH 用户层
+patch（`~/.dsh/cordis.patch.yml`，只增改这些行的 id/disabled、不触碰其他内容），DSH 热重载
+组合后立即生效，无需重启：
 
 ```yaml
 - id: image-dashscope
-  disabled: true
-- id: image-volcengine
   disabled: false
+- id: image-volcengine
+  disabled: true
+- id: image-openai-compat
+  disabled: true # OpenAI 兼容网关默认未启用
 ```
 
 详见 [bundle README](bundle/ui-mockup/README.md)。

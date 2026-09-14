@@ -3,6 +3,7 @@ import {
   DEFAULT_PROVIDER_ID,
   PROVIDER_REGISTRY,
   mergeProviderConfigRow,
+  normalizeBaseUrl,
   providerMetaOf,
   providerOf,
   restateProviderConfig,
@@ -56,6 +57,26 @@ describe('提供方元数据查找', () => {
     expect(fallback.hints.wireframe).toEqual(['', 'qwen-image-3.0'])
     expect(fallback.hints.highFidelity).toEqual(['', 'qwen-image-3.0-pro'])
     expect(fallback.hints.draft).toEqual(['', 'qwen-image-3.0'])
+  })
+})
+
+describe('网关地址归一与校验', () => {
+  it('去空白与尾部斜杠，空串视为合法（未配置）', () => {
+    expect(normalizeBaseUrl('  https://gw.test/v1/  ')).toEqual({
+      value: 'https://gw.test/v1',
+      valid: true,
+    })
+    expect(normalizeBaseUrl('   ')).toEqual({ value: '', valid: true })
+    expect(normalizeBaseUrl('https://gw.test/v1///')).toEqual({
+      value: 'https://gw.test/v1',
+      valid: true,
+    })
+  })
+
+  it('非空但非 http/https 前缀判为非法（宿主与面板同口径）', () => {
+    expect(normalizeBaseUrl('ftp://gw.test').valid).toBe(false)
+    expect(normalizeBaseUrl('gw.test/v1').valid).toBe(false)
+    expect(normalizeBaseUrl('http://gw.test').valid).toBe(true)
   })
 })
 

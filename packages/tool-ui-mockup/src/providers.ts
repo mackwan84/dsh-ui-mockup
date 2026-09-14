@@ -127,6 +127,16 @@ export function providerOf(id: string): ProviderMeta | undefined {
   return PROVIDER_REGISTRY.find((meta) => meta.id === id)
 }
 
+/**
+ * 网关地址归一 + 校验：去空白与尾部斜杠；空串视为「未配置」（合法），
+ * 非空则必须以 http/https 开头。宿主端点与设置面板共用同一口径，
+ * 避免「面板放行、宿主拒绝」这类割裂。
+ */
+export function normalizeBaseUrl(raw: string): { value: string; valid: boolean } {
+  const value = raw.trim().replace(/\/+$/, '')
+  return { value, valid: value === '' || /^https?:\/\//.test(value) }
+}
+
 /** image 服务未挂载 / 状态端点不可达时的面板渲染回退条目：
  *  凭据名随默认提供方（与 0.2.0 面板口径一致，元数据表测试锁定）；
  *  模型候选保留通用千问系。仅用于渲染，绝不进入补丁写入、探测或切换目标。 */

@@ -123,9 +123,24 @@ function createConnection({
   providerModels?: string[] | 'degraded'
 } = {}) {
   let switchRequested = false
+  // 生效地址随 provider/baseurl/set 落位而变，模拟宿主热重载后 provider/status 回显新值
+  let currentBaseUrl = baseUrl
+  // 归一化调用日志（去 ui-mockup/ 前缀），供断言读取——call.mock.calls 保留原始带前缀端点
+  const calls: Array<[string, unknown]> = []
   const call = vi.fn(
-    (_channel: string, endpoint: string, _payload?: unknown): Promise<RpcResultLike<unknown>> => {
+    (
+      _channel: string,
+      rawEndpoint: string,
+      _payload?: unknown,
+    ): Promise<RpcResultLike<unknown>> => {
+      // 0.1.5 起客户端走共享 /api 通道，端点名带 ui-mockup/ 前缀；桩内归一为裸端点名
+      const endpoint = rawEndpoint.replace(/^ui-mockup\//, '')
+      calls.push([endpoint, _payload])
       if (endpoint === 'provider/switch' && pendingSwitch) switchRequested = true
+      if (endpoint === 'provider/baseurl/set') {
+        const next = (_payload as { baseUrl?: unknown })?.baseUrl
+        if (typeof next === 'string') currentBaseUrl = next
+      }
       const value =
         endpoint === 'overview'
           ? {
@@ -137,7 +152,7 @@ function createConnection({
             ? {
                 active:
                   switchRequested && pendingLandsBeforeRefresh ? 'volcengine' : activeProvider,
-                baseUrl,
+                baseUrl: currentBaseUrl,
               }
             : endpoint === 'provider/switch' && pendingSwitch
               ? { active: 'dashscope', pending: true }
@@ -169,7 +184,7 @@ function createConnection({
     },
   )
   const connection: ConnectionFace = { isLoopback: true, rpc: { call } }
-  return { connection, call }
+  return { connection, call, calls }
 }
 
 function mountPanel(
@@ -183,11 +198,11 @@ function mountPanel(
     providerModels?: string[] | 'degraded'
   } = {},
 ) {
-  const { connection, call } = createConnection(options)
+  const { connection, call, calls } = createConnection(options)
   const view = render(
     <UiMockupSection t={t} prefs={options.prefs ?? createPrefs()} connection={connection} />,
   )
-  return { ...view, call }
+  return { ...view, call, calls }
 }
 
 describe('UiMockupSection tabs', () => {
@@ -324,7 +339,7 @@ describe('Provider switch state', () => {
 
 describe('OpenAI 兼容连接配置卡', () => {
   it('openai-compat 生效时回显生效地址，保存走 provider/baseurl/set', async () => {
-    const { call } = mountPanel({
+    const { calls } = mountPanel({
       activeProvider: 'openai-compat',
       baseUrl: 'https://old-gw.test/v1',
     })
@@ -337,22 +352,22 @@ describe('OpenAI 兼容连接配置卡', () => {
     fireEvent.change(input, { target: { value: 'https://gw.test/v1/' } })
     fireEvent.click(screen.getByRole('button', { name: '保存网关地址' }))
     await waitFor(() => {
-      const hit = call.mock.calls.find((entry) => entry[1] === 'provider/baseurl/set')
+      const hit = calls.find((entry) => entry[0] === 'provider/baseurl/set')
       expect(hit).toBeDefined()
       // 客户端先做同款归一：去尾部斜杠再发
-      expect(hit?.[2]).toEqual({ baseUrl: 'https://gw.test/v1' })
+      expect(hit?.[1]).toEqual({ baseUrl: 'https://gw.test/v1' })
     })
     expect(await screen.findByText(zh['panel.connection.saved'])).toBeTruthy()
   })
 
   it('非法地址在客户端即被拒绝，不发起 RPC', async () => {
-    const { call } = mountPanel({ activeProvider: 'openai-compat', baseUrl: '' })
+    const { calls } = mountPanel({ activeProvider: 'openai-compat', baseUrl: '' })
     fireEvent.click(screen.getByRole('tab', { name: '提供方与模型' }))
     const input = await screen.findByLabelText('网关地址 baseUrl')
     fireEvent.change(input, { target: { value: 'ftp://gw.test' } })
     fireEvent.click(screen.getByRole('button', { name: '保存网关地址' }))
     expect(await screen.findByText(zh['panel.connection.invalid'])).toBeTruthy()
-    expect(call.mock.calls.some((entry) => entry[1] === 'provider/baseurl/set')).toBe(false)
+    expect(calls.some((entry) => entry[0] === 'provider/baseurl/set')).toBe(false)
   })
 
   it('baseUrl 为空时测试连接置灰，配置地址后恢复可用', async () => {
@@ -388,6 +403,27 @@ describe('模型发现建议与手填', () => {
 
     fireEvent.change(input, { target: { value: 'custom-model-x' } })
     await waitFor(() => expect(input.value).toBe('custom-model-x'))
+  })
+
+  it('保存 baseUrl 后重新拉取模型建议（首次配地址即能拿到网关建议）', async () => {
+    // 初始地址为空→宿主降级；保存后 provider/status 回显新地址，
+    // effect 因 effectiveBaseUrl 变化重跑，再次调 provider/models
+    const { calls } = mountPanel({
+      activeProvider: 'openai-compat',
+      baseUrl: '',
+      providerModels: ['gpt-image-2', 'my-gw-model'],
+    })
+    fireEvent.click(screen.getByRole('tab', { name: '提供方与模型' }))
+    const input = await screen.findByLabelText<HTMLInputElement>('网关地址 baseUrl')
+    // 等提供方状态落定后记下现有 provider/models 调用次数（挂载期会多次触发）
+    const modelsCalls = () => calls.filter((entry) => entry[0] === 'provider/models').length
+    await waitFor(() => expect(modelsCalls()).toBeGreaterThanOrEqual(1))
+    const before = modelsCalls()
+
+    fireEvent.change(input, { target: { value: 'https://gw.test/v1' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存网关地址' }))
+    // 保存后 effectiveBaseUrl 变化→effect 重跑→provider/models 再被调用
+    await waitFor(() => expect(modelsCalls()).toBeGreaterThan(before))
   })
 
   it('模型拉取降级时静默回退静态候选：无错误提示，手填仍可用', async () => {
@@ -563,33 +599,33 @@ describe('PreferencesPage dirty state', () => {
 
 describe('HistoryPage search', () => {
   it('输入草稿时保留当前结果并提示，点击搜索后从第 1 页提交', async () => {
-    const { call } = mountPanel({ historyTotal: 6 })
+    const { calls } = mountPanel({ historyTotal: 6 })
     fireEvent.click(screen.getByRole('tab', { name: '生成历史' }))
     const search = await screen.findByRole('searchbox', { name: '搜索生成历史' })
     await waitFor(() => {
-      expect(call.mock.calls.filter((args) => args[1] === 'history/list')).toHaveLength(1)
+      expect(calls.filter((args) => args[0] === 'history/list')).toHaveLength(1)
     })
 
     fireEvent.change(search, { target: { value: '登录' } })
-    expect(call.mock.calls.filter((args) => args[1] === 'history/list')).toHaveLength(1)
+    expect(calls.filter((args) => args[0] === 'history/list')).toHaveLength(1)
     expect(screen.getByRole('status').textContent).toContain('搜索条件已更改')
 
     fireEvent.click(screen.getByRole('button', { name: '搜索' }))
     await waitFor(() => {
-      const historyCalls = call.mock.calls.filter((args) => args[1] === 'history/list')
+      const historyCalls = calls.filter((args) => args[0] === 'history/list')
       expect(historyCalls).toHaveLength(2)
-      expect(historyCalls[1]?.[2]).toMatchObject({ query: '登录', page: 1 })
+      expect(historyCalls[1]?.[1]).toMatchObject({ query: '登录', page: 1 })
     })
 
     fireEvent.click(screen.getByRole('button', { name: '下一页' }))
     await waitFor(() => {
-      const historyCalls = call.mock.calls.filter((args) => args[1] === 'history/list')
-      expect(historyCalls.at(-1)?.[2]).toMatchObject({ query: '登录', page: 2 })
+      const historyCalls = calls.filter((args) => args[0] === 'history/list')
+      expect(historyCalls.at(-1)?.[1]).toMatchObject({ query: '登录', page: 2 })
     })
   })
 
   it('按 Enter 与搜索按钮使用相同的提交语义', async () => {
-    const { call } = mountPanel()
+    const { calls } = mountPanel()
     fireEvent.click(screen.getByRole('tab', { name: '生成历史' }))
     const search = await screen.findByRole('searchbox', { name: '搜索生成历史' })
 
@@ -597,19 +633,19 @@ describe('HistoryPage search', () => {
     fireEvent.keyDown(search, { key: 'Enter', code: 'Enter' })
 
     await waitFor(() => {
-      const historyCalls = call.mock.calls.filter((args) => args[1] === 'history/list')
-      expect(historyCalls.at(-1)?.[2]).toMatchObject({ query: '仪表盘', page: 1 })
+      const historyCalls = calls.filter((args) => args[0] === 'history/list')
+      expect(historyCalls.at(-1)?.[1]).toMatchObject({ query: '仪表盘', page: 1 })
     })
   })
 
   it('清空历史后仍按已提交条件重载结果', async () => {
-    const { call } = mountPanel({ historyTotal: 6 })
+    const { calls } = mountPanel({ historyTotal: 6 })
     fireEvent.click(screen.getByRole('tab', { name: '生成历史' }))
     const search = await screen.findByRole('searchbox', { name: '搜索生成历史' })
     fireEvent.change(search, { target: { value: '登录' } })
     fireEvent.click(screen.getByRole('button', { name: '搜索' }))
     await waitFor(() => {
-      expect(call.mock.calls.filter((args) => args[1] === 'history/list')).toHaveLength(2)
+      expect(calls.filter((args) => args[0] === 'history/list')).toHaveLength(2)
     })
 
     fireEvent.change(search, { target: { value: '仪表盘' } })
@@ -619,9 +655,9 @@ describe('HistoryPage search', () => {
     fireEvent.click(screen.getByRole('button', { name: '确认清空?' }))
 
     await waitFor(() => {
-      expect(call.mock.calls.some((args) => args[1] === 'history/clear')).toBe(true)
-      const historyCalls = call.mock.calls.filter((args) => args[1] === 'history/list')
-      expect(historyCalls.at(-1)?.[2]).toMatchObject({ query: '登录', page: 1 })
+      expect(calls.some((args) => args[0] === 'history/clear')).toBe(true)
+      const historyCalls = calls.filter((args) => args[0] === 'history/list')
+      expect(historyCalls.at(-1)?.[1]).toMatchObject({ query: '登录', page: 1 })
     })
   })
 
@@ -634,13 +670,13 @@ describe('HistoryPage search', () => {
       name: '只看方向稿',
     })
     await waitFor(() => {
-      expect(first.call.mock.calls.filter((args) => args[1] === 'history/list')).toHaveLength(1)
+      expect(first.calls.filter((args) => args[0] === 'history/list')).toHaveLength(1)
     })
 
     fireEvent.click(draftOnly)
     await waitFor(() => {
-      const historyCalls = first.call.mock.calls.filter((args) => args[1] === 'history/list')
-      expect(historyCalls.at(-1)?.[2]).toMatchObject({ draftOnly: true, page: 1 })
+      const historyCalls = first.calls.filter((args) => args[0] === 'history/list')
+      expect(historyCalls.at(-1)?.[1]).toMatchObject({ draftOnly: true, page: 1 })
     })
     expect(draftOnly.checked).toBe(true)
 
@@ -649,9 +685,9 @@ describe('HistoryPage search', () => {
     const second = createConnection({ historyTotal: 6 })
     view.rerender(<UiMockupSection t={t} prefs={prefs} connection={second.connection} />)
     await waitFor(() => {
-      const historyCalls = second.call.mock.calls.filter((args) => args[1] === 'history/list')
+      const historyCalls = second.calls.filter((args) => args[0] === 'history/list')
       expect(historyCalls).toHaveLength(1)
-      expect(historyCalls[0]?.[2]).not.toHaveProperty('draftOnly')
+      expect(historyCalls[0]?.[1]).not.toHaveProperty('draftOnly')
     })
     expect(screen.getByRole<HTMLInputElement>('checkbox', { name: '只看方向稿' }).checked).toBe(
       false,

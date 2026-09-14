@@ -31,7 +31,13 @@ import {
   type ConnectionFace,
   type PrefScope,
 } from './shared.js'
-import { DEFAULT_PROVIDER_ID, PROVIDER_REGISTRY, providerMetaOf, providerOf } from '../providers.js'
+import {
+  DEFAULT_PROVIDER_ID,
+  PROVIDER_REGISTRY,
+  normalizeBaseUrl,
+  providerMetaOf,
+  providerOf,
+} from '../providers.js'
 import type { NS, UiMockupKey } from './locales.js'
 import panelCss from './settings-panel.css?inline'
 
@@ -623,11 +629,12 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
   /** 保存网关地址（仅 openai-compat）：宿主写用户层补丁 config 节并热重载落位，
    *  与切换提供方同款「几秒落位」体验；pending 语义同切换。 */
   const saveBaseUrl = async () => {
-    const raw = (baseUrlDraft ?? effectiveBaseUrl).trim().replace(/\/+$/, '')
-    if (raw !== '' && !/^https?:\/\//.test(raw)) {
+    const normalized = normalizeBaseUrl(baseUrlDraft ?? effectiveBaseUrl)
+    if (!normalized.valid) {
       setBaseUrlNotice({ kind: 'error', text: t('panel.connection.invalid') })
       return
     }
+    const raw = normalized.value
     setBaseUrlBusy(true)
     setBaseUrlNotice(null)
     try {
@@ -650,7 +657,9 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
 
   // 模型发现（仅 openai-compat 有意义）：拉取网关 /v1/models 建议合并静态候选；
   // 未配置/网络错/HTML-200/非 openai-compat 一律由宿主降级为空列表——静默回退
-  // 静态 hints + 手填，绝不弹错误（建议是锦上添花，不阻塞配置）
+  // 静态 hints + 手填，绝不弹错（建议是锦上添花，不阻塞配置）。
+  // 依赖含 effectiveBaseUrl：首次在连接卡填地址并保存后 providerId 不变，但生效
+  // 地址已变，重新拉取才能拿到网关建议；地址为空/非 openai-compat 时宿主仍降级，多调无副作用。
   const [fetchedModels, setFetchedModels] = useState<string[]>([])
   useEffect(() => {
     let alive = true
@@ -663,7 +672,7 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
     return () => {
       alive = false
     }
-  }, [connection, providerId])
+  }, [connection, providerId, effectiveBaseUrl])
 
   /** 下拉建议 = 注册表静态候选 ∪ 网关拉取建议（去重排序；空串「跟随默认」不进建议）。 */
   const suggestionsOf = (tier: 'wireframe' | 'highFidelity' | 'draft'): string[] =>

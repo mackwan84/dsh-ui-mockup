@@ -29,13 +29,16 @@ export type RpcResultLike<T> =
  * 注意：宿主信封校验要求 payload 必填（clientRequestSchema 的 payload 为
  * z.unknown() 非可选），JSON.stringify 会丢弃值为 undefined 的字段，因此
  * 无参端点（overview / test-connection）也必须发送一个 {}。
+ *
+ * 0.1.5 起面板端点挂在共享 /api 通道上（宿主 connection.rpc.handle 注册专属通道
+ * 在 cordis 隔离下拿不到 webServer 会静默失败）；这里改走 /api，端点名加 ui-mockup/ 前缀。
  */
 export async function callPanel<T>(
   connection: ConnectionFace,
   endpoint: string,
   payload: Record<string, unknown> = {},
 ): Promise<T> {
-  const result = await connection.rpc.call('/ui-mockup', endpoint, payload ?? {})
+  const result = await connection.rpc.call('/api', `ui-mockup/${endpoint}`, payload ?? {})
   if (!result.ok) throw new Error(`[${result.error.code}] ${result.error.message}`)
   return result.value as T
 }

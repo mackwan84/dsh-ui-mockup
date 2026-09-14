@@ -156,38 +156,57 @@ class SettingsStub extends Service {
 type CompositionRpcResult =
   { ok: true; value: unknown } | { ok: false; error: { code: string; message: string } }
 
-/** connection 桩：记录私有频道注册并支持测试内直接调用端点。 */
+/** connection 桩：记录 /api 精确 Fetch 路由注册并支持测试内直接调用端点。 */
 class ConnectionStub extends Service {
-  readonly channels = new Map<
-    string,
-    (endpoint: string, payload: unknown, signal: AbortSignal) => Promise<CompositionRpcResult>
-  >()
+  /** path → Fetch 处理器（/api/ui-mockup/<endpoint>）。 */
+  readonly fetchRoutes = new Map<string, (request: Request) => Promise<Response>>()
 
   constructor(ctx: Context) {
     super(ctx, 'connection')
   }
 
-  get rpc() {
+  get fetch() {
     return {
-      handle: (
-        channel: string,
-        handler: (
-          endpoint: string,
-          payload: unknown,
-          signal: AbortSignal,
-        ) => Promise<CompositionRpcResult>,
-      ) => {
-        this.channels.set(channel, handler)
-        return () => {}
+      register: (route: {
+        path: string
+        methods: readonly string[]
+        requestBody: string
+        fetch: (request: Request) => Promise<Response>
+      }) => {
+        this.fetchRoutes.set(route.path, route.fetch)
+        return () => Promise.resolve()
       },
     }
   }
 
-  /** 测试辅助：直接调用已注册频道的端点。 */
+  /** 测试辅助：直接调用已注册端点。兼容旧私有通道写法 ('/ui-mockup', '<ep>')，
+   *  内部统一归一到 /api/ui-mockup/<ep>。 */
   async call(channel: string, endpoint: string, payload?: unknown): Promise<CompositionRpcResult> {
-    const handler = this.channels.get(channel)
-    if (handler === undefined) throw new Error(`channel not registered: ${channel}`)
-    return handler(endpoint, payload ?? {}, new AbortController().signal)
+    const path = channel === '/ui-mockup' ? `/api/ui-mockup/${endpoint}` : `${channel}/${endpoint}`
+    const handler = this.fetchRoutes.get(path)
+    if (handler === undefined) throw new Error(`route not registered: ${path}`)
+    const request = new Request(`http://test.local${path}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        type: 'client-request',
+        rpcId: 'test-rpc',
+        method: endpoint,
+        payload: payload ?? {},
+      }),
+    })
+    const response = await handler(request)
+    const envelope = (await response.json()) as {
+      type: string
+      rpcId: string
+      result: CompositionRpcResult
+    }
+    return envelope.result
+  }
+
+  /** 端点是否已注册（供断言）。 */
+  hasRoute(path: string): boolean {
+    return this.fetchRoutes.has(path)
   }
 }
 
@@ -898,11 +917,13 @@ describe('ui-mockup real dynamic composition', () => {
     }
   })
 
-  it('registers the /ui-mockup rpc channel and the preferences namespace', async () => {
+  it('registers the panel /api routes and the preferences namespace', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
     try {
       const booted = await bootComposition(dir)
-      expect(booted.connection.channels.has('/ui-mockup')).toBe(true)
+      // 0.1.5 起面板端点挂在共享 /api 通道的精确路由上
+      expect(booted.connection.hasRoute('/api/ui-mockup/overview')).toBe(true)
+      expect(booted.connection.hasRoute('/api/ui-mockup/test-connection')).toBe(true)
       expect(booted.settings.namespaces).toContain('ui-mockup')
     } finally {
       await rm(dir, { recursive: true, force: true })
