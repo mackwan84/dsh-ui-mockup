@@ -19,11 +19,12 @@ dsh-ui-mockup/
 │   ├── image/                         # @mackwan84/dsh-image · Service Definition（图像生成/编辑契约）
 │   ├── image-dashscope/               # @mackwan84/dsh-image-dashscope · 百炼 Provider（文生图 + I2I 参考图）
 │   ├── image-volcengine/              # @mackwan84/dsh-image-volcengine · 火山方舟 Provider（同步 API + 指令编辑，M4）
+│   ├── image-openai-compat/           # @mackwan84/dsh-image-openai-compat · OpenAI 兼容网关 Provider（最小子集，v0.3.0）
 │   └── tool-ui-mockup/                # @mackwan84/dsh-tool-ui-mockup · Consumer
 │                                      #   （ui_mockup 工具 + 提示词 + 客户端卡片 + 设置面板 + i18n）
 ├── bundle/
 │   └── ui-mockup/                     # @mackwan84/dsh-ui-mockup-bundle · dsh.bundle.patch 挂载行
-│                                      #   （两行 Provider：dashscope 启用 / volcengine disabled: true）
+│                                      #   （三行 Provider：dashscope 启用 / volcengine、openai-compat disabled: true）
 └── docs/
     ├── README.md                       # 文档导航与维护约定
     ├── guides/                         # 当前产品使用指南
@@ -97,10 +98,27 @@ dsh plugin --profile web add github:mackwan84/dsh-ui-mockup#main   # 需 prepare
 - 编辑：Seedream 同端点（image + prompt）；**mask 不受支持**（方舟无掩码编辑）→ `NOT_IMPLEMENTED`；
 - 多图请求串行拆单图调用（组图参数未在本仓验证）；
 - 限流：HTTP 429（`ModelAccountIpmRateLimitExceeded` 等）→ 25s × 2 退避；
-- 提供方切换：bundle 预置两行 Provider（volcengine 默认 `disabled: true`），用户 patch 翻转
-  disabled；`ctx.image` 单槽位互斥，对齐 DSH `llm-deepseek` 单行语义；
+- 提供方切换：bundle 预置三行 Provider（volcengine 与 openai-compat 默认 `disabled: true`），
+  用户 patch 翻转 disabled；`ctx.image` 单槽位互斥，对齐 DSH `llm-deepseek` 单行语义；
 - 面板：`provider/status` 端点按 `providerId`（契约成员）返回生效方；`test-connection`
-  按生效提供方探测对应网关（空体 POST，401 无效 / 400·429 鉴权已过）。
+  按生效提供方探测对应网关（空体 POST，401 无效 / 400·429 鉴权已过）；
+  无默认网关的提供方（openai-compat）未配置 baseUrl 时探测返回可操作原因而非网络异常。
+
+### 6.2.2 Provider · OpenAI 兼容网关（image-openai-compat，v0.3.0）
+
+- 面向 one-api / new-api 等私有聚合网关与官方 OpenAI（可配特例）：
+  `POST {baseUrl}/images/generations` 同步协议，baseUrl 填到 `/v1 为止、默认空、
+  未配置报明确错误、不自动补前缀；
+- **最小公共子集**：`model + prompt + n + size` 四参数，无 `response_format`/`watermark`
+  等任何专属参数；`n` 原生下传（单次请求多图，不串行拆单）；尺寸 `W*H → WxH` 归一后
+  透传，本地不设预设白名单、不改比例，由网关自行校验；
+- 双返回格式归一：`data[].b64_json` → data URL；`data[].url` 原样透传（消费方现有
+  下载链路立即转存）；错误体兼容 `error.{code,message}` 包裹与顶层 `code/message`；
+- 能力边界：参考图（I2I）与指令编辑显式 `NOT_IMPLEMENTED`——风格锚点经消费方元数据表
+  的 `supportsReference` 闸门一律跳过注入并在结果消息说明；
+- 凭据：`OPENAI_COMPAT_API_KEY`（credentials seam → 启动环境 → `MISSING_CREDENTIAL`）；
+- 无内置退避重试：429 直接 `RATE_LIMITED` 上报；已知网关方言（`n>1` 拒绝、模型不存在
+  503、无 `/v1` 前缀返回 HTML-200）见 `docs/references/`。
 
 ### 6.3 Consumer 工具（tool-ui-mockup）
 

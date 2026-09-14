@@ -84,6 +84,7 @@ export const zh = {
   'panel.provider.title': '提供方',
   'panel.provider.dashscopeName': '阿里云百炼 DashScope',
   'panel.provider.volcengineName': '火山方舟 Volcengine',
+  'panel.provider.openaiCompatName': 'OpenAI 兼容网关',
   'panel.provider.unknown': '未挂载图像提供方',
   'panel.provider.fallbackActive': '默认生效（DashScope）',
   'panel.provider.unknownHint':
@@ -262,6 +263,7 @@ export const en = {
   'panel.provider.title': 'Provider',
   'panel.provider.dashscopeName': 'Alibaba DashScope',
   'panel.provider.volcengineName': 'Volcengine Ark',
+  'panel.provider.openaiCompatName': 'OpenAI-compatible gateway',
   'panel.provider.unknown': 'No image provider mounted',
   'panel.provider.fallbackActive': 'Active by default (DashScope)',
   'panel.provider.unknownHint':

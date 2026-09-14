@@ -90,13 +90,18 @@ DASHSCOPE_API_KEY=sk-xxxx
 
 ### 4.4 切换提供方（M4）
 
-安装包同时内置阿里云百炼（默认启用）与火山方舟两个 Provider（`ctx.image` 单槽位，
-同时只生效一个）。在 **设置 · UI 草图 · 提供方与模型** 页**点击提供方卡片**即可切换：
-插件把两行 id 定向 `disabled` 写入 DSH 用户层 patch（`~/.dsh/cordis.patch.yml`），
-组合热重载后立即生效，无需重启。
+安装包同时内置阿里云百炼（默认启用）、火山方舟与 OpenAI 兼容网关三个 Provider
+（`ctx.image` 单槽位，同时只生效一个）。在 **设置 · UI 草图 · 提供方与模型** 页
+**点击提供方卡片**即可切换：插件把各行 id 定向 `disabled` 写入 DSH 用户层 patch
+（`~/.dsh/cordis.patch.yml`），组合热重载后立即生效，无需重启。
 
-火山方舟用 `ARK_API_KEY` 凭据（面板凭据卡随生效提供方自动切换读写目标）。
+火山方舟用 `ARK_API_KEY` 凭据，OpenAI 兼容网关用 `OPENAI_COMPAT_API_KEY`
+（面板凭据卡随生效提供方自动切换读写目标）。
 编辑模式（`baseImage` + `editNote` 指令重绘）当前仅火山方舟支持。
+OpenAI 兼容网关面向 one-api / new-api 等私有聚合网关：只承诺
+`model/prompt/n/size` 最小参数子集与 `b64_json`/`url` 双返回格式，
+不支持参考图（I2I，风格锚点会被自动跳过）与指令编辑；网关地址未配置时
+生成与测试连接会给出明确错误。
 
 ## 5. 使用指南
 

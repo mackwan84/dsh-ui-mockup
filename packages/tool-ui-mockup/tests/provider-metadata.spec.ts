@@ -16,7 +16,7 @@ describe('供应商元数据表完整性', () => {
       expect(meta.patchId, `${meta.id} patchId 非空`).toMatch(/^image-/)
       expect(meta.packageName, `${meta.id} 包名形如 npm scope`).toMatch(/^@[^/]+\/dsh-image-/)
       expect(meta.credential, `${meta.id} 凭据名非空`).toMatch(/^[A-Z][A-Z0-9_]*$/)
-      expect(meta.probeBaseUrl, `${meta.id} 探测网关是 https 地址`).toMatch(/^https:\/\//)
+      expect(meta.probeBaseUrl, `${meta.id} 探测网关为空或 https 地址`).toMatch(/^(|https:\/\/.*)$/)
       expect(meta.probePath, `${meta.id} 探测路径以 / 开头`).toMatch(/^\//)
       expect(meta.nameKey, `${meta.id} 名称词条键非空`).toMatch(/^panel\.provider\./)
       for (const tier of ['wireframe', 'highFidelity', 'draft'] as const) {

@@ -659,7 +659,7 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
     tools.register({
       name: 'ui_mockup',
       description:
-        '调用外部图像生成接口, 为界面/页面生成线框图(wireframe)或高保真(high-fidelity)设计草图, 供用户在编写实现代码之前确认界面方向。图片显示在对话中并保存到 DSH 设计资产库($DSH_HOME/mockups/<工作区>/images/)。用户需要修改时优先传 description、fidelity、baseImage、editNote, 其中生成图用 design/images/<文件名> 引用, 不要复制图片到项目。模型分层默认由设置面板「提供方与模型」管理(未配置时回落生效提供方的内置分层默认); 用户未点名模型时不要传 model 参数, 以免绕过面板配置。传 reference 参数可用已确认的图作为风格基准(图生图), 保持多页面风格一致。接口限流时自动退避重试。需要生效提供方的凭据(阿里云百炼 DASHSCOPE_API_KEY 或火山方舟 ARK_API_KEY, 取决于面板生效提供方, 通过凭据服务或环境变量提供)。',
+        '调用外部图像生成接口, 为界面/页面生成线框图(wireframe)或高保真(high-fidelity)设计草图, 供用户在编写实现代码之前确认界面方向。图片显示在对话中并保存到 DSH 设计资产库($DSH_HOME/mockups/<工作区>/images/)。用户需要修改时优先传 description、fidelity、baseImage、editNote, 其中生成图用 design/images/<文件名> 引用, 不要复制图片到项目。模型分层默认由设置面板「提供方与模型」管理(未配置时回落生效提供方的内置分层默认); 用户未点名模型时不要传 model 参数, 以免绕过面板配置。传 reference 参数可用已确认的图作为风格基准(图生图), 保持多页面风格一致。接口限流时自动退避重试。需要生效提供方的凭据(DASHSCOPE_API_KEY / ARK_API_KEY / OPENAI_COMPAT_API_KEY, 取决于面板生效提供方, 通过凭据服务或环境变量提供)。',
       parameters: {
         type: 'object',
         properties: {
@@ -852,10 +852,11 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
               : tierModel || undefined
           // 风格锚点联动：调用未显式传 reference 时自动引用当前锚点（I2I 保持多页风格一致）。
           // 参考图能力按生效提供方分流（经元数据表的 supportsReference 闸门）：
-          // DashScope 当前支持 qwen-image 与 Wan 2.7；volcengine 的 seedream 系原生支持，
-          // 均无白名单约束。模型为空串（交 Provider 自决）时仍注入：各提供方分层默认均支持参考图。
+          // DashScope 当前支持 qwen-image 与 Wan 2.7；volcengine 的 seedream 系原生支持；
+          // openai-compat 最小公共子集不含参考图，无论模型为何一律跳过注入并说明。
           let anchorInjected: string | null = null
           let anchorSkippedForModel: string | null = null
+          let anchorSkipHint = '请更换支持参考图的模型或提供方'
           // 编辑模式不注入锚点：基准图本身就是风格基准，再叠参考图会互相干扰
           if (reference === undefined && !isEdit) {
             const anchorFile = await readAnchor(workspaceRoot)
@@ -865,10 +866,11 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
               )
               const referenceUnsupported =
                 activeProviderMeta?.supportsReference !== undefined &&
-                effectiveModel !== undefined &&
                 !activeProviderMeta.supportsReference(effectiveModel)
               if (referenceUnsupported) {
-                anchorSkippedForModel = effectiveModel
+                // 模型未定（交 Provider 自决）时记空串：提示按「提供方不支持」措辞组织
+                anchorSkippedForModel = effectiveModel ?? ''
+                anchorSkipHint = activeProviderMeta?.referenceSkipHint ?? anchorSkipHint
               } else {
                 anchorInjected = anchorFile
                 reference = `${IMAGE_DIR}/${anchorFile}`
@@ -1062,7 +1064,11 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
             message += ` 已按风格锚点 ${anchorInjected} 自动注入参考图(可在设置 · UI 草图 · 生成历史中解除)。`
           }
           if (anchorSkippedForModel !== null) {
-            message += ` 当前生效模型 ${anchorSkippedForModel} 不支持参考图(I2I), 已跳过风格锚点注入; 请改用 qwen-image 或 wan2.7-image 系列。`
+            const subject =
+              anchorSkippedForModel !== ''
+                ? `当前生效模型 ${anchorSkippedForModel}`
+                : '当前生效提供方'
+            message += ` ${subject} 不支持参考图(I2I), 已跳过风格锚点注入; ${anchorSkipHint}。`
           }
           if (failures.length > 0) {
             message += buildFailuresNotice(failures)
@@ -1437,7 +1443,20 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
               if (apiKey === undefined || apiKey === '') {
                 return rpcOk({ ok: false, reason: 'missing-key' })
               }
-              const baseUrl = readProviderConfigString(service, 'baseUrl') ?? probeMeta.probeBaseUrl
+              const baseUrl = (
+                readProviderConfigString(service, 'baseUrl') ?? probeMeta.probeBaseUrl
+              )
+                .trim()
+                .replace(/\/+$/, '')
+              if (baseUrl === '') {
+                // 无默认网关的提供方（如 openai-compat）未配置地址时给出可操作原因，
+                // 而不是让 fetch 因空 URL 抛难归因的解析错误
+                return rpcOk({
+                  ok: false,
+                  reason: 'gateway',
+                  detail: '未配置网关地址(baseUrl), 请先在设置面板「连接配置」中填写',
+                })
+              }
               try {
                 // 鉴权探测：向图像生成端点发空体 POST（不消耗生成配额）。
                 // 两家网关都是鉴权先于参数校验：无效 key → 401；

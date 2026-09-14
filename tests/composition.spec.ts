@@ -9,6 +9,7 @@ import Loader from '@deepseek-ai/cordis-plugin-loader'
 import { ImageGenerationService } from '@mackwan84/dsh-image'
 import DashscopeImageProvider from '@mackwan84/dsh-image-dashscope'
 import VolcengineImageProvider from '@mackwan84/dsh-image-volcengine'
+import OpenaiCompatImageProvider from '@mackwan84/dsh-image-openai-compat'
 import {
   apply as uiMockupApply,
   inject as uiMockupInject,
@@ -230,26 +231,43 @@ interface Booted {
 
 async function bootComposition(
   dir: string,
-  options: { provider?: 'dashscope' | 'volcengine' } = {},
+  options: {
+    provider?: 'dashscope' | 'volcengine' | 'openai-compat'
+    /** 生效提供方行的 config 键值对（如 openai-compat 的 baseUrl/分层模型）。 */
+    providerConfig?: Record<string, string>
+  } = {},
 ): Promise<Booted> {
-  // 提供方行与 bundle patch 同构：默认 dashscope 启用 + volcengine 禁用（bundle 预置形态）；
-  // volcengine 场景模拟用户 patch 翻转 disabled——两行并存、单槽位只生效一个。
-  const providerRows =
-    options.provider === 'volcengine'
-      ? [
-          '- id: image-dashscope',
-          "  name: '@mackwan84/dsh-image-dashscope'",
-          '  disabled: true',
-          '- id: image-volcengine',
-          "  name: '@mackwan84/dsh-image-volcengine'",
-        ]
-      : [
-          '- id: image-dashscope',
-          "  name: '@mackwan84/dsh-image-dashscope'",
-          '- id: image-volcengine',
-          "  name: '@mackwan84/dsh-image-volcengine'",
-          '  disabled: true',
-        ]
+  // 提供方行与 bundle patch 同构：默认 dashscope 启用、其余禁用（bundle 预置形态）；
+  // 指定 provider 时模拟用户 patch 翻转 disabled——三行并存、单槽位只生效一个。
+  const providerRow = (id: string, name: string, disabled: boolean) => {
+    const lines = disabled
+      ? [`- id: ${id}`, `  name: '${name}'`, '  disabled: true']
+      : [`- id: ${id}`, `  name: '${name}'`]
+    if (!disabled && options.providerConfig !== undefined) {
+      lines.push('  config:')
+      for (const [key, value] of Object.entries(options.providerConfig)) {
+        lines.push(`    ${key}: ${JSON.stringify(value)}`)
+      }
+    }
+    return lines
+  }
+  const providerRows = [
+    ...providerRow(
+      'image-dashscope',
+      '@mackwan84/dsh-image-dashscope',
+      options.provider !== undefined && options.provider !== 'dashscope',
+    ),
+    ...providerRow(
+      'image-volcengine',
+      '@mackwan84/dsh-image-volcengine',
+      options.provider !== 'volcengine',
+    ),
+    ...providerRow(
+      'image-openai-compat',
+      '@mackwan84/dsh-image-openai-compat',
+      options.provider !== 'openai-compat',
+    ),
+  ]
   const configPath = join(dir, 'cordis.yml')
   await writeFile(
     configPath,
@@ -290,6 +308,7 @@ async function bootComposition(
     ['test-settings', SettingsStub],
     ['@mackwan84/dsh-image-dashscope', DashscopeImageProvider],
     ['@mackwan84/dsh-image-volcengine', VolcengineImageProvider],
+    ['@mackwan84/dsh-image-openai-compat', OpenaiCompatImageProvider],
     [
       '@mackwan84/dsh-tool-ui-mockup',
       { name: uiMockupName, inject: uiMockupInject, apply: uiMockupApply },
@@ -342,6 +361,7 @@ beforeEach(() => {
   vi.stubEnv('DSH_HOME', home)
   vi.stubEnv('DASHSCOPE_API_KEY', 'sk-composition-key')
   vi.stubEnv('ARK_API_KEY', 'ark-composition-key')
+  vi.stubEnv('OPENAI_COMPAT_API_KEY', 'compat-composition-key')
   return () => undefined
 })
 
@@ -1423,12 +1443,86 @@ describe('ui-mockup real dynamic composition', () => {
     const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
     try {
       const booted = await bootComposition(dir, { provider: 'volcengine' })
-      // 两行并存但单槽位只生效一个：禁用的 dashscope 不注册，火山行胜出
+      // 多行并存但单槽位只生效一个：禁用的 dashscope 不注册，火山行胜出
       const service = booted.ctx.get('image') as unknown as InstanceType<
         typeof VolcengineImageProvider
       >
       expect(service).toBeInstanceOf(VolcengineImageProvider)
       expect(service.providerId).toBe('volcengine')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('boots the openai-compat provider when the bundle row flips disabled', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+    try {
+      const booted = await bootComposition(dir, { provider: 'openai-compat' })
+      // 三行并存但单槽位只生效一个：openai-compat 行胜出，其余两家不注册
+      const service = booted.ctx.get('image') as unknown as InstanceType<
+        typeof OpenaiCompatImageProvider
+      >
+      expect(service).toBeInstanceOf(OpenaiCompatImageProvider)
+      expect(service.providerId).toBe('openai-compat')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('generates end-to-end on the openai-compat provider (four-param body + b64 归一)', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+    try {
+      const booted = await bootComposition(dir, {
+        provider: 'openai-compat',
+        providerConfig: { baseUrl: 'https://compat-gw.test/v1', wireframeModel: 'gpt-image-2' },
+      })
+
+      const bodies: Array<Record<string, unknown>> = []
+      const realFetch = globalThis.fetch
+      vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+        // b64_json 归一出的 data URL 交给真实 fetch 解码（消费方下载转存的真实链路）
+        if (url.startsWith('data:')) return realFetch(url)
+        if (url.endsWith('/images/generations')) {
+          bodies.push(JSON.parse(init?.body as string) as Record<string, unknown>)
+          const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00])
+          return new Response(
+            JSON.stringify({
+              model: 'gpt-image-2',
+              created: 0,
+              data: [{ b64_json: png.toString('base64') }],
+            }),
+            { status: 200 },
+          )
+        }
+        throw new Error(`unexpected fetch: ${url}`)
+      })
+
+      const definition = booted.tools.registered.find((item) => item.name === 'ui_mockup')!
+      const execute = definition.execute as (
+        args: Record<string, unknown>,
+        exec: { signal: AbortSignal; agent?: { session: { header: { cwd?: string } } } },
+      ) => Promise<Record<string, unknown>>
+      const value = await execute(
+        {
+          description: 'CRM 列表页',
+          fidelity: 'wireframe',
+          platform: 'web',
+          size: '1280*720',
+        },
+        { signal: new AbortController().signal, agent: { session: { header: { cwd: dir } } } },
+      )
+
+      expect(value.ok, String(value.message)).toBe(true)
+      // 最小公共子集：恰好 model/prompt/n/size 四参数，尺寸 W*H 归一 WxH
+      expect(bodies).toHaveLength(1)
+      expect(Object.keys(bodies[0]!).sort()).toEqual(['model', 'n', 'prompt', 'size'])
+      expect(bodies[0]).toMatchObject({ model: 'gpt-image-2', n: 2, size: '1280x720' })
+      // b64_json 经 data URL 归一后由消费方下载转存进资产库
+      const images = value.images as Array<{ path: string }>
+      expect(images).toHaveLength(1)
+      expect(await readFile(images[0]!.path)).toEqual(
+        Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]),
+      )
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
@@ -1654,9 +1748,16 @@ describe('ui-mockup real dynamic composition', () => {
 
       const homePatch = await readFile(join(process.env['DSH_HOME']!, 'cordis.patch.yml'), 'utf8')
       expect(homePatch).toContain('id: image-dashscope')
-      expect(homePatch).toContain('disabled: true')
       expect(homePatch).toContain('id: image-volcengine')
-      expect(homePatch).toContain('disabled: false')
+      expect(homePatch).toContain('id: image-openai-compat')
+      // N 行单选：目标行启用、其余全部禁用（行内紧随的 disabled 值逐行判定）
+      const rowDisabled = (id: string): string | undefined =>
+        /disabled: (true|false)/.exec(
+          homePatch.slice(homePatch.indexOf(`id: ${id}`), homePatch.indexOf(`id: ${id}`) + 80),
+        )?.[1]
+      expect(rowDisabled('image-dashscope')).toBe('true')
+      expect(rowDisabled('image-volcengine')).toBe('false')
+      expect(rowDisabled('image-openai-compat')).toBe('true')
     } finally {
       await rm(dir, { recursive: true, force: true })
     }

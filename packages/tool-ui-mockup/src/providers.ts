@@ -10,7 +10,10 @@
 
 /** 供应商本地化名称词条键（含未挂载回退键）；新增提供方时在此扩展。 */
 export type ProviderNameKey =
-  'panel.provider.dashscopeName' | 'panel.provider.volcengineName' | 'panel.provider.unknown'
+  | 'panel.provider.dashscopeName'
+  | 'panel.provider.volcengineName'
+  | 'panel.provider.openaiCompatName'
+  | 'panel.provider.unknown'
 
 /** 面板模型分层候选（首项空串 = 「跟随提供方默认」占位，渲染时过滤）。 */
 export interface ProviderModelHints {
@@ -46,6 +49,8 @@ export interface ProviderMeta {
   cardNotes: 'status' | 'note'
   /** 风格锚点参考图（I2I）能力闸门：false = 该模型不允许注入参考图；缺省 = 不限。 */
   supportsReference?: (model: string | undefined) => boolean
+  /** 锚点被跳过注入时的用户可操作提示（supportsReference 判定不支持时使用）。 */
+  referenceSkipHint?: string
 }
 
 /** DashScope 当前可安全接收单参考图的模型族（千问系与万相 2.7）。 */
@@ -75,6 +80,7 @@ export const PROVIDER_REGISTRY: readonly ProviderMeta[] = [
     cardNotes: 'status',
     // 模型为空串（交 Provider 自决）时仍允许注入：分层默认均支持参考图
     supportsReference: (model) => model === undefined || supportsDashscopeReference(model),
+    referenceSkipHint: '请改用 qwen-image 或 wan2.7-image 系列',
   },
   {
     id: 'volcengine',
@@ -92,6 +98,27 @@ export const PROVIDER_REGISTRY: readonly ProviderMeta[] = [
     presetDisabled: true,
     cardNotes: 'note',
     // seedream 系原生支持 image 参考图，无白名单
+  },
+  {
+    id: 'openai-compat',
+    patchId: 'image-openai-compat',
+    packageName: '@mackwan84/dsh-image-openai-compat',
+    credential: 'OPENAI_COMPAT_API_KEY',
+    // 私有网关无默认地址：探测 baseUrl 以生效配置为准，空值由宿主端点给明确 reason
+    probeBaseUrl: '',
+    probePath: '/images/generations',
+    nameKey: 'panel.provider.openaiCompatName',
+    // 静态候选来自实测网关的 gpt-image 系；设置面板另会拉取 /v1/models 动态建议
+    hints: {
+      wireframe: ['', 'gpt-image-2'],
+      highFidelity: ['', 'gpt-image-2.5-flare', 'gpt-image-2.5-sunburst'],
+      draft: ['', 'gpt-image-2'],
+    },
+    presetDisabled: true,
+    cardNotes: 'note',
+    // 最小公共子集不含参考图（I2I）：无论模型为何，风格锚点一律跳过注入
+    supportsReference: () => false,
+    referenceSkipHint: 'OpenAI 兼容最小子集不含参考图(I2I), 请解除风格锚点或换用支持参考图的提供方',
   },
 ]
 
