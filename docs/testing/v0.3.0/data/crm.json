@@ -1,8 +1,8 @@
 {
-  "revision": "CRM-R2",
+  "revision": "CRM-R3",
   "workspace": "qa-ui-mockup-crm",
   "application": "客户通 CRM",
-  "runPrefix": "QA020-CRM",
+  "runPrefix": "QA030-CRM",
   "samples": {
     "D01": {
       "description": "客户通 CRM 销售工作台，包含左侧模块导航、顶部全局搜索、销售指标卡片、商机漏斗、待办跟进列表、客户表格六个区域。所有客户、联系人与金额均为虚构测试数据。桌面布局。",
@@ -50,18 +50,18 @@
     }
   },
   "historyDescriptions": [
-    "QA020-CRM H01 CRM",
-    "QA020-CRM H02 CRM",
-    "QA020-CRM H03 CRM",
-    "QA020-CRM H04 CRM",
-    "QA020-CRM H05 CRM",
-    "QA020-CRM H06 CRM",
-    "QA020-CRM H07 CRM",
-    "QA020-CRM H08 CRM",
-    "QA020-CRM H09 CRM",
-    "QA020-CRM H10 CRM",
-    "QA020-CRM H11 CRM",
-    "QA020-CRM H12 CRM"
+    "QA030-CRM H01 CRM",
+    "QA030-CRM H02 CRM",
+    "QA030-CRM H03 CRM",
+    "QA030-CRM H04 CRM",
+    "QA030-CRM H05 CRM",
+    "QA030-CRM H06 CRM",
+    "QA030-CRM H07 CRM",
+    "QA030-CRM H08 CRM",
+    "QA030-CRM H09 CRM",
+    "QA030-CRM H10 CRM",
+    "QA030-CRM H11 CRM",
+    "QA030-CRM H12 CRM"
   ],
   "historyFixture": {
     "D08": {
@@ -77,7 +77,7 @@
   "sessionFixture": {
     "D09": {
       "sessions": ["CRM验收-A", "CRM验收-B"],
-      "descriptionPrefixes": ["QA020-CRM-SESSION-A", "QA020-CRM-SESSION-B"],
+      "descriptionPrefixes": ["QA030-CRM-SESSION-A", "QA030-CRM-SESSION-B"],
       "note": "两会话同属 qa-ui-mockup-crm 工作区，按产品规则共享历史与锚点；用于回看与计时检查，不用于证明工作区隔离"
     }
   },
