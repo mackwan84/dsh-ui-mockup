@@ -40,6 +40,7 @@ describe('0.2.0 发布元数据', () => {
         'packages/image',
         'packages/image-dashscope',
         'packages/image-volcengine',
+        'packages/image-openai-compat',
         'packages/tool-ui-mockup',
         'bundle/ui-mockup',
       ].map((path) => mkdir(resolve(fixtureRoot, path), { recursive: true })),
@@ -62,16 +63,18 @@ describe('0.2.0 发布元数据', () => {
       'pack --pack-destination ../../dist',
       'pack --pack-destination ../../dist',
       'pack --pack-destination ../../dist',
+      'pack --pack-destination ../../dist',
     ])
   })
 
-  it('五个发布包版本统一为根版本', async () => {
+  it('六个发布包版本统一为根版本', async () => {
     const rootPackage = await readJson('package.json')
     const version = String(rootPackage['version'])
     const packagePaths = [
       'packages/image/package.json',
       'packages/image-dashscope/package.json',
       'packages/image-volcengine/package.json',
+      'packages/image-openai-compat/package.json',
       'packages/tool-ui-mockup/package.json',
       'bundle/ui-mockup/package.json',
     ]
