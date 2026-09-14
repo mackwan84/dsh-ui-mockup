@@ -50,6 +50,14 @@ export function toCompatSize(size: string | undefined): string | undefined {
   return trimmed.replaceAll('*', 'x')
 }
 
+/**
+ * 网关地址归一：去空白与尾部斜杠。请求拼接与空值校验共用同一口径，
+ * 避免两处各写一份归一逻辑后口径漂移。
+ */
+function normalizeBaseUrl(raw: string): string {
+  return raw.trim().replace(/\/+$/, '')
+}
+
 /** 网关错误字段是任意 JSON 值：安全序列化为可读文本，避免 [object Object] 掩盖真实原因。 */
 function textOf(value: unknown): string {
   if (typeof value === 'string') return value
@@ -131,7 +139,7 @@ export default class OpenaiCompatImageProvider extends ImageGenerationService {
 
   async generate(spec: ImageGenerateSpec, signal?: AbortSignal): Promise<ImageGenerateResult> {
     const apiKey = await this.resolveApiKey()
-    const baseUrl = this.config.baseUrl.trim().replace(/\/+$/, '')
+    const baseUrl = normalizeBaseUrl(this.config.baseUrl)
     if (baseUrl === '') {
       throw new ImageProviderError(
         'INVALID_PARAMETER',
@@ -163,7 +171,7 @@ export default class OpenaiCompatImageProvider extends ImageGenerationService {
     const size = toCompatSize(spec.size)
     if (size !== undefined) body.size = size
 
-    const result = await this.postImages(body, apiKey, signal)
+    const result = await this.postImages(baseUrl, body, apiKey, signal)
     return result
   }
 
@@ -180,11 +188,18 @@ export default class OpenaiCompatImageProvider extends ImageGenerationService {
 
   /** 调用同步生成端点；无内置退避重试（429 直接按 RATE_LIMITED 上报，由调用方决策）。 */
   private async postImages(
+    baseUrl: string,
     body: JsonObject,
     apiKey: string,
     signal?: AbortSignal,
   ): Promise<{ model: string; images: GeneratedImage[] }> {
-    const { status, data, json } = await this.postJson('/images/generations', body, apiKey, signal)
+    const { status, data, json } = await this.postJson(
+      baseUrl,
+      '/images/generations',
+      body,
+      apiKey,
+      signal,
+    )
     if (status === 429) {
       const parsed = parseErrorBody(data)
       throw new ImageProviderError(
@@ -222,6 +237,7 @@ export default class OpenaiCompatImageProvider extends ImageGenerationService {
   }
 
   private async postJson(
+    baseUrl: string,
     path: string,
     body: JsonObject,
     apiKey: string,
@@ -233,7 +249,7 @@ export default class OpenaiCompatImageProvider extends ImageGenerationService {
     let res: Response
     let text: string
     try {
-      res = await fetch(this.config.baseUrl.trim().replace(/\/+$/, '') + path, {
+      res = await fetch(baseUrl + path, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -263,10 +279,15 @@ export default class OpenaiCompatImageProvider extends ImageGenerationService {
     let data: JsonObject
     let json: boolean
     try {
-      data = JSON.parse(text) as JsonObject
+      const parsed: unknown = JSON.parse(text)
+      // JSON 字面量 null / 数字 / 字符串也是合法 JSON：按非对象响应体处理，
+      // 否则后续读 data.error / data.model 会抛裸 TypeError，把可判定的
+      // 网关方言退化成没有错误码的泛化失败
+      if (parsed === null || typeof parsed !== 'object') throw new TypeError('not a JSON object')
+      data = parsed as JsonObject
       json = true
     } catch {
-      // 非 JSON 响应体（如网关前端 HTML 页）保留片段参与错误文本，并标记供上层分流
+      // 非 JSON（或非对象）响应体（如网关前端 HTML 页）保留片段参与错误文本，并标记供上层分流
       data = { message: text.slice(0, 200) }
       json = false
     }

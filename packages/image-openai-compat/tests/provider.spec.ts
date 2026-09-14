@@ -391,6 +391,15 @@ describe('协议方言与错误完备', () => {
     await expect(provider().generate(wireframeSpec)).rejects.toBeInstanceOf(RangeError)
   })
 
+  it('2xx 响应体是 JSON 字面量 null 时按 BAD_RESPONSE 处理，不抛裸 TypeError', async () => {
+    mockFetch(() => new Response('null', { status: 200 }))
+    const err = await provider()
+      .generate(wireframeSpec)
+      .catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(ImageProviderError)
+    expect((err as ImageProviderError).code).toBe('BAD_RESPONSE')
+  })
+
   it('extractImages 跳过空串与非法条目（非数组输入返回空）', () => {
     expect(extractImages(null)).toEqual([])
     expect(extractImages('nope')).toEqual([])
