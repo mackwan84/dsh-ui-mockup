@@ -462,15 +462,27 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
   const [keyDraft, setKeyDraft] = useState('')
   const [keyBusy, setKeyBusy] = useState(false)
   const [keyNotice, setKeyNotice] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
+  // 连接配置（仅 openai-compat）：生效网关地址回显 + 本地草稿（null = 未编辑）
+  const [effectiveBaseUrl, setEffectiveBaseUrl] = useState('')
+  const [baseUrlDraft, setBaseUrlDraft] = useState<string | null>(null)
+  const [baseUrlBusy, setBaseUrlBusy] = useState(false)
+  const [baseUrlNotice, setBaseUrlNotice] = useState<{ kind: 'ok' | 'error'; text: string } | null>(
+    null,
+  )
 
   const refreshProviderStatus = useCallback(async (): Promise<string> => {
     try {
-      const value = await callPanel<{ active: string }>(connection, 'provider/status')
+      const value = await callPanel<{ active: string; baseUrl?: string }>(
+        connection,
+        'provider/status',
+      )
       setProviderId(value.active)
+      setEffectiveBaseUrl(typeof value.baseUrl === 'string' ? value.baseUrl : '')
       setStatusUnknown(false)
       return value.active
     } catch {
       setProviderId('unknown')
+      setEffectiveBaseUrl('')
       setStatusUnknown(true)
       return 'unknown'
     }
@@ -605,6 +617,34 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
       setTestResult(err instanceof Error ? err.message : String(err))
     } finally {
       setTesting(false)
+    }
+  }
+
+  /** 保存网关地址（仅 openai-compat）：宿主写用户层补丁 config 节并热重载落位，
+   *  与切换提供方同款「几秒落位」体验；pending 语义同切换。 */
+  const saveBaseUrl = async () => {
+    const raw = (baseUrlDraft ?? effectiveBaseUrl).trim().replace(/\/+$/, '')
+    if (raw !== '' && !/^https?:\/\//.test(raw)) {
+      setBaseUrlNotice({ kind: 'error', text: t('panel.connection.invalid') })
+      return
+    }
+    setBaseUrlBusy(true)
+    setBaseUrlNotice(null)
+    try {
+      const result = await callPanel<{ pending?: boolean }>(connection, 'provider/baseurl/set', {
+        baseUrl: raw,
+      })
+      setBaseUrlDraft(raw)
+      setBaseUrlNotice(
+        result.pending === true
+          ? { kind: 'ok', text: t('panel.connection.pending') }
+          : { kind: 'ok', text: t('panel.connection.saved') },
+      )
+    } catch (err) {
+      setBaseUrlNotice({ kind: 'error', text: err instanceof Error ? err.message : String(err) })
+    } finally {
+      setBaseUrlBusy(false)
+      await refreshProviderStatus()
     }
   }
 
@@ -745,6 +785,40 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
         </div>
       </Card>
 
+      {/* 连接配置卡仅 openai-compat 提供：其余提供方网关地址固定在部署层 */}
+      {providerId === 'openai-compat' && (
+        <Card title={t('panel.connection.title')}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <Input
+              type="text"
+              aria-label={t('panel.connection.baseUrlLabel')}
+              style={{ flex: '1 1 240px' }}
+              value={baseUrlDraft ?? effectiveBaseUrl}
+              placeholder={t('panel.connection.baseUrlPlaceholder')}
+              autoComplete="off"
+              onChange={(event) => setBaseUrlDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') void saveBaseUrl()
+              }}
+            />
+            <Button
+              variant="primary"
+              size="sm"
+              disabled={
+                baseUrlBusy || (baseUrlDraft ?? effectiveBaseUrl).trim() === effectiveBaseUrl.trim()
+              }
+              onClick={() => void saveBaseUrl()}
+            >
+              {t('panel.connection.save')}
+            </Button>
+          </div>
+          {baseUrlNotice !== null && (
+            <Notice danger={baseUrlNotice.kind === 'error'}>{baseUrlNotice.text}</Notice>
+          )}
+          <Notice>{t('panel.connection.baseUrlHint')}</Notice>
+        </Card>
+      )}
+
       <Card title={t('panel.credential.title', { credential: credentialName })}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <span
@@ -761,7 +835,12 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
             <StatusDot ok={credential?.configured === true} busy={testing} />
             {credentialLine}
           </span>
-          <Button variant="outline" size="sm" onClick={() => void runTest()} disabled={testing}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void runTest()}
+            disabled={testing || (providerId === 'openai-compat' && effectiveBaseUrl === '')}
+          >
             {testing ? t('panel.testing') : t('panel.testConnection')}
           </Button>
         </div>

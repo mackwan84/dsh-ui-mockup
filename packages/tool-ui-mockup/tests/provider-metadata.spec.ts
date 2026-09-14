@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_PROVIDER_ID,
   PROVIDER_REGISTRY,
+  mergeProviderConfigRow,
   providerMetaOf,
   providerOf,
+  restateProviderConfig,
 } from '../src/providers.js'
 
 describe('供应商元数据表完整性', () => {
@@ -54,5 +56,50 @@ describe('提供方元数据查找', () => {
     expect(fallback.hints.wireframe).toEqual(['', 'qwen-image-3.0'])
     expect(fallback.hints.highFidelity).toEqual(['', 'qwen-image-3.0-pro'])
     expect(fallback.hints.draft).toEqual(['', 'qwen-image-3.0'])
+  })
+})
+
+describe('提供方 config 节合并', () => {
+  it('重述生效 config 全部标量键并应用覆盖（不丢部署层预置）', () => {
+    const config = restateProviderConfig(
+      {
+        apiKey: 'OPENAI_COMPAT_API_KEY',
+        baseUrl: 'https://old/v1',
+        wireframeModel: 'gpt-image-2',
+        requestTimeoutMs: 300_000,
+        nested: { drop: 'me' },
+        list: [1, 2],
+      },
+      { baseUrl: 'https://new/v1' },
+    )
+    expect(config).toEqual({
+      apiKey: 'OPENAI_COMPAT_API_KEY',
+      baseUrl: 'https://new/v1',
+      wireframeModel: 'gpt-image-2',
+      requestTimeoutMs: 300_000,
+    })
+  })
+
+  it('重述对非法输入按空 config 处理（null/数组不炸）', () => {
+    expect(restateProviderConfig(null, { baseUrl: 'x' })).toEqual({ baseUrl: 'x' })
+    expect(restateProviderConfig([1, 2], { baseUrl: 'x' })).toEqual({ baseUrl: 'x' })
+  })
+
+  it('已有行原位更新保留其余字段，缺失行追加在尾部', () => {
+    const merged = mergeProviderConfigRow(
+      [{ id: 'image-openai-compat', disabled: true, custom: 'keep' }, { id: 'tools' }],
+      'image-openai-compat',
+      { baseUrl: 'https://gw/v1' },
+    )
+    expect(merged[0]).toEqual({
+      id: 'image-openai-compat',
+      disabled: true,
+      custom: 'keep',
+      config: { baseUrl: 'https://gw/v1' },
+    })
+    expect(merged[1]).toEqual({ id: 'tools' })
+    expect(mergeProviderConfigRow([], 'image-openai-compat', { baseUrl: 'x' })).toEqual([
+      { id: 'image-openai-compat', config: { baseUrl: 'x' } },
+    ])
   })
 })

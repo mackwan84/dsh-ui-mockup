@@ -29,8 +29,10 @@ import { buildPrompt } from './prompt.js'
 import {
   DEFAULT_PROVIDER_ID,
   PROVIDER_REGISTRY,
+  mergeProviderConfigRow,
   mergeProviderSwitchRows,
   providerOf,
+  restateProviderConfig,
 } from './providers.js'
 
 export const name = 'ui-mockup'
@@ -1328,9 +1330,12 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
             case 'provider/status': {
               // 面板「当前生效提供方」的唯一事实源：读 image 槽位的 providerId，
               // 不从偏好或组合文件推断，避免面板与实际挂载漂移。
+              // baseUrl 为生效提供方配置的网关地址（连接卡回显与测试连接置灰判定）；
+              // 空串 = 未配置或该提供方无地址概念。
               const service = ctx.get('image') as ImageGenerationServiceFace | undefined
               return rpcOk({
                 active: service?.providerId ?? 'unknown',
+                baseUrl: readProviderConfigString(service, 'baseUrl') ?? '',
               })
             }
             case 'provider/switch': {
@@ -1350,59 +1355,18 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
                 return rpcOk({ active: provider })
               }
               const patchFile = join(dshHome(), HOME_PATCH_FILENAME)
-              // catch 的各分支要么赋值要么 return，TS 可判定赋值完毕
-              let patches: unknown[]
-              try {
-                const content = await readFile(patchFile, 'utf8')
-                const parsed: unknown = loadYaml(content)
-                // 合法 YAML 但非数组同样是坏 patch（宿主会 fail-loud）——
-                // 抛进 catch 统一走中止分支，绝不能用空数组覆盖用户文件
-                if (Array.isArray(parsed)) patches = parsed
-                else throw new Error('patch file is not a top-level array')
-              } catch {
-                // 文件不存在 = 空用户层；存在但不可解析时不要吞掉用户的错误——
-                // 直接中止切换并报告，绝不能用空数组覆盖用户写好的 patch。
-                let content: string | undefined
-                try {
-                  content = await readFile(patchFile, 'utf8')
-                } catch {
-                  content = undefined
-                }
-                if (content === undefined) {
-                  patches = []
-                } else if (content.includes('!!js')) {
-                  // 宿主 patch schema 允许 !!js 表达式，js-yaml 默认 schema 不认；
-                  // 代写会把表达式物化成字面值，只能请用户手工翻转
-                  return rpcError(
-                    'PROVIDER_SWITCH_FAILED',
-                    `用户层 patch 文件 ${patchFile} 含 !!js 表达式（宿主专有语法，本插件无法安全代写）；请手工翻转两行 Provider 的 disabled 后再试。`,
-                  )
-                } else {
-                  return rpcError(
-                    'PROVIDER_SWITCH_FAILED',
-                    `用户层 patch 文件 ${patchFile} 不是合法的 YAML 数组，请先手工修复后再切换。`,
-                  )
-                }
-              }
-              const merged = mergeProviderSwitchRows(patches, provider)
-              // 临时文件 + rename 原子写：watcher 读到半截文件会误判为坏 patch。
-              // js-yaml dump 无法保留原文件注释，头部注明代写来源与这一限制。
-              const tmpFile = `${patchFile}.${randomUUID().slice(0, 8)}.tmp`
-              try {
-                await writeFile(
-                  tmpFile,
-                  '# 本文件由 ui-mockup 提供方切换代写（js-yaml 往返不保留原注释）\n' +
-                    dumpYaml(merged, { lineWidth: -1 }),
-                  'utf8',
-                )
-                await rename(tmpFile, patchFile)
-              } catch (error) {
-                await rm(tmpFile, { force: true }).catch(() => {})
-                return rpcError(
-                  'PROVIDER_SWITCH_FAILED',
-                  `写入 ${patchFile} 失败: ${error instanceof Error ? error.message : String(error)}`,
-                )
-              }
+              const loaded = await readHomePatchRows(patchFile, {
+                code: 'PROVIDER_SWITCH_FAILED',
+                jsHint: '请手工翻转各 Provider 行的 disabled 后再试。',
+                malformedHint: '请先手工修复后再切换。',
+              })
+              if (!loaded.ok) return loaded.error
+              const merged = mergeProviderSwitchRows(loaded.rows, provider)
+              const writeError = await writeHomePatchRows(patchFile, merged, {
+                code: 'PROVIDER_SWITCH_FAILED',
+                origin: '提供方切换',
+              })
+              if (writeError !== undefined) return writeError
               // 等热重载落位：轮询 image 槽位直到目标 providerId 或超时
               const deadline = Date.now() + 8_000
               while (Date.now() < deadline) {
@@ -1418,6 +1382,61 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
                 active: current ?? 'unknown',
                 pending: true,
               })
+            }
+            case 'provider/baseurl/set': {
+              // OpenAI 兼容提供方的网关地址：写用户层 patch 的 config 节
+              // （restates 生效配置全部键，避免整替 config 丢失部署层预置），
+              // HMR 重载落位；与切换共用补丁读写安全语义与落位轮询。
+              if (typeof body.baseUrl !== 'string') {
+                return rpcError('INVALID_PARAMETER', 'baseUrl 必须是字符串。')
+              }
+              const service = ctx.get('image') as ImageGenerationServiceFace | undefined
+              if (service !== undefined && service.providerId !== 'openai-compat') {
+                return rpcError(
+                  'INVALID_PARAMETER',
+                  '当前生效提供方的网关地址固定，不支持在面板配置 baseUrl。',
+                )
+              }
+              const baseUrl = body.baseUrl.trim().replace(/\/+$/, '')
+              if (baseUrl !== '' && !/^https?:\/\//.test(baseUrl)) {
+                return rpcError(
+                  'INVALID_PARAMETER',
+                  'baseUrl 必须以 http:// 或 https:// 开头（通常以 /v1 结尾）。',
+                )
+              }
+              const compatMeta = providerOf('openai-compat')
+              if (compatMeta === undefined) {
+                return rpcError('NOT_AVAILABLE', 'openai-compat 未注册。')
+              }
+              const patchFile = join(dshHome(), HOME_PATCH_FILENAME)
+              const loaded = await readHomePatchRows(patchFile, {
+                code: 'PROVIDER_CONFIG_FAILED',
+                jsHint: '请手工修复后再试。',
+                malformedHint: '请先手工修复后再保存。',
+              })
+              if (!loaded.ok) return loaded.error
+              const currentConfig = (service as { config?: unknown } | undefined)?.config
+              const merged = mergeProviderConfigRow(
+                loaded.rows,
+                compatMeta.patchId,
+                restateProviderConfig(currentConfig, { baseUrl }),
+              )
+              const writeError = await writeHomePatchRows(patchFile, merged, {
+                code: 'PROVIDER_CONFIG_FAILED',
+                origin: '连接配置保存',
+              })
+              if (writeError !== undefined) return writeError
+              // 等热重载落位：轮询生效 config.baseUrl 直到目标值或超时（语义同切换）。
+              // 目标为空串时，未挂载或已清空都视为落位成功。
+              const deadline = Date.now() + 8_000
+              while (Date.now() < deadline) {
+                await sleep(250)
+                const current = ctx.get('image') as ImageGenerationServiceFace | undefined
+                if ((readProviderConfigString(current, 'baseUrl') ?? '') === baseUrl) {
+                  return rpcOk({ settled: true })
+                }
+              }
+              return rpcOk({ pending: true })
             }
             case 'test-connection': {
               // 只回机器可判的 reason + 原始 detail；用户可见文案由客户端按语言渲染。
@@ -1576,6 +1595,73 @@ function readProviderConfigString(
   if (service === undefined) return undefined
   const value = (service as { config?: Record<string, unknown> }).config?.[key]
   return typeof value === 'string' && value !== '' ? value : undefined
+}
+
+/** 读用户层 patch 行数组：文件不存在 = 空用户层；存在但不可解析（含 !!js 表达式、
+ *  非 YAML 数组）时返回错误——绝不吞掉用户的错误，更不能用空数组覆盖用户文件。
+ *  错误码与提示文案由调用方注入（切换/连接配置保存各用自己的语义）。 */
+async function readHomePatchRows(
+  patchFile: string,
+  hints: { code: string; jsHint: string; malformedHint: string },
+): Promise<{ ok: true; rows: unknown[] } | { ok: false; error: RpcResultLike<never> }> {
+  let content: string | undefined
+  try {
+    content = await readFile(patchFile, 'utf8')
+  } catch {
+    return { ok: true, rows: [] }
+  }
+  try {
+    const parsed: unknown = loadYaml(content)
+    // 合法 YAML 但非数组同样是坏 patch（宿主会 fail-loud）
+    if (!Array.isArray(parsed)) throw new Error('patch file is not a top-level array')
+    return { ok: true, rows: parsed }
+  } catch {
+    if (content.includes('!!js')) {
+      // 宿主 patch schema 允许 !!js 表达式，js-yaml 默认 schema 不认；
+      // 代写会把表达式物化成字面值，只能请用户手工处理
+      return {
+        ok: false,
+        error: rpcError(
+          hints.code,
+          `用户层 patch 文件 ${patchFile} 含 !!js 表达式（宿主专有语法，本插件无法安全代写）；${hints.jsHint}`,
+        ),
+      }
+    }
+    return {
+      ok: false,
+      error: rpcError(
+        hints.code,
+        `用户层 patch 文件 ${patchFile} 不是合法的 YAML 数组，${hints.malformedHint}`,
+      ),
+    }
+  }
+}
+
+/** 原子写用户层 patch：临时文件 + rename（watcher 读到半截文件会误判为坏 patch）。
+ *  js-yaml dump 无法保留原文件注释，头部注明代写来源（origin）与这一限制。
+ *  成功返回 undefined，失败返回错误结果。 */
+async function writeHomePatchRows(
+  patchFile: string,
+  rows: Record<string, unknown>[],
+  options: { code: string; origin: string },
+): Promise<RpcResultLike<never> | undefined> {
+  const tmpFile = `${patchFile}.${randomUUID().slice(0, 8)}.tmp`
+  try {
+    await writeFile(
+      tmpFile,
+      `# 本文件由 ui-mockup ${options.origin}代写（js-yaml 往返不保留原注释）\n` +
+        dumpYaml(rows, { lineWidth: -1 }),
+      'utf8',
+    )
+    await rename(tmpFile, patchFile)
+    return undefined
+  } catch (error) {
+    await rm(tmpFile, { force: true }).catch(() => {})
+    return rpcError(
+      options.code,
+      `写入 ${patchFile} 失败: ${error instanceof Error ? error.message : String(error)}`,
+    )
+  }
 }
 
 /** DSH home 用户层 patch 文件（launcher 实时 watch，编辑后组合热重载）。 */

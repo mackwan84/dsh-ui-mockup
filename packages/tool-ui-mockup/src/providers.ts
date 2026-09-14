@@ -153,6 +153,46 @@ export function providerMetaOf(id: string): ProviderMeta {
 }
 
 /**
+ * 重述提供方 config：复制生效 config 的全部标量键再应用覆盖。
+ * patch 会整体替换目标行的 config——不重述会把部署层预置的其余键
+ * （分层模型、超时等）在用户层写入时静默丢失。
+ */
+export function restateProviderConfig(
+  current: unknown,
+  overrides: Record<string, unknown>,
+): Record<string, unknown> {
+  const config: Record<string, unknown> = {}
+  if (current !== null && typeof current === 'object' && !Array.isArray(current)) {
+    for (const [key, value] of Object.entries(current)) {
+      if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+        config[key] = value
+      }
+    }
+  }
+  return { ...config, ...overrides }
+}
+
+/**
+ * 把提供方 config 节合并进用户层 patch：已有行原位更新（保留其余字段与
+ * 用户已写的 disabled 等定制），缺失行追加在列表尾部。
+ * 与 mergeProviderSwitchRows 同一合并纪律，纯函数供单测共用。
+ */
+export function mergeProviderConfigRow(
+  patches: readonly unknown[],
+  patchId: string,
+  config: Record<string, unknown>,
+): Record<string, unknown>[] {
+  type Entry = Record<string, unknown>
+  const merged: Entry[] = patches.filter(
+    (entry): entry is Entry => entry !== null && typeof entry === 'object',
+  )
+  const index = merged.findIndex((entry) => entry['id'] === patchId)
+  if (index >= 0) merged[index] = { ...merged[index]!, config }
+  else merged.push({ id: patchId, config })
+  return merged
+}
+
+/**
  * 生成切换提供方后的用户层 patch 行：注册表驱动的 N 行单选
  * （目标行启用、其余禁用，行序与注册表一致）。
  * 用户层 applied after bundle layers——bundle 插入的行由此覆盖 enabled 状态，

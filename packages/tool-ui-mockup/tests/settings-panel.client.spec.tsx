@@ -110,10 +110,14 @@ function createConnection({
   historyTotal = 0,
   pendingSwitch = false,
   pendingLandsBeforeRefresh = false,
+  activeProvider = 'dashscope',
+  baseUrl = '',
 }: {
   historyTotal?: number
   pendingSwitch?: boolean
   pendingLandsBeforeRefresh?: boolean
+  activeProvider?: string
+  baseUrl?: string
 } = {}) {
   let switchRequested = false
   const call = vi.fn(
@@ -122,13 +126,15 @@ function createConnection({
       const value =
         endpoint === 'overview'
           ? {
-              provider: 'dashscope',
+              provider: activeProvider,
               credential: { configured: true, source: 'file', writable: true },
               anchor: null,
             }
           : endpoint === 'provider/status'
             ? {
-                active: switchRequested && pendingLandsBeforeRefresh ? 'volcengine' : 'dashscope',
+                active:
+                  switchRequested && pendingLandsBeforeRefresh ? 'volcengine' : activeProvider,
+                baseUrl,
               }
             : endpoint === 'provider/switch' && pendingSwitch
               ? { active: 'dashscope', pending: true }
@@ -165,6 +171,8 @@ function mountPanel(
     pendingSwitch?: boolean
     pendingLandsBeforeRefresh?: boolean
     prefs?: PrefScope<PanelPrefs>
+    activeProvider?: string
+    baseUrl?: string
   } = {},
 ) {
   const { connection, call } = createConnection(options)
@@ -303,6 +311,54 @@ describe('Provider switch state', () => {
     expect(screen.getByText(/已随切换把模型分层默认重置/)).toBeTruthy()
     expect(screen.getByRole<HTMLSelectElement>('combobox', { name: '线框图' }).value).toBe('')
     expect(screen.getByRole<HTMLSelectElement>('combobox', { name: '高保真' }).value).toBe('')
+  })
+})
+
+describe('OpenAI 兼容连接配置卡', () => {
+  it('openai-compat 生效时回显生效地址，保存走 provider/baseurl/set', async () => {
+    const { call } = mountPanel({
+      activeProvider: 'openai-compat',
+      baseUrl: 'https://old-gw.test/v1',
+    })
+    fireEvent.click(screen.getByRole('tab', { name: '提供方与模型' }))
+    const input = (await screen.findByLabelText('网关地址 baseUrl'))
+    expect(input.value).toBe('https://old-gw.test/v1')
+    // 帮助文案常驻：提示 /v1 习惯与热重载语义
+    expect(screen.getByText(zh['panel.connection.baseUrlHint'])).toBeTruthy()
+
+    fireEvent.change(input, { target: { value: 'https://gw.test/v1/' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存网关地址' }))
+    await waitFor(() => {
+      const hit = call.mock.calls.find((entry) => entry[1] === 'provider/baseurl/set')
+      expect(hit).toBeDefined()
+      // 客户端先做同款归一：去尾部斜杠再发
+      expect(hit?.[2]).toEqual({ baseUrl: 'https://gw.test/v1' })
+    })
+    expect(await screen.findByText(zh['panel.connection.saved'])).toBeTruthy()
+  })
+
+  it('非法地址在客户端即被拒绝，不发起 RPC', async () => {
+    const { call } = mountPanel({ activeProvider: 'openai-compat', baseUrl: '' })
+    fireEvent.click(screen.getByRole('tab', { name: '提供方与模型' }))
+    const input = (await screen.findByLabelText('网关地址 baseUrl'))
+    fireEvent.change(input, { target: { value: 'ftp://gw.test' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存网关地址' }))
+    expect(await screen.findByText(zh['panel.connection.invalid'])).toBeTruthy()
+    expect(call.mock.calls.some((entry) => entry[1] === 'provider/baseurl/set')).toBe(false)
+  })
+
+  it('baseUrl 为空时测试连接置灰，配置地址后恢复可用', async () => {
+    mountPanel({ activeProvider: 'openai-compat', baseUrl: '' })
+    fireEvent.click(screen.getByRole('tab', { name: '提供方与模型' }))
+    const test = await screen.findByRole('button', { name: '测试连接' })
+    expect(test.getAttribute('disabled')).not.toBeNull()
+  })
+
+  it('非 openai-compat 提供方不渲染连接配置卡', async () => {
+    mountPanel()
+    fireEvent.click(screen.getByRole('tab', { name: '提供方与模型' }))
+    await screen.findByRole('radio', { name: '阿里云百炼 DashScope' })
+    expect(screen.queryByLabelText('网关地址 baseUrl')).toBeNull()
   })
 })
 

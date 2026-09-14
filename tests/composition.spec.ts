@@ -1763,6 +1763,96 @@ describe('ui-mockup real dynamic composition', () => {
     }
   }, 20_000)
 
+  it('saves the openai-compat baseUrl into the home user patch config node', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+    try {
+      const booted = await bootComposition(dir, {
+        provider: 'openai-compat',
+        providerConfig: { baseUrl: 'https://old-gw.test/v1', wireframeModel: 'gpt-image-2' },
+      })
+      const call = (endpoint: string, payload?: unknown) =>
+        booted.connection.call('/ui-mockup', endpoint, payload)
+
+      // provider/status 携带生效提供方的 baseUrl，供连接卡回显与测试连接置灰判定
+      const status = valueOf<{ active: string; baseUrl: string }>(await call('provider/status'))
+      expect(status.active).toBe('openai-compat')
+      expect(status.baseUrl).toBe('https://old-gw.test/v1')
+
+      // 保存（含尾部斜杠）：写用户层 config 节，restates 生效配置的全部键
+      const saved = valueOf<{ pending?: boolean }>(
+        await call('provider/baseurl/set', { baseUrl: 'https://gw.corp.test/v1/' }),
+      )
+      expect(saved.pending).toBe(true)
+
+      const homePatch = await readFile(join(process.env['DSH_HOME']!, 'cordis.patch.yml'), 'utf8')
+      const rows = homePatch
+        .split('- id: ')
+        .slice(1)
+        .map((chunk) => `- id: ${chunk.split('\n- ')[0]!.trimEnd()}`)
+      const compatRow = rows.find((row) => row.includes('image-openai-compat'))
+      expect(compatRow).toBeDefined()
+      expect(compatRow).toContain('baseUrl: https://gw.corp.test/v1')
+      // restates：分层模型键随 config 一并重述，避免整替 config 丢失部署层预置
+      expect(compatRow).toContain('wireframeModel: gpt-image-2')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  }, 20_000)
+
+  it('rejects a non-http(s) baseUrl without touching the patch file', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+    try {
+      const booted = await bootComposition(dir, {
+        provider: 'openai-compat',
+        providerConfig: { baseUrl: 'https://old-gw.test/v1' },
+      })
+      const call = (endpoint: string, payload?: unknown) =>
+        booted.connection.call('/ui-mockup', endpoint, payload)
+      const rejected = await call('provider/baseurl/set', { baseUrl: 'ftp://gw.test' })
+      expect(rejected.ok).toBe(false)
+      if (!rejected.ok) expect(rejected.error.code).toBe('INVALID_PARAMETER')
+      // 校验失败绝不落盘：patch 文件保持不存在
+      await expect(
+        readFile(join(process.env['DSH_HOME']!, 'cordis.patch.yml'), 'utf8'),
+      ).rejects.toThrow()
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects baseUrl saving while a provider without panel-editable address is active', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+    try {
+      const booted = await bootComposition(dir)
+      const rejected = await booted.connection.call('/ui-mockup', 'provider/baseurl/set', {
+        baseUrl: 'https://gw.corp.test/v1',
+      })
+      expect(rejected.ok).toBe(false)
+      if (!rejected.ok) expect(rejected.error.code).toBe('INVALID_PARAMETER')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('accepts an empty baseUrl as the unconfigured reset', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+    try {
+      const booted = await bootComposition(dir, {
+        provider: 'openai-compat',
+        providerConfig: { baseUrl: 'https://old-gw.test/v1' },
+      })
+      const saved = valueOf<{ pending?: boolean }>(
+        await booted.connection.call('/ui-mockup', 'provider/baseurl/set', { baseUrl: '  ' }),
+      )
+      expect(saved.pending).toBe(true)
+      const homePatch = await readFile(join(process.env['DSH_HOME']!, 'cordis.patch.yml'), 'utf8')
+      expect(homePatch).toContain('image-openai-compat')
+      expect(homePatch).toContain("baseUrl: ''")
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  }, 20_000)
+
   it('refuses to rewrite a user patch layer it cannot safely parse', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
     try {
