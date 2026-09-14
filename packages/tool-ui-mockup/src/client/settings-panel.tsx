@@ -648,6 +648,27 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
     }
   }
 
+  // 模型发现（仅 openai-compat 有意义）：拉取网关 /v1/models 建议合并静态候选；
+  // 未配置/网络错/HTML-200/非 openai-compat 一律由宿主降级为空列表——静默回退
+  // 静态 hints + 手填，绝不弹错误（建议是锦上添花，不阻塞配置）
+  const [fetchedModels, setFetchedModels] = useState<string[]>([])
+  useEffect(() => {
+    let alive = true
+    setFetchedModels([])
+    void callPanel<{ models?: string[] }>(connection, 'provider/models')
+      .then((value) => {
+        if (alive && Array.isArray(value.models)) setFetchedModels(value.models)
+      })
+      .catch(() => undefined)
+    return () => {
+      alive = false
+    }
+  }, [connection, providerId])
+
+  /** 下拉建议 = 注册表静态候选 ∪ 网关拉取建议（去重排序；空串「跟随默认」不进建议）。 */
+  const suggestionsOf = (tier: 'wireframe' | 'highFidelity' | 'draft'): string[] =>
+    [...new Set([...activeMeta.hints[tier].filter(Boolean), ...fetchedModels])].sort()
+
   const sourceLabel = sourceLabelText(t, credential?.source)
 
   /** 纯状态文本（不含来源），供提供方选中卡第一行使用；来源另起一行淡化展示。 */
@@ -909,60 +930,68 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
       </Card>
 
       <Card title={t('panel.models.title')}>
+        {/* 组合框（input + datalist）：候选 = 静态 hints ∪ 网关建议，且永远可手填
+            任意模型名；空值即「跟随提供方默认」（占位符提示） */}
         <FieldRow first label={t('panel.models.wireframe')}>
-          <select
+          <input
+            list="ui-mockup-model-options-wireframe"
             aria-label={t('panel.models.wireframe')}
             className="ui-mockup-model-select"
             value={snap.value?.wireframeModel ?? ''}
+            placeholder={t('panel.models.followDefault')}
+            autoComplete="off"
+            spellCheck={false}
             onChange={(event) =>
               void writePref(prefs, 'wireframeModel', event.target.value.trim(), setWriteError)
             }
             style={{ ...selectStyle, width: 'min(260px, 100%)' }}
-          >
-            <option value="">{t('panel.models.followDefault')}</option>
-            {activeMeta.hints.wireframe.filter(Boolean).map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
-            ))}
-          </select>
+          />
         </FieldRow>
         <FieldRow label={t('panel.models.highFidelity')}>
-          <select
+          <input
+            list="ui-mockup-model-options-high-fidelity"
             aria-label={t('panel.models.highFidelity')}
             className="ui-mockup-model-select"
             value={snap.value?.highFidelityModel ?? ''}
+            placeholder={t('panel.models.followDefault')}
+            autoComplete="off"
+            spellCheck={false}
             onChange={(event) =>
               void writePref(prefs, 'highFidelityModel', event.target.value.trim(), setWriteError)
             }
             style={{ ...selectStyle, width: 'min(260px, 100%)' }}
-          >
-            <option value="">{t('panel.models.followDefault')}</option>
-            {activeMeta.hints.highFidelity.filter(Boolean).map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
-            ))}
-          </select>
+          />
         </FieldRow>
         <FieldRow label={t('panel.models.draft')}>
-          <select
+          <input
+            list="ui-mockup-model-options-draft"
             aria-label={t('panel.models.draft')}
             className="ui-mockup-model-select"
             value={snap.value?.draftModel ?? ''}
+            placeholder={t('panel.models.followDefault')}
+            autoComplete="off"
+            spellCheck={false}
             onChange={(event) =>
               void writePref(prefs, 'draftModel', event.target.value.trim(), setWriteError)
             }
             style={{ ...selectStyle, width: 'min(260px, 100%)' }}
-          >
-            <option value="">{t('panel.models.followDefault')}</option>
-            {activeMeta.hints.draft.filter(Boolean).map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
-            ))}
-          </select>
+          />
         </FieldRow>
+        <datalist id="ui-mockup-model-options-wireframe">
+          {suggestionsOf('wireframe').map((m) => (
+            <option key={m} value={m} />
+          ))}
+        </datalist>
+        <datalist id="ui-mockup-model-options-high-fidelity">
+          {suggestionsOf('highFidelity').map((m) => (
+            <option key={m} value={m} />
+          ))}
+        </datalist>
+        <datalist id="ui-mockup-model-options-draft">
+          {suggestionsOf('draft').map((m) => (
+            <option key={m} value={m} />
+          ))}
+        </datalist>
         <Notice>
           {`${t('panel.models.wireframe')}: ${activeMeta.hints.wireframe.filter(Boolean).join(', ')} · ${t('panel.models.highFidelity')}: ${activeMeta.hints.highFidelity.filter(Boolean).join(', ')} · ${t('panel.models.draft')}: ${activeMeta.hints.draft.filter(Boolean).join(', ')}`}
         </Notice>

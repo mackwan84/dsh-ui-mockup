@@ -1438,6 +1438,67 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
               }
               return rpcOk({ pending: true })
             }
+            case 'provider/models': {
+              // 模型发现：仅 openai-compat 拉取网关 GET {baseUrl}/models 做下拉建议。
+              // 一切失败（非 openai-compat、未配置地址、网络错、HTML-200 陷阱、超时）
+              // 都按降级返回空列表——建议是锦上添花，绝不阻塞手填配置。
+              const service = ctx.get('image') as ImageGenerationServiceFace | undefined
+              if (service?.providerId !== 'openai-compat') {
+                return rpcOk({ models: [], degraded: true })
+              }
+              const baseUrl = (readProviderConfigString(service, 'baseUrl') ?? '')
+                .trim()
+                .replace(/\/+$/, '')
+              if (baseUrl === '') {
+                return rpcOk({ models: [], degraded: true })
+              }
+              const compatMeta = providerOf('openai-compat')!
+              const credentialName =
+                readProviderConfigString(service, 'apiKey') ?? compatMeta.credential
+              // 取值仅用于请求的 Authorization 头，永不进入任何响应
+              let apiKey: string | undefined
+              const credentials = ctx.get('credentials') as CredentialsFace | undefined
+              if (credentials !== undefined) {
+                apiKey = (
+                  await credentials.resolve(credentialRef(credentialName)).catch(() => undefined)
+                )?.value
+              }
+              if (apiKey === undefined || apiKey === '') {
+                apiKey = launchEnvironmentOf(ctx).get(credentialRef(credentialName))?.value
+              }
+              try {
+                const res = await fetch(`${baseUrl}/models`, {
+                  headers:
+                    apiKey !== undefined && apiKey !== ''
+                      ? { Authorization: `Bearer ${apiKey}` }
+                      : {},
+                  signal: AbortSignal.timeout(8_000),
+                  redirect: 'error',
+                })
+                // HTML-200 陷阱：地址缺 /v1 前缀时网关回前端页（HTTP 200 非 JSON），
+                // 内容不是 JSON 一律降级，绝不把建议失败变成面板错误
+                const payload: unknown = await res.json().catch(() => null)
+                const data =
+                  payload !== null &&
+                  typeof payload === 'object' &&
+                  Array.isArray((payload as { data?: unknown }).data)
+                    ? (payload as { data: unknown[] }).data
+                    : null
+                if (data === null || res.status < 200 || res.status >= 300) {
+                  return rpcOk({ models: [], degraded: true })
+                }
+                const models = data
+                  .map((item) =>
+                    item !== null && typeof item === 'object'
+                      ? (item as { id?: unknown }).id
+                      : undefined,
+                  )
+                  .filter((id): id is string => typeof id === 'string' && id !== '')
+                return rpcOk({ models })
+              } catch {
+                return rpcOk({ models: [], degraded: true })
+              }
+            }
             case 'test-connection': {
               // 只回机器可判的 reason + 原始 detail；用户可见文案由客户端按语言渲染。
               // 探测参数随生效提供方分流（网关、凭据引用、探测路径都不同）。

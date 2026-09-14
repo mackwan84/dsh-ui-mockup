@@ -112,12 +112,15 @@ function createConnection({
   pendingLandsBeforeRefresh = false,
   activeProvider = 'dashscope',
   baseUrl = '',
+  providerModels,
 }: {
   historyTotal?: number
   pendingSwitch?: boolean
   pendingLandsBeforeRefresh?: boolean
   activeProvider?: string
   baseUrl?: string
+  /** 'degraded' = 宿主降级语义；缺省 = 未提供 models 字段的旧宿主形态。 */
+  providerModels?: string[] | 'degraded'
 } = {}) {
   let switchRequested = false
   const call = vi.fn(
@@ -138,26 +141,30 @@ function createConnection({
               }
             : endpoint === 'provider/switch' && pendingSwitch
               ? { active: 'dashscope', pending: true }
-              : endpoint === 'history/list'
-                ? {
-                    anchorFile: null,
-                    anchorIndex: -1,
-                    total: historyTotal,
-                    page: 1,
-                    pageSize: 5,
-                    entries:
-                      historyTotal === 0
-                        ? []
-                        : [
-                            {
-                              time: '2026-08-31T00:00:00.000Z',
-                              description: '移动端登录页',
-                              files: [],
-                              anchored: false,
-                            },
-                          ],
-                  }
-                : {}
+              : endpoint === 'provider/models'
+                ? providerModels === 'degraded'
+                  ? { models: [], degraded: true }
+                  : { models: providerModels ?? [] }
+                : endpoint === 'history/list'
+                  ? {
+                      anchorFile: null,
+                      anchorIndex: -1,
+                      total: historyTotal,
+                      page: 1,
+                      pageSize: 5,
+                      entries:
+                        historyTotal === 0
+                          ? []
+                          : [
+                              {
+                                time: '2026-08-31T00:00:00.000Z',
+                                description: '移动端登录页',
+                                files: [],
+                                anchored: false,
+                              },
+                            ],
+                    }
+                  : {}
       return Promise.resolve({ ok: true as const, value })
     },
   )
@@ -173,6 +180,7 @@ function mountPanel(
     prefs?: PrefScope<PanelPrefs>
     activeProvider?: string
     baseUrl?: string
+    providerModels?: string[] | 'degraded'
   } = {},
 ) {
   const { connection, call } = createConnection(options)
@@ -321,7 +329,7 @@ describe('OpenAI 兼容连接配置卡', () => {
       baseUrl: 'https://old-gw.test/v1',
     })
     fireEvent.click(screen.getByRole('tab', { name: '提供方与模型' }))
-    const input = (await screen.findByLabelText('网关地址 baseUrl'))
+    const input = await screen.findByLabelText<HTMLInputElement>('网关地址 baseUrl')
     expect(input.value).toBe('https://old-gw.test/v1')
     // 帮助文案常驻：提示 /v1 习惯与热重载语义
     expect(screen.getByText(zh['panel.connection.baseUrlHint'])).toBeTruthy()
@@ -340,7 +348,7 @@ describe('OpenAI 兼容连接配置卡', () => {
   it('非法地址在客户端即被拒绝，不发起 RPC', async () => {
     const { call } = mountPanel({ activeProvider: 'openai-compat', baseUrl: '' })
     fireEvent.click(screen.getByRole('tab', { name: '提供方与模型' }))
-    const input = (await screen.findByLabelText('网关地址 baseUrl'))
+    const input = await screen.findByLabelText('网关地址 baseUrl')
     fireEvent.change(input, { target: { value: 'ftp://gw.test' } })
     fireEvent.click(screen.getByRole('button', { name: '保存网关地址' }))
     expect(await screen.findByText(zh['panel.connection.invalid'])).toBeTruthy()
@@ -362,11 +370,48 @@ describe('OpenAI 兼容连接配置卡', () => {
   })
 })
 
+describe('模型发现建议与手填', () => {
+  it('候选合并静态 hints 与网关建议（去重），且永远可手填任意模型名', async () => {
+    mountPanel({
+      activeProvider: 'openai-compat',
+      providerModels: ['gpt-image-2', 'my-gw-model'],
+    })
+    fireEvent.click(screen.getByRole('tab', { name: '提供方与模型' }))
+    const input = await screen.findByRole<HTMLInputElement>('combobox', {
+      name: '线框图',
+    })
+    const options = Array.from(
+      document.querySelectorAll<HTMLOptionElement>('#ui-mockup-model-options-wireframe option'),
+    ).map((option) => option.value)
+    // 静态 hint 'gpt-image-2' 与网关同名建议去重；'my-gw-model' 为新增建议
+    expect(options).toEqual(['gpt-image-2', 'my-gw-model'])
+
+    fireEvent.change(input, { target: { value: 'custom-model-x' } })
+    await waitFor(() => expect(input.value).toBe('custom-model-x'))
+  })
+
+  it('模型拉取降级时静默回退静态候选：无错误提示，手填仍可用', async () => {
+    mountPanel({ activeProvider: 'openai-compat', providerModels: 'degraded' })
+    fireEvent.click(screen.getByRole('tab', { name: '提供方与模型' }))
+    const input = await screen.findByRole<HTMLInputElement>('combobox', {
+      name: '线框图',
+    })
+    const options = Array.from(
+      document.querySelectorAll<HTMLOptionElement>('#ui-mockup-model-options-wireframe option'),
+    ).map((option) => option.value)
+    expect(options).toEqual(['gpt-image-2'])
+    fireEvent.change(input, { target: { value: 'fallback-typed-model' } })
+    await waitFor(() => expect(input.value).toBe('fallback-typed-model'))
+  })
+})
+
 describe('Settings form accessibility', () => {
   it('可通过可见字段名定位模型选择控件和凭据输入', async () => {
     mountPanel()
     fireEvent.click(screen.getByRole('tab', { name: '提供方与模型' }))
 
+    // 0.3.0 起模型分层为组合框（input + datalist，可手填）；input 带 list 属性的
+    // 隐式 ARIA 角色仍是 combobox（ARIA in HTML），与原生 select 的查询一致
     expect(await screen.findByRole('combobox', { name: '线框图' })).toBeTruthy()
     expect(screen.getByRole('combobox', { name: '高保真' })).toBeTruthy()
     expect(await screen.findByLabelText('DASHSCOPE_API_KEY 密钥')).toBeTruthy()

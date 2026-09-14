@@ -1853,6 +1853,92 @@ describe('ui-mockup real dynamic composition', () => {
     }
   }, 20_000)
 
+  it('provider/models 拉取网关模型列表（openai-compat + 有效 baseUrl）', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+    try {
+      const booted = await bootComposition(dir, {
+        provider: 'openai-compat',
+        providerConfig: { baseUrl: 'https://compat-gw.test/v1' },
+      })
+      const modelsUrls: string[] = []
+      vi.stubGlobal('fetch', async (url: string) => {
+        if (url.endsWith('/models')) {
+          modelsUrls.push(url)
+          return new Response(
+            JSON.stringify({
+              object: 'list',
+              data: [{ id: 'gpt-image-2' }, { id: 'gpt-image-2.5-flare' }, { no: 'id' }, null, 42],
+            }),
+            { status: 200 },
+          )
+        }
+        throw new Error(`unexpected fetch: ${url}`)
+      })
+      const result = valueOf<{ models: string[]; degraded?: boolean }>(
+        await booted.connection.call('/ui-mockup', 'provider/models'),
+      )
+      expect(modelsUrls).toEqual(['https://compat-gw.test/v1/models'])
+      expect(result.models).toEqual(['gpt-image-2', 'gpt-image-2.5-flare'])
+      expect(result.degraded).toBeUndefined()
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('provider/models 对 HTML-200 陷阱静默降级（models 空 + degraded）', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+    try {
+      const booted = await bootComposition(dir, {
+        provider: 'openai-compat',
+        providerConfig: { baseUrl: 'https://compat-gw.test' },
+      })
+      vi.stubGlobal(
+        'fetch',
+        async () => new Response('<!doctype html><html>gateway frontend</html>', { status: 200 }),
+      )
+      const result = valueOf<{ models: string[]; degraded?: boolean }>(
+        await booted.connection.call('/ui-mockup', 'provider/models'),
+      )
+      expect(result.models).toEqual([])
+      expect(result.degraded).toBe(true)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('provider/models 网络错误与非 openai-compat 提供方都按降级处理', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+    try {
+      // 非 openai-compat 生效：不发任何网关请求，直接降级
+      const dashscope = await bootComposition(dir)
+      vi.stubGlobal('fetch', async () => {
+        throw new Error('unexpected fetch: non-openai-compat must not call the gateway')
+      })
+      const skipped = valueOf<{ models: string[]; degraded?: boolean }>(
+        await dashscope.connection.call('/ui-mockup', 'provider/models'),
+      )
+      expect(skipped.models).toEqual([])
+      expect(skipped.degraded).toBe(true)
+      vi.unstubAllGlobals()
+
+      // openai-compat 生效但网关不可达：网络错误降级而非抛错
+      const compat = await bootComposition(dir, {
+        provider: 'openai-compat',
+        providerConfig: { baseUrl: 'https://compat-gw.test/v1' },
+      })
+      vi.stubGlobal('fetch', async () => {
+        throw new TypeError('fetch failed')
+      })
+      const degraded = valueOf<{ models: string[]; degraded?: boolean }>(
+        await compat.connection.call('/ui-mockup', 'provider/models'),
+      )
+      expect(degraded.models).toEqual([])
+      expect(degraded.degraded).toBe(true)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   it('refuses to rewrite a user patch layer it cannot safely parse', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
     try {
