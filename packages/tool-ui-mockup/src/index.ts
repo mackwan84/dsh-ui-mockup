@@ -26,6 +26,12 @@ import {
   type MockupPrefs,
 } from './prefs.js'
 import { buildPrompt } from './prompt.js'
+import {
+  DEFAULT_PROVIDER_ID,
+  PROVIDER_REGISTRY,
+  mergeProviderSwitchRows,
+  providerOf,
+} from './providers.js'
 
 export const name = 'ui-mockup'
 
@@ -519,11 +525,11 @@ async function readHistory(workspaceRoot: string): Promise<HistoryEntry[]> {
 function activeProviderOf(ctx: Context): { id: string; credential: string } {
   const service = ctx.get('image') as ImageGenerationServiceFace | undefined
   const id = service?.providerId ?? 'unknown'
-  const fallback = PROBES.dashscope.defaultCredential
+  const meta = providerOf(id)
   const credential =
-    id === 'volcengine' || id === 'dashscope'
-      ? (readProviderConfigString(service, 'apiKey') ?? PROBES[id].defaultCredential)
-      : fallback
+    meta !== undefined
+      ? (readProviderConfigString(service, 'apiKey') ?? meta.credential)
+      : (providerOf(DEFAULT_PROVIDER_ID)?.credential ?? '')
   return { id, credential }
 }
 
@@ -626,11 +632,6 @@ function allowedRoots(ctx: Context, known: ReadonlySet<string>): Set<string> {
   const policy = ctx.get('sandboxPolicy') as SandboxPolicyFace | undefined
   if (policy !== undefined) roots.add(canonicalRoot(policy.workspaceRoot))
   return roots
-}
-
-/** DashScope 当前可安全接收单参考图的模型族。 */
-function supportsDashscopeReference(model: string): boolean {
-  return model.startsWith('qwen-image') || model === 'wan2.7-image' || model === 'wan2.7-image-pro'
 }
 
 export function apply(ctx: Context, config: MockupPluginConfig = {}) {
@@ -850,22 +851,22 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
               ? args.model
               : tierModel || undefined
           // 风格锚点联动：调用未显式传 reference 时自动引用当前锚点（I2I 保持多页风格一致）。
-          // 参考图能力按生效提供方分流：DashScope 当前支持 qwen-image 与 Wan 2.7；
-          // 其他自定义模型跳过注入并说明，否则 Provider 会以 INVALID_PARAMETER 拒绝且用户难以归因；
-          // volcengine 的 seedream 系原生支持 image 参考图，锚点正常注入。
-          // 模型为空串（交 Provider 自决）时仍注入：各提供方分层默认均支持参考图。
+          // 参考图能力按生效提供方分流（经元数据表的 supportsReference 闸门）：
+          // DashScope 当前支持 qwen-image 与 Wan 2.7；volcengine 的 seedream 系原生支持，
+          // 均无白名单约束。模型为空串（交 Provider 自决）时仍注入：各提供方分层默认均支持参考图。
           let anchorInjected: string | null = null
           let anchorSkippedForModel: string | null = null
           // 编辑模式不注入锚点：基准图本身就是风格基准，再叠参考图会互相干扰
           if (reference === undefined && !isEdit) {
             const anchorFile = await readAnchor(workspaceRoot)
             if (anchorFile !== null) {
-              const activeProviderId = (ctx.get('image') as ImageGenerationServiceFace | undefined)
-                ?.providerId
+              const activeProviderMeta = providerOf(
+                (ctx.get('image') as ImageGenerationServiceFace | undefined)?.providerId ?? '',
+              )
               const referenceUnsupported =
-                activeProviderId === 'dashscope' &&
+                activeProviderMeta?.supportsReference !== undefined &&
                 effectiveModel !== undefined &&
-                !supportsDashscopeReference(effectiveModel)
+                !activeProviderMeta.supportsReference(effectiveModel)
               if (referenceUnsupported) {
                 anchorSkippedForModel = effectiveModel
               } else {
@@ -914,8 +915,7 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
           if (service === undefined) {
             return {
               ok: false,
-              message:
-                '未挂载图像生成服务(image): 请安装 @mackwan84/dsh-image-dashscope 或 @mackwan84/dsh-image-volcengine 并加入组合。',
+              message: `未挂载图像生成服务(image): 请安装 ${PROVIDER_REGISTRY.map((meta) => meta.packageName).join(' 或 ')} 并加入组合。`,
             }
           }
           const generated = isEdit
@@ -1331,12 +1331,12 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
               // 一键切换：改写 DSH home 用户层 patch（$DSH_HOME/cordis.patch.yml），
               // launcher 的 HMR watcher 监听该文件并事务性重放组合，image 槽位
               // 随之热替换（旧 Provider dispose、新 Provider 加载），无需重启。
-              // 只写 id + disabled 两行，不触碰用户层中任何其他内容。
+              // 只写各 Provider 行的 id + disabled 字段，不触碰用户层中任何其他内容。
               const provider = body.provider
-              if (provider !== 'dashscope' && provider !== 'volcengine') {
+              if (typeof provider !== 'string' || providerOf(provider) === undefined) {
                 return rpcError(
                   'INVALID_PARAMETER',
-                  'provider 必须是 "dashscope" 或 "volcengine"。',
+                  `provider 必须是 ${PROVIDER_REGISTRY.map((meta) => `"${meta.id}"`).join(' 或 ')}。`,
                 )
               }
               const service = ctx.get('image') as ImageGenerationServiceFace | undefined
@@ -1417,10 +1417,12 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
               // 只回机器可判的 reason + 原始 detail；用户可见文案由客户端按语言渲染。
               // 探测参数随生效提供方分流（网关、凭据引用、探测路径都不同）。
               const service = ctx.get('image') as ImageGenerationServiceFace | undefined
-              const probe =
-                service?.providerId === 'volcengine' ? PROBES.volcengine : PROBES.dashscope
+              // 探测参数经元数据表分流（网关、凭据引用、探测路径都不同）；
+              // 未注册 id（服务未挂载）回退默认提供方
+              const probeMeta =
+                providerOf(service?.providerId ?? '') ?? providerOf(DEFAULT_PROVIDER_ID)!
               const credentialName =
-                readProviderConfigString(service, 'apiKey') ?? probe.defaultCredential
+                readProviderConfigString(service, 'apiKey') ?? probeMeta.credential
               const ref = credentialRef(credentialName)
               // 取值仅用于探测请求的 Authorization 头，永不进入任何响应
               let apiKey: string | undefined
@@ -1435,12 +1437,12 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
               if (apiKey === undefined || apiKey === '') {
                 return rpcOk({ ok: false, reason: 'missing-key' })
               }
-              const baseUrl = readProviderConfigString(service, 'baseUrl') ?? probe.defaultBaseUrl
+              const baseUrl = readProviderConfigString(service, 'baseUrl') ?? probeMeta.probeBaseUrl
               try {
                 // 鉴权探测：向图像生成端点发空体 POST（不消耗生成配额）。
                 // 两家网关都是鉴权先于参数校验：无效 key → 401；
                 // 有效 key → 400 参数错误；429 限流也说明鉴权已通过。
-                const res = await fetch(baseUrl + probe.path, {
+                const res = await fetch(baseUrl + probeMeta.probePath, {
                   method: 'POST',
                   headers: {
                     Authorization: `Bearer ${apiKey}`,
@@ -1547,24 +1549,6 @@ interface ImageGenerationServiceFace {
   ): Promise<{ model: string; images: readonly { url: string; mediaType?: string }[] }>
 }
 
-/**
- * 各提供方的鉴权探测参数：网关、凭据引用名与探测路径。
- * 默认值兜底 Provider config 缺失（服务未挂载）的场景；生效 Provider 的
- * config.apiKey / config.baseUrl 可被用户改写，优先于默认值。
- */
-const PROBES = {
-  dashscope: {
-    defaultCredential: 'DASHSCOPE_API_KEY',
-    defaultBaseUrl: 'https://dashscope.aliyuncs.com',
-    path: '/api/v1/services/aigc/image-generation/generation',
-  },
-  volcengine: {
-    defaultCredential: 'ARK_API_KEY',
-    defaultBaseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
-    path: '/images/generations',
-  },
-} as const
-
 /** 从生效 Provider 的 config 读字符串字段；服务缺失或字段非字符串时返回 undefined。 */
 function readProviderConfigString(
   service: ImageGenerationServiceFace | undefined,
@@ -1578,35 +1562,9 @@ function readProviderConfigString(
 /** DSH home 用户层 patch 文件（launcher 实时 watch，编辑后组合热重载）。 */
 export const HOME_PATCH_FILENAME = 'cordis.patch.yml'
 
-/**
- * 生成切换提供方后的用户层 patch 行：对两行 Provider 做 id 定向 disabled 翻转。
- * 用户层 applied after bundle layers——bundle 插入的行由此覆盖 enabled 状态，
- * 且只携带 id/disabled 两个字段，不触碰用户可能写在同 id 行上的其他定制；
- * 已有行原位更新（保留其余字段），缺失行追加在列表尾部。
- * 纯函数：宿主端点与单测共用同一合并语义。
- */
-export function mergeProviderSwitchRows(
-  patches: readonly unknown[],
-  target: 'dashscope' | 'volcengine',
-): Record<string, unknown>[] {
-  const rows: Record<string, unknown>[] = [
-    { id: 'image-dashscope', disabled: target !== 'dashscope' },
-    { id: 'image-volcengine', disabled: target !== 'volcengine' },
-  ]
-  type Entry = Record<string, unknown>
-  const merged: Entry[] = patches.filter(
-    (entry): entry is Entry => entry !== null && typeof entry === 'object',
-  )
-  for (const row of rows) {
-    const index = merged.findIndex((entry) => entry['id'] === row.id)
-    if (index >= 0) merged[index] = { ...merged[index]!, disabled: row.disabled }
-    else merged.push(row)
-  }
-  return merged
-}
-
 /** 供单元测试引用的内部实现。 */
 export { buildPrompt, dshHome }
+export { mergeProviderSwitchRows } from './providers.js'
 export {
   sanitizeOutputDir,
   clampCount,

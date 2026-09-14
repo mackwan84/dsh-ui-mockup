@@ -31,6 +31,7 @@ import {
   type ConnectionFace,
   type PrefScope,
 } from './shared.js'
+import { DEFAULT_PROVIDER_ID, PROVIDER_REGISTRY, providerMetaOf, providerOf } from '../providers.js'
 import type { NS, UiMockupKey } from './locales.js'
 import panelCss from './settings-panel.css?inline'
 
@@ -360,6 +361,10 @@ function OverviewPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
   if (data === undefined)
     return <div style={{ color: tokens.labelTertiary }}>{t('panel.loading')}</div>
 
+  // 生效提供方元数据：unknown（未挂载 image 服务）无注册条目，凭据名走默认提供方回退
+  const overviewMeta = providerOf(data.provider)
+  const overviewCredential = overviewMeta?.credential ?? providerMetaOf('unknown').credential
+
   return (
     <div
       className="ui-mockup-overview"
@@ -409,17 +414,10 @@ function OverviewPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
         {t('panel.overview.statusLine', {
           // 生效提供方由宿主端点给出；unknown（未挂载 image 服务）单独措辞
           provider:
-            data.provider === 'volcengine' || data.provider === 'dashscope'
-              ? t(PROVIDER_NAME_KEYS[data.provider])
-              : t('panel.provider.unknown'),
+            overviewMeta !== undefined ? t(overviewMeta.nameKey) : t('panel.provider.unknown'),
           credential: data.credential.configured
             ? t('panel.credential.ready')
-            : t('panel.credential.missing', {
-                credential:
-                  data.provider === 'volcengine'
-                    ? PROVIDER_CREDENTIALS.volcengine
-                    : PROVIDER_CREDENTIALS.dashscope,
-              }),
+            : t('panel.credential.missing', { credential: overviewCredential }),
         })}
       </div>
     </div>
@@ -443,47 +441,15 @@ function sourceLabelText(t: PanelProps['t'], source: string | undefined): string
   return key === undefined ? source : t(key)
 }
 
-const WIREFRAME_MODEL_HINTS: Record<ProviderId, string[]> = {
-  dashscope: ['', 'qwen-image-3.0', 'qwen-image-2.0', 'wan2.7-image'],
-  volcengine: ['', 'doubao-seedream-4-5-251128', 'doubao-seedream-4-0-250828'],
-  unknown: ['', 'qwen-image-3.0'],
-}
-const HIGH_FIDELITY_MODEL_HINTS: Record<ProviderId, string[]> = {
-  dashscope: ['', 'qwen-image-3.0-pro', 'qwen-image-2.0-pro', 'wan2.7-image-pro'],
-  volcengine: ['', 'doubao-seedream-5-0-pro-260628', 'doubao-seedream-5-0-260128'],
-  unknown: ['', 'qwen-image-3.0-pro'],
-}
-/** 方向稿（fastPreview）候选：定位是快速档，只列各家快模型。 */
-const DRAFT_MODEL_HINTS: Record<ProviderId, string[]> = {
-  dashscope: ['', 'qwen-image-3.0', 'wan2.7-image'],
-  volcengine: ['', 'doubao-seedream-4-5-251128'],
-  unknown: ['', 'qwen-image-3.0'],
-}
-
-/** 生效提供方 id（宿主 provider/status 端点返回；unknown = 未挂载 image 服务）。 */
-type ProviderId = 'dashscope' | 'volcengine' | 'unknown'
-
-/** 各提供方的凭据引用名（与 Provider Config 默认值一致）。 */
-const PROVIDER_CREDENTIALS: Record<ProviderId, string> = {
-  dashscope: 'DASHSCOPE_API_KEY',
-  volcengine: 'ARK_API_KEY',
-  unknown: 'DASHSCOPE_API_KEY',
-}
-
-/** 生效提供方 id → 本地化名称键；unknown 无名可显，调用方特判。 */
-const PROVIDER_NAME_KEYS: Record<Exclude<ProviderId, 'unknown'>, UiMockupKey> = {
-  dashscope: 'panel.provider.dashscopeName',
-  volcengine: 'panel.provider.volcengineName',
-}
-
 function ProviderPage({ t, prefs, connection }: PanelProps) {
   const snap = prefs.getSnapshot()
   usePrefSync(prefs)
   const [testResult, setTestResult] = useState<string | null>(null)
   const [testing, setTesting] = useState(false)
   const [writeError, setWriteError] = useState('')
-  // 生效提供方：provider/status 端点的唯一事实源，决定卡片选中态/凭据名/模型 hints
-  const [providerId, setProviderId] = useState<ProviderId>('unknown')
+  // 生效提供方 id（宿主 provider/status 端点返回；unknown = 未挂载 image 服务），
+  // 决定卡片选中态/凭据名/模型 hints——全部经元数据表查得
+  const [providerId, setProviderId] = useState<string>('unknown')
   // 端点不可达（旧宿主/纯内存部署）时置位：面板按安装默认（DashScope）渲染并说明原因，
   // 而不是把"检测不到"误显示成"未启用"。
   const [statusUnknown, setStatusUnknown] = useState(true)
@@ -497,9 +463,9 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
   const [keyBusy, setKeyBusy] = useState(false)
   const [keyNotice, setKeyNotice] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
 
-  const refreshProviderStatus = useCallback(async (): Promise<ProviderId> => {
+  const refreshProviderStatus = useCallback(async (): Promise<string> => {
     try {
-      const value = await callPanel<{ active: ProviderId }>(connection, 'provider/status')
+      const value = await callPanel<{ active: string }>(connection, 'provider/status')
       setProviderId(value.active)
       setStatusUnknown(false)
       return value.active
@@ -514,15 +480,17 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
     void refreshProviderStatus()
   }, [refreshProviderStatus])
 
-  const credentialName = PROVIDER_CREDENTIALS[providerId]
+  // 生效提供方元数据（未注册 id 走渲染回退条目）：凭据名与三档模型候选的唯一来源
+  const activeMeta = providerMetaOf(providerId)
+  const credentialName = activeMeta.credential
 
   /** 一键切换生效提供方：宿主改写 home 用户层 patch（DSH 热重载），完成后刷新状态。 */
-  const switchProvider = async (target: Exclude<ProviderId, 'unknown'>) => {
+  const switchProvider = async (target: string) => {
     if (switching) return
     setSwitching(true)
     setProviderNotice(null)
     try {
-      const result = await callPanel<{ active: ProviderId; pending?: boolean }>(
+      const result = await callPanel<{ active: string; pending?: boolean }>(
         connection,
         'provider/switch',
         { provider: target },
@@ -664,8 +632,6 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
   //   并说明原因——"检测不到"不等于"未启用"；
   // - 端点可达但 active=unknown：image 服务确实未挂载，两卡都未选中。
   const statusReadable = !statusUnknown
-  const dashscopeActive = providerId === 'dashscope' || (providerId === 'unknown' && statusUnknown)
-  const volcengineActive = providerId === 'volcengine'
   /** 选中卡：中性蓝灰边框 + 浅灰填充（对齐 DSH 原生「外观」选项卡）；未选中：border-l2 实线。 */
   const providerCardStyle = (active: boolean) => ({
     flex: '1 1 200px',
@@ -706,95 +672,76 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
         {statusUnknown && <Notice>{t('panel.provider.unknownHint')}</Notice>}
         {providerNotice !== null && <Notice>{providerNotice}</Notice>}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <label
-            className="ui-mockup-provider-card"
-            style={{
-              ...providerCardStyle(dashscopeActive),
-              cursor: dashscopeActive || switching ? 'default' : 'pointer',
-            }}
-            onClick={() => {
-              if (!dashscopeActive) void switchProvider('dashscope')
-            }}
-          >
-            <input
-              type="radio"
-              name="ui-mockup-provider"
-              checked={dashscopeActive}
-              disabled={switching}
-              readOnly
-              aria-label={t('panel.provider.dashscopeName')}
-            />{' '}
-            <strong style={{ fontSize: 13 }}>{t('panel.provider.dashscopeName')}</strong>
-            <div style={providerMetaStyle}>
-              {dashscopeActive ? (
-                <>
-                  <div style={providerStatusStyle}>
-                    <StatusDot ok={credential?.configured === true} busy={switching} />
-                    {statusUnknown && providerId === 'unknown'
-                      ? t('panel.provider.fallbackActive')
-                      : credentialStatus}
-                  </div>
-                  {credential?.configured && sourceLabel !== undefined && (
+          {PROVIDER_REGISTRY.map((meta) => {
+            // 端点不可达（unknown）时按安装默认渲染默认提供方为选中，并标明「默认生效」
+            const isFallbackActive =
+              statusUnknown && providerId === 'unknown' && meta.id === DEFAULT_PROVIDER_ID
+            const active = providerId === meta.id || isFallbackActive
+            return (
+              <label
+                key={meta.id}
+                className="ui-mockup-provider-card"
+                style={{
+                  ...providerCardStyle(active),
+                  cursor: active || switching ? 'default' : 'pointer',
+                }}
+                onClick={() => {
+                  if (!active) void switchProvider(meta.id)
+                }}
+              >
+                <input
+                  type="radio"
+                  name="ui-mockup-provider"
+                  checked={active}
+                  disabled={switching}
+                  readOnly
+                  aria-label={t(meta.nameKey)}
+                />{' '}
+                <strong style={{ fontSize: 13 }}>{t(meta.nameKey)}</strong>
+                <div style={providerMetaStyle}>
+                  {active ? (
+                    <>
+                      <div style={providerStatusStyle}>
+                        <StatusDot ok={credential?.configured === true} busy={switching} />
+                        {isFallbackActive ? t('panel.provider.fallbackActive') : credentialStatus}
+                      </div>
+                      {meta.cardNotes === 'status' &&
+                        credential?.configured &&
+                        sourceLabel !== undefined && (
+                          <div
+                            style={{
+                              fontSize: 12,
+                              lineHeight: '17px',
+                              color: tokens.labelTertiary,
+                              paddingLeft: 14,
+                            }}
+                          >
+                            {sourceLabel}
+                          </div>
+                        )}
+                    </>
+                  ) : meta.cardNotes === 'status' ? (
+                    <div style={providerStatusStyle}>
+                      <StatusDot ok={false} busy={switching} />
+                      {t('panel.provider.inactive')}
+                    </div>
+                  ) : (
                     <div
                       style={{
                         fontSize: 12,
                         lineHeight: '17px',
                         color: tokens.labelTertiary,
-                        paddingLeft: 14,
                       }}
                     >
-                      {sourceLabel}
+                      {statusReadable && meta.presetDisabled
+                        ? t('panel.provider.volcengineDisabled')
+                        : t('panel.provider.inactive')}
                     </div>
                   )}
-                </>
-              ) : (
-                <div style={providerStatusStyle}>
-                  <StatusDot ok={false} busy={switching} />
-                  {t('panel.provider.inactive')}
                 </div>
-              )}
-            </div>
-          </label>
-          <label
-            className="ui-mockup-provider-card"
-            style={{
-              ...providerCardStyle(volcengineActive),
-              cursor: volcengineActive || switching ? 'default' : 'pointer',
-            }}
-            onClick={() => {
-              if (!volcengineActive) void switchProvider('volcengine')
-            }}
-          >
-            <input
-              type="radio"
-              name="ui-mockup-provider"
-              checked={volcengineActive}
-              disabled={switching}
-              readOnly
-              aria-label={t('panel.provider.volcengineName')}
-            />{' '}
-            <strong style={{ fontSize: 13 }}>{t('panel.provider.volcengineName')}</strong>
-            <div style={providerMetaStyle}>
-              {volcengineActive ? (
-                <div style={providerStatusStyle}>
-                  <StatusDot ok={credential?.configured === true} busy={switching} />
-                  {credentialStatus}
-                </div>
-              ) : (
-                <div
-                  style={{
-                    fontSize: 12,
-                    lineHeight: '17px',
-                    color: tokens.labelTertiary,
-                  }}
-                >
-                  {statusReadable
-                    ? t('panel.provider.volcengineDisabled')
-                    : t('panel.provider.inactive')}
-                </div>
-              )}
-            </div>
-          </label>
+              </label>
+            )
+          })}
         </div>
       </Card>
 
@@ -894,7 +841,7 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
             style={{ ...selectStyle, width: 'min(260px, 100%)' }}
           >
             <option value="">{t('panel.models.followDefault')}</option>
-            {WIREFRAME_MODEL_HINTS[providerId].filter(Boolean).map((m) => (
+            {activeMeta.hints.wireframe.filter(Boolean).map((m) => (
               <option key={m} value={m}>
                 {m}
               </option>
@@ -912,7 +859,7 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
             style={{ ...selectStyle, width: 'min(260px, 100%)' }}
           >
             <option value="">{t('panel.models.followDefault')}</option>
-            {HIGH_FIDELITY_MODEL_HINTS[providerId].filter(Boolean).map((m) => (
+            {activeMeta.hints.highFidelity.filter(Boolean).map((m) => (
               <option key={m} value={m}>
                 {m}
               </option>
@@ -930,7 +877,7 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
             style={{ ...selectStyle, width: 'min(260px, 100%)' }}
           >
             <option value="">{t('panel.models.followDefault')}</option>
-            {DRAFT_MODEL_HINTS[providerId].filter(Boolean).map((m) => (
+            {activeMeta.hints.draft.filter(Boolean).map((m) => (
               <option key={m} value={m}>
                 {m}
               </option>
@@ -938,7 +885,7 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
           </select>
         </FieldRow>
         <Notice>
-          {`${t('panel.models.wireframe')}: ${WIREFRAME_MODEL_HINTS[providerId].filter(Boolean).join(', ')} · ${t('panel.models.highFidelity')}: ${HIGH_FIDELITY_MODEL_HINTS[providerId].filter(Boolean).join(', ')} · ${t('panel.models.draft')}: ${DRAFT_MODEL_HINTS[providerId].filter(Boolean).join(', ')}`}
+          {`${t('panel.models.wireframe')}: ${activeMeta.hints.wireframe.filter(Boolean).join(', ')} · ${t('panel.models.highFidelity')}: ${activeMeta.hints.highFidelity.filter(Boolean).join(', ')} · ${t('panel.models.draft')}: ${activeMeta.hints.draft.filter(Boolean).join(', ')}`}
         </Notice>
       </Card>
     </div>

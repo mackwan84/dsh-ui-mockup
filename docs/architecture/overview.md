@@ -113,6 +113,7 @@ dsh plugin --profile web add github:mackwan84/dsh-ui-mockup#main   # 需 prepare
   - **限流自动退避重试**（Throttling/RateQuota → 25s × 2 次）；
   - **标注反馈处理（0.2.0）**：卡片标注弹窗提交的消息形如「对 design/images/<名> 的标注反馈（ISO 时间戳）：编号区域（归一化坐标）：①…。意见：…」；提示词规则要求按编号区域空间语言组织 editNote/description、`baseImage` 恒传原图语义路径、同一图多轮标注以最新为准；`execute` 编辑分支对「标注图命名特征 + 文件不存在」的 baseImage 返回可操作错误（硬防护，避免误报「文件不存在」）。
 - 提示词注入（systemPrompt section）：何时主动提议草图、fidelity 选择、确认后写 `design/spec.md`、spec 未确认不写前端代码、标注反馈消息的解读规则；
+- **供应商元数据表（单一数据源）**：提供方的显示名词条键、凭据名、三档模型候选、鉴权探测参数（默认网关/路径）、补丁行 id、参考图能力闸门收敛为共享元数据模块（宿主/客户端两半区共用，模块自身不 import 客户端代码，host 构建保持排除 `src/client`）；面板卡片渲染、切换校验、切换补丁行合并（注册表驱动的 N 行单选语义）、`test-connection` 探测分流、凭据名映射全部查表；两家场景的补丁合并输出与 0.2.0 两行硬编码逐字节一致（合并纯函数测试锁定），新增提供方只需在注册表追加条目；
 - 设计锁定：用户确认后提炼 `design/spec.md`（配色、字体、间距、组件清单、页面清单）。
 
 ### 6.4 客户端 UI
