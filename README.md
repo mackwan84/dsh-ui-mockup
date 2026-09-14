@@ -140,9 +140,9 @@ pnpm lint          # ESLint（js/ts 推荐 + 类型感知规则）
 pnpm lint:fix      # ESLint 自动修复
 pnpm format        # Prettier 全仓格式化
 pnpm format:check  # Prettier 格式检查
-pnpm build         # 构建四个包的 lib/
-pnpm run pack:all  # 打包 5 个 tarball 到 dist/
-pnpm run publish:all # 先由 pnpm 转换 workspace: 协议，再按依赖顺序发布 5 个 tarball
+pnpm build         # 构建五个 Provider/工具包的 lib/
+pnpm run pack:all  # 打包 6 个 tarball 到 dist/（image + 3 家 Provider + tool + bundle）
+pnpm run publish:all # 先由 pnpm 转换 workspace: 协议，再按依赖顺序发布 6 个 tarball
 ```
 
 ## License
