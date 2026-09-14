@@ -88,6 +88,14 @@ const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-smoke-'))
 // 注意 description 是位置参数，放在 --provider 之前：npx tsx … "描述" --provider volcengine
 const providerIndex = process.argv.indexOf('--provider')
 const providerName = providerIndex !== -1 ? process.argv[providerIndex + 1] : 'dashscope'
+// 未知 provider 值直接报错，避免拼写错误（如 --provider openai-compt）静默回退 DashScope
+// 而在真实网关验收时跑错提供方、消耗错额度并得到误导性结论
+const KNOWN_PROVIDERS = ['dashscope', 'volcengine', 'openai-compat']
+if (!KNOWN_PROVIDERS.includes(providerName ?? '')) {
+  console.error(`--provider 只支持 ${KNOWN_PROVIDERS.join(' | ')}，收到: ${String(providerName)}`)
+  await rm(dir, { recursive: true, force: true })
+  process.exit(1)
+}
 const useVolcengine = providerName === 'volcengine'
 const useOpenaiCompat = providerName === 'openai-compat'
 const ctx = new Context()
