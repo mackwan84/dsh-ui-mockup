@@ -255,3 +255,147 @@ describe('基础错误映射', () => {
     expect((err as ImageProviderError).message).toContain('boom')
   })
 })
+
+/** 挂起 fetch：不主动返回，信号中止时以中止原因拒绝（与 undici 真实行为一致）。 */
+function hangUntilAbort(_url: string, init: RequestInit): Promise<Response> {
+  return new Promise((_resolve, reject) => {
+    const signal = init.signal
+    if (signal == null) return
+    const onAbort = () =>
+      reject(signal.reason instanceof Error ? signal.reason : new Error(String(signal.reason)))
+    if (signal.aborted) onAbort()
+    else signal.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
+describe('协议方言与错误完备', () => {
+  it('HTTP 200 但响应体是 HTML 页时抛 BAD_RESPONSE 并携带片段（HTML-200 陷阱）', async () => {
+    mockFetch(
+      () => new Response('<!doctype html><html lang="en"><title>Nezha</title>', { status: 200 }),
+    )
+    const err = await provider()
+      .generate(wireframeSpec)
+      .catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(ImageProviderError)
+    expect((err as ImageProviderError).code).toBe('BAD_RESPONSE')
+    expect((err as ImageProviderError).message).toContain('不是 JSON')
+    expect((err as ImageProviderError).message).toContain('<!doctype html>')
+  })
+
+  it('429 映射为 RATE_LIMITED，error 包裹与顶层 code/message 双形态都可提取', async () => {
+    mockFetch(
+      () =>
+        new Response(JSON.stringify({ error: { code: 'RateLimit', message: 'slow down' } }), {
+          status: 429,
+        }),
+    )
+    const first = await provider()
+      .generate(wireframeSpec)
+      .catch((e: unknown) => e)
+    expect((first as ImageProviderError).code).toBe('RATE_LIMITED')
+    expect((first as ImageProviderError).message).toContain('slow down')
+
+    mockFetch(
+      () => new Response(JSON.stringify({ code: '429', message: 'too many' }), { status: 429 }),
+    )
+    const second = await provider()
+      .generate(wireframeSpec)
+      .catch((e: unknown) => e)
+    expect((second as ImageProviderError).code).toBe('RATE_LIMITED')
+    expect((second as ImageProviderError).message).toContain('too many')
+  })
+
+  it('503 模型不存在（new_api 方言）映射为 HTTP_ERROR 并透传状态码与错误码', async () => {
+    mockFetch(
+      () =>
+        new Response(
+          JSON.stringify({ error: { code: 'model_not_found', message: 'no such model' } }),
+          {
+            status: 503,
+          },
+        ),
+    )
+    const err = await provider()
+      .generate(wireframeSpec)
+      .catch((e: unknown) => e)
+    expect((err as ImageProviderError).code).toBe('HTTP_ERROR')
+    expect((err as ImageProviderError).message).toContain('503')
+    expect((err as ImageProviderError).message).toContain('model_not_found')
+  })
+
+  it('400 参数错误映射为 INVALID_PARAMETER（n>1 被网关拒绝时的典型形态）', async () => {
+    mockFetch(
+      () =>
+        new Response(
+          JSON.stringify({ error: { code: 'InvalidParameter', message: 'n not allowed' } }),
+          {
+            status: 400,
+          },
+        ),
+    )
+    const err = await provider()
+      .generate({ ...wireframeSpec, n: 2 })
+      .catch((e: unknown) => e)
+    expect((err as ImageProviderError).code).toBe('INVALID_PARAMETER')
+    expect((err as ImageProviderError).message).toContain('n not allowed')
+  })
+
+  it('顶层 InvalidApiKey（无 error 包裹）也判定为 MISSING_CREDENTIAL', async () => {
+    mockFetch(
+      () =>
+        new Response(JSON.stringify({ code: 'InvalidApiKey', message: 'wrong key' }), {
+          status: 401,
+        }),
+    )
+    await expect(provider().generate(wireframeSpec)).rejects.toMatchObject({
+      code: 'MISSING_CREDENTIAL',
+    })
+  })
+
+  it('429 空响应体也报 RATE_LIMITED 而非 BAD_RESPONSE', async () => {
+    mockFetch(() => new Response('', { status: 429 }))
+    await expect(provider().generate(wireframeSpec)).rejects.toMatchObject({
+      code: 'RATE_LIMITED',
+    })
+  })
+
+  it('超时窗口耗尽映射为 TIMEOUT（真实挂钟，fake timers 触发不了 AbortSignal.timeout）', async () => {
+    mockFetch(hangUntilAbort)
+    await expect(provider({ requestTimeoutMs: 200 }).generate(wireframeSpec)).rejects.toMatchObject(
+      {
+        code: 'TIMEOUT',
+      },
+    )
+  })
+
+  it('调用方取消原样上抛 AbortError，不冒充 TIMEOUT', async () => {
+    mockFetch(hangUntilAbort)
+    const controller = new AbortController()
+    const promise = provider().generate(wireframeSpec, controller.signal)
+    const expectation = expect(promise).rejects.toMatchObject({ name: 'AbortError' })
+    controller.abort()
+    await expectation
+  })
+
+  it('连接失败（undici TypeError）映射为 NETWORK_ERROR', async () => {
+    mockFetch(() => Promise.reject(new TypeError('fetch failed')))
+    const err = await provider()
+      .generate(wireframeSpec)
+      .catch((e: unknown) => e)
+    expect((err as ImageProviderError).code).toBe('NETWORK_ERROR')
+    expect((err as ImageProviderError).message).toContain('fetch failed')
+  })
+
+  it('非传输类异常原样上抛，不伪装网络问题', async () => {
+    mockFetch(() => Promise.reject(new RangeError('invalid header value')))
+    await expect(provider().generate(wireframeSpec)).rejects.toBeInstanceOf(RangeError)
+  })
+
+  it('extractImages 跳过空串与非法条目（非数组输入返回空）', () => {
+    expect(extractImages(null)).toEqual([])
+    expect(extractImages('nope')).toEqual([])
+    expect(
+      extractImages([{ url: '' }, { b64_json: '' }, 42, null, { url: 'https://a/1.png' }]),
+    ).toEqual([{ url: 'https://a/1.png' }])
+  })
+})

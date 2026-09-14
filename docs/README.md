@@ -9,6 +9,7 @@
 - [文档信息架构与治理规范](architecture/documentation-governance.md)
 - [火山方舟图片接口参考](references/volcengine-ark-image-api.md)
 - [百炼图像编辑与思考模式开关事实清单](references/dashscope-image-edit-and-thinking-mode.md)
+- [OpenAI 兼容生图网关事实清单](references/openai-compatible-gateways.md)
 
 ## 测试与发布
 

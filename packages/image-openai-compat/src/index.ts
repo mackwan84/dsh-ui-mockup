@@ -184,7 +184,7 @@ export default class OpenaiCompatImageProvider extends ImageGenerationService {
     apiKey: string,
     signal?: AbortSignal,
   ): Promise<{ model: string; images: GeneratedImage[] }> {
-    const { status, data } = await this.postJson('/images/generations', body, apiKey, signal)
+    const { status, data, json } = await this.postJson('/images/generations', body, apiKey, signal)
     if (status === 429) {
       const parsed = parseErrorBody(data)
       throw new ImageProviderError(
@@ -209,7 +209,14 @@ export default class OpenaiCompatImageProvider extends ImageGenerationService {
     const model = typeof data.model === 'string' ? data.model : ''
     const images = extractImages(data.data)
     if (images.length === 0) {
-      throw new ImageProviderError('BAD_RESPONSE', '响应缺少 data[].url / data[].b64_json 图片结果')
+      // 非 JSON 的 2xx 响应按网关方言处理（如地址缺 /v1 前缀时返回网关前端 HTML 页）：
+      // 携带响应片段让用户可判定是地址填错还是网关异常，而不是笼统的"缺少图片结果"
+      throw new ImageProviderError(
+        'BAD_RESPONSE',
+        json
+          ? '响应缺少 data[].url / data[].b64_json 图片结果'
+          : `响应不是 JSON(可能是网关前端页, 请核对 baseUrl 是否以 /v1 结尾): ${textOf(data.message)}`,
+      )
     }
     return { model, images }
   }
@@ -219,7 +226,7 @@ export default class OpenaiCompatImageProvider extends ImageGenerationService {
     body: JsonObject,
     apiKey: string,
     signal?: AbortSignal,
-  ): Promise<{ status: number; data: JsonObject }> {
+  ): Promise<{ status: number; data: JsonObject; json: boolean }> {
     // 同步生成是单次长请求：超时取配置窗口与调用方 signal 的先到者
     // （AbortSignal.any 原生组合，任一触发即中断请求）。
     const timeout = AbortSignal.timeout(this.config.requestTimeoutMs)
@@ -254,11 +261,15 @@ export default class OpenaiCompatImageProvider extends ImageGenerationService {
       throw new ImageProviderError('NETWORK_ERROR', `连接 OpenAI 兼容网关失败: ${error.message}`)
     }
     let data: JsonObject
+    let json: boolean
     try {
       data = JSON.parse(text) as JsonObject
+      json = true
     } catch {
+      // 非 JSON 响应体（如网关前端 HTML 页）保留片段参与错误文本，并标记供上层分流
       data = { message: text.slice(0, 200) }
+      json = false
     }
-    return { status: res.status, data }
+    return { status: res.status, data, json }
   }
 }
