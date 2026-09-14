@@ -19,6 +19,8 @@
 - [0.2.0 浏览器测试用例](testing/v0.2.0/browser-cases.md)
 - [0.2.0 CRM 测试数据](testing/v0.2.0/data/crm.json)
 - [0.2.0 正式发布记录](releases/v0.2.0.md)
+- [0.3.0 浏览器测试用例](testing/v0.3.0/browser-cases.md)
+- [0.3.0 CRM 测试数据](testing/v0.3.0/data/crm.json)
 
 ## 界面截图
 

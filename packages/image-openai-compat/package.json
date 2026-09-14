@@ -1,6 +1,6 @@
 {
   "name": "@mackwan84/dsh-image-openai-compat",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "OpenAI 兼容网关图像生成 Provider：面向 one-api / new-api 等聚合网关与官方 OpenAI 的 /v1/images/generations 同步调用（最小公共子集：model/prompt/n/size + b64/url 双格式归一）",
   "keywords": [
     "dsh",

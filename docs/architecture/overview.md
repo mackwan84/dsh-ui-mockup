@@ -1,6 +1,6 @@
 # dsh-ui-mockup · 架构与实现
 
-> 当前实现版本：0.2.0。本文记录仓库结构、能力边界与经验证的关键实现事实。
+> 当前实现版本：0.3.0。本文记录仓库结构、能力边界与经验证的关键实现事实。
 
 ## 1. 产品目标
 
@@ -43,7 +43,7 @@ dsh-ui-mockup/
 
 ```sh
 # 产品形态
-dsh plugin --profile web add @mackwan84/dsh-ui-mockup-bundle@0.2.0
+dsh plugin --profile web add @mackwan84/dsh-ui-mockup-bundle@0.3.0
 # → pnpm 安装 → 检测 dsh.bundle.patch → 自动挂载 → 工具立即可用
 
 # 开发期

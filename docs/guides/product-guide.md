@@ -61,7 +61,7 @@ sequenceDiagram
 ### 4.1 安装
 
 ```sh
-dsh plugin --profile web add @mackwan84/dsh-ui-mockup-bundle@0.2.0
+dsh plugin --profile web add @mackwan84/dsh-ui-mockup-bundle@0.3.0
 ```
 
 安装完成即自动挂载（`dsh.bundle.patch`），重启 `dsh web` 后工具出现在会话中。

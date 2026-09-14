@@ -22,7 +22,7 @@ afterEach(async () => {
   await Promise.all(temporaryDirectories.splice(0).map((path) => rm(path, { recursive: true })))
 })
 
-describe('0.2.0 发布元数据', () => {
+describe('0.3.0 发布元数据', () => {
   it('pack:all 在打包任何工作区前先执行全仓构建', async () => {
     const pkg = await readJson('package.json')
     const packAllScript = (pkg['scripts'] as Record<string, string>)['pack:all']

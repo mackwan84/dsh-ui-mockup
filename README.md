@@ -25,8 +25,14 @@
   `doubao-seedream-5-0-pro-260628`）；
 - **当前万相能力**：百炼仅支持 `wan2.7-image` / `wan2.7-image-pro`，使用新版异步图像端点，
   支持文生图与单参考图 I2I；Wan 2.2/2.6 与旧 `text2image` 端点已废弃；
-- **双提供方**：阿里云百炼 DashScope（默认启用）与火山方舟 Volcengine Ark（预置未启用）；
-  设置面板「提供方与模型」页**点卡片一键切换**——写入 DSH 用户层 patch 并热重载，无需重启；
+- **三提供方**：阿里云百炼 DashScope（默认启用）、火山方舟 Volcengine Ark 与 OpenAI 兼容网关
+  （后两者预置未启用）；设置面板「提供方与模型」页**点卡片一键切换**——写入 DSH 用户层 patch
+  并热重载，无需重启；
+- **OpenAI 兼容网关（0.3.0）**：面向 one-api / new-api 等私有聚合网关与官方 OpenAI——
+  `POST {baseUrl}/images/generations` 最小参数子集（model/prompt/n/size）与
+  `b64_json`/`url` 双返回格式归一；网关地址在连接配置卡中编辑（写用户层配置并热重载落位）；
+  模型分层为组合框：内置候选 ∪ 网关 `/v1/models` 拉取建议（失败静默降级），永远可手填；
+  尺寸按原始比例透传、错误透明透传；不支持参考图与指令编辑（显式 `NOT_IMPLEMENTED`）；
 - **指令编辑**：对已生成图传 `baseImage` + `editNote` 走整图指令重绘（火山 Seedream 5.0 Pro，
   比整体重新生成更快更贴近原稿）；
 - **安全语义引用**：模型使用 `design/images/<文件名>` 引用资产；语义路径穿越会在工具层拒绝，
@@ -56,7 +62,7 @@
 ## 安装
 
 ```sh
-dsh plugin --profile web add @mackwan84/dsh-ui-mockup-bundle@0.2.0
+dsh plugin --profile web add @mackwan84/dsh-ui-mockup-bundle@0.3.0
 ```
 
 安装完成后重启 DSH。开发本仓库时可改用本地路径：
