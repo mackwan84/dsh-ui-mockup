@@ -14,6 +14,8 @@
 ## 测试与发布
 
 - [v0.3.0 浏览器验收问题修复设计](superpowers/specs/2026-09-15-v0.3.0-acceptance-repair-design.md)
+- [v0.3.0 产品缺陷修复实施计划](superpowers/plans/2026-09-15-v0.3.0-product-defect-fixes.md)
+- [v0.3.0 隔离验收环境与复跑实施计划](superpowers/plans/2026-09-15-v0.3.0-acceptance-environment-and-rerun.md)
 - [0.1.3 浏览器测试用例](testing/v0.1.3/browser-cases.md)
 - [0.1.3 CRM 测试数据](testing/v0.1.3/data/crm.json)
 - [0.1.3 发布检查清单](releases/v0.1.3.md)
