@@ -154,7 +154,8 @@ class SettingsStub extends Service {
 
 /** RPC 结果形状（与宿主半区 RpcResultLike 同构）。 */
 type CompositionRpcResult =
-  { ok: true; value: unknown } | { ok: false; error: { code: string; message: string } }
+  | { ok: true; value: unknown }
+  | { ok: false; error: { code: string; message: string; details: Record<string, unknown> } }
 
 /** connection 桩：记录 /api 精确 Fetch 路由注册并支持测试内直接调用端点。 */
 class ConnectionStub extends Service {
@@ -1973,7 +1974,10 @@ describe('ui-mockup real dynamic composition', () => {
       await writeFile(patchFile, jsExpr, 'utf8')
       const jsResult = await call('provider/switch', { provider: 'volcengine' })
       expect(jsResult.ok).toBe(false)
-      if (!jsResult.ok) expect(jsResult.error.message).toContain('!!js')
+      if (!jsResult.ok) {
+        expect(jsResult.error.message).toContain('!!js')
+        expect(jsResult.error.details).toEqual({})
+      }
       expect(await readFile(patchFile, 'utf8')).toBe(jsExpr)
 
       // 合法 YAML 但非顶层数组同样是坏 patch：中止而不是用空数组覆盖
@@ -1981,7 +1985,10 @@ describe('ui-mockup real dynamic composition', () => {
       await writeFile(patchFile, notArray, 'utf8')
       const mapResult = await call('provider/switch', { provider: 'volcengine' })
       expect(mapResult.ok).toBe(false)
-      if (!mapResult.ok) expect(mapResult.error.message).toContain('YAML')
+      if (!mapResult.ok) {
+        expect(mapResult.error.message).toContain('YAML')
+        expect(mapResult.error.details).toEqual({})
+      }
       expect(await readFile(patchFile, 'utf8')).toBe(notArray)
     } finally {
       await rm(dir, { recursive: true, force: true })

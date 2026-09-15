@@ -179,7 +179,7 @@ interface ConnectionFace {
 /** 与 dsh-host-apiproxy 的 RpcResult 同构的最小形状（避免宿主半区引入该依赖）。 */
 export type RpcResultLike<T> =
   | { ok: true; value: T }
-  | { ok: false; error: { code: string; message: string; details?: Record<string, unknown> } }
+  | { ok: false; error: { code: string; message: string; details: Record<string, unknown> } }
 
 /** 成功结果包装。 */
 function rpcOk<T>(value: T): RpcResultLike<T> {
@@ -188,7 +188,7 @@ function rpcOk<T>(value: T): RpcResultLike<T> {
 
 /** 失败结果包装：错误码与提供方 resolver 语义保持一致风格。 */
 function rpcError(code: string, message: string): RpcResultLike<never> {
-  return { ok: false, error: { code, message } }
+  return { ok: false, error: { code, message, details: {} } }
 }
 
 interface ImageEntry {
