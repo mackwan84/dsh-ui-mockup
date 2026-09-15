@@ -125,7 +125,7 @@ dsh plugin --profile web add github:mackwan84/dsh-ui-mockup#main   # 需 prepare
 
 - 工具 `ui_mockup`（参数/模板/结果呈现沿用 MVP 验证实现）：
   - 参数：description、fidelity（必填），以及 platform、style、count、model、size、reference、fastPreview；编辑时成对传 baseImage + editNote；凭据不属于工具参数；
-  - `fastPreview`（0.2.0）：仅 high-fidelity 生效，用「方向稿模型」档快速产出方向稿；模型解析顺序为显式 `model` → `draftModel` 偏好（空串回落 `wireframeModel`）→ Provider 内置分层默认；与 `fidelity='wireframe'` 组合时忽略并在结果消息说明（工具 schema DSL 无法表达条件约束，执行层显式处理）；使用时机与「确认后去掉 fastPreview 跑精修档」写入 `ui-mockup-usage` 提示词规则，不仅依赖 schema 字段描述；
+  - `fastPreview`（0.2.0）：仅 high-fidelity 生效，用「方向稿模型」档快速产出方向稿；模型解析顺序为显式 `model` → `draftModel` 偏好 → `wireframeModel` 偏好 → 当前 Provider 配置的 `wireframeModel` → `undefined`，由工具层读取生效服务配置，保留高保真提示词且避免空偏好误选精修默认；普通生成不提前注入 Provider 默认；与 `fidelity='wireframe'` 组合时忽略并在结果消息说明（工具 schema DSL 无法表达条件约束，执行层显式处理）；使用时机与「确认后去掉 fastPreview 跑精修档」写入 `ui-mockup-usage` 提示词规则，不仅依赖 schema 字段描述；
   - 模板：wireframe 使用无品牌名的低保真手绘线框 + 中文短标签；high-fidelity 使用风格词、单状态组件与低文字密度约束；reference 时追加与基准图一致约束；
   - 结果：落盘资产库 `$DSH_HOME/mockups/<工作区>/images/` → `attachments.saveImage` → 工具结果图片块呈现；模型只看到 `design/images/<文件名>` 语义引用；
   - 历史：逐行 JSONL；损坏行读取时跳过，坏尾行缺换行时先补分隔符再追加；历史写入失败不丢生成图片，并在成功结果中给出不会进入历史页的非致命告警；0.2.0 起方向稿记 `fastPreview: true`（纯增量字段，旧行兼容）；

@@ -839,10 +839,13 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
               }
             }
           }
-          // 模型解析顺序：显式 model 参数 → 分层偏好（fastPreview 时先方向稿模型，
-          // 空串回落线框档模型）→ Provider 内置分层默认（空串一路回落）。
+          const service = ctx.get('image') as ImageGenerationServiceFace | undefined
+          // 方向稿仍保留高保真提示词，因此需显式回落 Provider 线框默认，
+          // 避免 Provider 按 fidelity 误选精修模型；普通生成继续由 Provider 分层回落。
           const tierModel = fastPreview
-            ? prefs.draftModel || prefs.wireframeModel
+            ? prefs.draftModel ||
+              prefs.wireframeModel ||
+              readProviderConfigString(service, 'wireframeModel')
             : fidelity === 'high-fidelity'
               ? prefs.highFidelityModel
               : prefs.wireframeModel
@@ -913,7 +916,6 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
             cwd: referenceInStore ? storeOf(workspaceRoot).root : workspaceRoot,
           }
 
-          const service = ctx.get('image') as ImageGenerationServiceFace | undefined
           if (service === undefined) {
             return {
               ok: false,
@@ -1715,7 +1717,7 @@ interface ImageGenerationServiceFace {
 /** 从生效 Provider 的 config 读字符串字段；服务缺失或字段非字符串时返回 undefined。 */
 function readProviderConfigString(
   service: ImageGenerationServiceFace | undefined,
-  key: 'apiKey' | 'baseUrl',
+  key: 'apiKey' | 'baseUrl' | 'wireframeModel',
 ): string | undefined {
   if (service === undefined) return undefined
   const value = (service as { config?: Record<string, unknown> }).config?.[key]

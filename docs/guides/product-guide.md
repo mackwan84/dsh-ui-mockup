@@ -129,7 +129,8 @@ flowchart LR
 可传 `model` 参数覆盖（线框图如 `qwen-image-2.0`、`wan2.7-image`，高保真如
 `qwen-image-2.0-pro`、`wan2.7-image-pro`；设置面板「提供方与模型」页可配置各层默认）。
 方向稿（`fastPreview`）另有独立的「方向稿模型」档（面板同页配置）；解析顺序为
-显式 `model` → 方向稿模型 → 线框图模型档 → Provider 内置默认。
+显式 `model` → 方向稿模型 → 线框图模型档 → 当前 Provider 配置的 `wireframeModel`。
+三档偏好为空时，方向稿使用 Provider 的线框默认模型；普通高保真仍使用其高保真默认模型。
 Wan 仅支持当前 2.7 系列，旧 Wan 2.2/2.6 不再兼容。Wan 2.7 Web/Mobile 缺省尺寸为
 `2048*1152` / `1152*2048`，文生图与单参考图 I2I 均走新版异步图像端点。
 
