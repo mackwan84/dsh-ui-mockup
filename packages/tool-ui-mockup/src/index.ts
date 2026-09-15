@@ -1721,6 +1721,9 @@ function readProviderConfigString(
 ): string | undefined {
   if (service === undefined) return undefined
   const value = (service as { config?: Record<string, unknown> }).config?.[key]
+  if (key === 'wireframeModel' && typeof value === 'string' && value.trim() === '') {
+    return undefined
+  }
   return typeof value === 'string' && value !== '' ? value : undefined
 }
 

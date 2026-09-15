@@ -562,6 +562,7 @@ describe('ui-mockup real dynamic composition', () => {
 
     it.each([
       { scenario: '三档为空回落 Provider 自定义线框模型', tier: 'empty', fastPreview: true },
+      { scenario: 'Provider 空白默认不下传模型', tier: 'blank', fastPreview: true },
       { scenario: '线框偏好优先于 Provider 默认', tier: 'wireframe', fastPreview: true },
       { scenario: '方向稿偏好优先于线框偏好', tier: 'draft', fastPreview: true },
       { scenario: '显式模型优先于三档偏好', tier: 'explicit', fastPreview: true },
@@ -572,14 +573,14 @@ describe('ui-mockup real dynamic composition', () => {
         const booted = await bootComposition(dir, {
           provider: models.provider,
           providerConfig: {
-            wireframeModel: models.wireframeModel,
+            wireframeModel: tier === 'blank' ? '   ' : models.wireframeModel,
             highFidelityModel: models.highFidelityModel,
           },
         })
         Object.assign(booted.settings.resolved, {
           draftModel: tier === 'draft' || tier === 'explicit' ? models.draftModel : '',
-          wireframeModel: tier !== 'empty' ? models.preferenceModel : '',
-          highFidelityModel: tier !== 'empty' ? models.highFidelityModel : '',
+          wireframeModel: tier !== 'empty' && tier !== 'blank' ? models.preferenceModel : '',
+          highFidelityModel: tier !== 'empty' && tier !== 'blank' ? models.highFidelityModel : '',
         })
         // 保留真实 Provider，只替换外部网络；观察工具传入模型与 Provider 实际请求。
         const service = booted.ctx.get('image') as ImageGenerationService
@@ -635,20 +636,20 @@ describe('ui-mockup real dynamic composition', () => {
           { signal: new AbortController().signal, agent: { session: { header: { cwd: dir } } } },
         )
         const expectedModel =
-          !fastPreview || tier === 'explicit'
+          !fastPreview || tier === 'explicit' || tier === 'blank'
             ? models.highFidelityModel
             : tier === 'draft'
               ? models.draftModel
               : tier === 'wireframe'
                 ? models.preferenceModel
                 : models.wireframeModel
-        expect(value.ok, String(value.message)).toBe(true)
-        expect(requestedModels).toEqual([expectedModel])
         expect(generate.mock.calls[0]?.[0]).toMatchObject({
           fidelity: 'high-fidelity',
-          model: fastPreview ? expectedModel : undefined,
+          model: fastPreview && tier !== 'blank' ? expectedModel : undefined,
           reference: undefined,
         })
+        expect(value.ok, String(value.message)).toBe(true)
+        expect(requestedModels).toEqual([expectedModel])
         expect(String(value.message)).toContain(expectedModel)
         const history = await readFile(join(storeDirFor(dir), 'history.jsonl'), 'utf8')
         expect(JSON.parse(history.trim())).toMatchObject({ model: expectedModel })
