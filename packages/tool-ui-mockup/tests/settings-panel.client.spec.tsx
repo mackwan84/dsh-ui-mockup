@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { ComponentProps } from 'react'
 import { UiMockupSection, type PanelPrefs } from '../src/client/settings-panel.js'
-import { zh } from '../src/client/locales.js'
+import { en, zh } from '../src/client/locales.js'
 import type {
   ConnectionFace,
   PrefScope,
@@ -27,13 +27,17 @@ const DEFAULT_PREFS: PanelPrefs = {
 
 type Translator = ComponentProps<typeof UiMockupSection>['t']
 
-const t = ((key: keyof typeof zh, params?: Record<string, unknown>) => {
-  let text: string = zh[key]
-  for (const [name, value] of Object.entries(params ?? {})) {
-    text = text.replaceAll(`{${name}}`, String(value))
-  }
-  return text
-}) as Translator
+function translator(locale: typeof zh): Translator {
+  return ((key: keyof typeof zh, params?: Record<string, unknown>) => {
+    let text: string = locale[key]
+    for (const [name, value] of Object.entries(params ?? {})) {
+      text = text.replaceAll(`{${name}}`, String(value))
+    }
+    return text
+  }) as Translator
+}
+
+const t = translator(zh)
 
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void
@@ -120,7 +124,7 @@ function createConnection({
   activeProvider?: string
   baseUrl?: string
   /** 'degraded' = 宿主降级语义；缺省 = 未提供 models 字段的旧宿主形态。 */
-  providerModels?: string[] | 'degraded'
+  providerModels?: string[] | 'degraded' | Promise<string[]>
 } = {}) {
   let switchRequested = false
   // 生效地址随 provider/baseurl/set 落位而变，模拟宿主热重载后 provider/status 回显新值
@@ -136,6 +140,9 @@ function createConnection({
       // 0.1.5 起客户端走共享 /api 通道，端点名带 ui-mockup/ 前缀；桩内归一为裸端点名
       const endpoint = rawEndpoint.replace(/^ui-mockup\//, '')
       calls.push([endpoint, _payload])
+      if (endpoint === 'provider/models' && providerModels instanceof Promise) {
+        return providerModels.then((models) => ({ ok: true as const, value: { models } }))
+      }
       if (endpoint === 'provider/switch' && pendingSwitch) switchRequested = true
       if (endpoint === 'provider/baseurl/set') {
         const next = (_payload as { baseUrl?: unknown })?.baseUrl
@@ -195,12 +202,17 @@ function mountPanel(
     prefs?: PrefScope<PanelPrefs>
     activeProvider?: string
     baseUrl?: string
-    providerModels?: string[] | 'degraded'
+    providerModels?: string[] | 'degraded' | Promise<string[]>
+    translator?: Translator
   } = {},
 ) {
   const { connection, call, calls } = createConnection(options)
   const view = render(
-    <UiMockupSection t={t} prefs={options.prefs ?? createPrefs()} connection={connection} />,
+    <UiMockupSection
+      t={options.translator ?? t}
+      prefs={options.prefs ?? createPrefs()}
+      connection={connection}
+    />,
   )
   return { ...view, call, calls }
 }
@@ -429,14 +441,125 @@ describe('模型发现建议与手填', () => {
     const input = await screen.findByRole<HTMLInputElement>('combobox', {
       name: '线框图',
     })
-    const options = Array.from(
-      document.querySelectorAll<HTMLOptionElement>('#ui-mockup-model-options-wireframe option'),
-    ).map((option) => option.value)
+    fireEvent.click(input)
+    const options = within(await screen.findByRole('menu'))
+      .getAllByRole('menuitem')
+      .map((option) => option.textContent)
     // 静态 hint 'gpt-image-2' 与网关同名建议去重；'my-gw-model' 为新增建议
     expect(options).toEqual(['gpt-image-2', 'my-gw-model'])
 
     fireEvent.change(input, { target: { value: 'custom-model-x' } })
     await waitFor(() => expect(input.value).toBe('custom-model-x'))
+  })
+
+  it('模型候选使用 DSH 菜单，选择后立即写入且不保留原生 datalist', async () => {
+    const prefs = createPrefs()
+    const { container } = mountPanel({
+      prefs,
+      activeProvider: 'openai-compat',
+      providerModels: ['gpt-image-2', 'my-gw-model'],
+    })
+    fireEvent.click(screen.getByRole('tab', { name: '提供方与模型' }))
+    const input = await screen.findByRole<HTMLInputElement>('combobox', { name: '线框图' })
+
+    expect(input.getAttribute('list')).toBeNull()
+    expect(container.querySelector('datalist')).toBeNull()
+    fireEvent.click(input)
+    const menu = await screen.findByRole('menu')
+    expect(
+      within(menu)
+        .getAllByRole('menuitem')
+        .map((item) => item.textContent),
+    ).toEqual(['gpt-image-2', 'my-gw-model'])
+
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'my-gw-model' }))
+    await waitFor(() => expect(input.value).toBe('my-gw-model'))
+    expect(prefs.getSnapshot().value?.wireframeModel).toBe('my-gw-model')
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(document.activeElement).toBe(input)
+  })
+
+  it('模型组合框支持方向键选择、Enter 提交与 Esc 关闭', async () => {
+    const prefs = createPrefs()
+    mountPanel({
+      prefs,
+      activeProvider: 'openai-compat',
+      providerModels: ['gpt-image-2', 'my-gw-model'],
+    })
+    fireEvent.click(screen.getByRole('tab', { name: '提供方与模型' }))
+    const input = await screen.findByRole<HTMLInputElement>('combobox', { name: '线框图' })
+
+    input.focus()
+    expect(await screen.findByRole('menu')).toBeTruthy()
+    fireEvent.keyDown(input, { key: 'Escape' })
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(document.activeElement).toBe(input)
+
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    await waitFor(() => expect(input.value).toBe('my-gw-model'))
+    expect(prefs.getSnapshot().value?.wireframeModel).toBe('my-gw-model')
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(document.activeElement).toBe(input)
+  })
+
+  it('从模型菜单项按 Esc 时关闭菜单并把焦点还给输入框', async () => {
+    mountPanel({ activeProvider: 'openai-compat' })
+    fireEvent.click(screen.getByRole('tab', { name: '提供方与模型' }))
+    const input = await screen.findByRole<HTMLInputElement>('combobox', { name: '线框图' })
+
+    fireEvent.click(screen.getByRole('button', { name: '线框图候选' }))
+    const option = await screen.findByRole('menuitem', { name: 'gpt-image-2' })
+    option.focus()
+    fireEvent.keyDown(option, { key: 'Escape' })
+
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(document.activeElement).toBe(input)
+  })
+
+  it('键盘焦点移到下一模型字段时只保留当前候选菜单', async () => {
+    mountPanel({ activeProvider: 'openai-compat' })
+    fireEvent.click(screen.getByRole('tab', { name: '提供方与模型' }))
+    const wireframe = await screen.findByRole<HTMLInputElement>('combobox', { name: '线框图' })
+    const highFidelity = screen.getByRole<HTMLInputElement>('combobox', { name: '高保真' })
+
+    act(() => {
+      wireframe.focus()
+    })
+    expect(screen.getAllByRole('menu')).toHaveLength(1)
+    act(() => {
+      highFidelity.focus()
+    })
+
+    expect(screen.getAllByRole('menu')).toHaveLength(1)
+    expect(document.activeElement).toBe(highFidelity)
+  })
+
+  it('动态候选迟到并改变排序时仍按稳定模型 id 提交活动项', async () => {
+    const models = deferred<string[]>()
+    mountPanel({ activeProvider: 'openai-compat', providerModels: models.promise })
+    fireEvent.click(screen.getByRole('tab', { name: '提供方与模型' }))
+    const input = await screen.findByRole<HTMLInputElement>('combobox', { name: '线框图' })
+
+    input.focus()
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    models.resolve(['aaa-model'])
+    expect(await screen.findByRole('menuitem', { name: 'aaa-model' })).toBeTruthy()
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    await waitFor(() => expect(input.value).toBe('gpt-image-2'))
+  })
+
+  it('英文界面的模型候选按钮使用英文无障碍名称', async () => {
+    mountPanel({ activeProvider: 'openai-compat', translator: translator(en) })
+    fireEvent.click(screen.getByRole('tab', { name: en['panel.tab.provider'] }))
+
+    expect(
+      await screen.findByRole('button', {
+        name: `${en['panel.models.wireframe']} suggestions`,
+      }),
+    ).toBeTruthy()
   })
 
   it('保存 baseUrl 后重新拉取模型建议（首次配地址即能拿到网关建议）', async () => {
@@ -466,9 +589,10 @@ describe('模型发现建议与手填', () => {
     const input = await screen.findByRole<HTMLInputElement>('combobox', {
       name: '线框图',
     })
-    const options = Array.from(
-      document.querySelectorAll<HTMLOptionElement>('#ui-mockup-model-options-wireframe option'),
-    ).map((option) => option.value)
+    fireEvent.click(input)
+    const options = within(await screen.findByRole('menu'))
+      .getAllByRole('menuitem')
+      .map((option) => option.textContent)
     expect(options).toEqual(['gpt-image-2'])
     fireEvent.change(input, { target: { value: 'fallback-typed-model' } })
     await waitFor(() => expect(input.value).toBe('fallback-typed-model'))
@@ -480,8 +604,7 @@ describe('Settings form accessibility', () => {
     mountPanel()
     fireEvent.click(screen.getByRole('tab', { name: '提供方与模型' }))
 
-    // 0.3.0 起模型分层为组合框（input + datalist，可手填）；input 带 list 属性的
-    // 隐式 ARIA 角色仍是 combobox（ARIA in HTML），与原生 select 的查询一致
+    // 模型分层保留可手填输入，并通过显式 combobox 语义暴露 DSH 候选菜单。
     expect(await screen.findByRole('combobox', { name: '线框图' })).toBeTruthy()
     expect(screen.getByRole('combobox', { name: '高保真' })).toBeTruthy()
     expect(await screen.findByLabelText('DASHSCOPE_API_KEY 密钥')).toBeTruthy()
@@ -492,7 +615,58 @@ describe('Settings form accessibility', () => {
     fireEvent.click(screen.getByRole('tab', { name: '生成偏好' }))
 
     expect(screen.getByRole('spinbutton', { name: '轮询超时' })).toBeTruthy()
-    expect(screen.getByRole('combobox', { name: '默认尺寸' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '默认尺寸' })).toBeTruthy()
+  })
+})
+
+describe('设置下拉视觉一致性', () => {
+  it('默认尺寸使用 DSH 菜单并在选择后更新草稿', async () => {
+    const { container } = mountPanel()
+    fireEvent.click(screen.getByRole('tab', { name: '生成偏好' }))
+
+    expect(container.querySelector('select')).toBeNull()
+    const trigger = screen.getByRole('button', { name: '默认尺寸' })
+    expect(trigger.getAttribute('aria-haspopup')).toBe('menu')
+
+    fireEvent.click(trigger)
+    const menu = await screen.findByRole('menu')
+    fireEvent.click(within(menu).getByRole('menuitem', { name: '1280*720' }))
+
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(trigger.textContent).toContain('1280*720')
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: '保存' }).disabled).toBe(false)
+    expect(document.activeElement).toBe(trigger)
+  })
+
+  it('Esc 只关闭尺寸菜单并把焦点还给触发器，不泄漏给宿主弹窗', async () => {
+    let hostEscapeCount = 0
+    const observeHostEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') hostEscapeCount += 1
+    }
+    document.addEventListener('keydown', observeHostEscape)
+    try {
+      mountPanel()
+      fireEvent.click(screen.getByRole('tab', { name: '生成偏好' }))
+      const trigger = screen.getByRole<HTMLButtonElement>('button', { name: '默认尺寸' })
+      fireEvent.click(trigger)
+      const option = await screen.findByRole('menuitem', { name: '1024*1024' })
+      option.focus()
+
+      fireEvent.keyDown(option, { key: 'Escape' })
+
+      expect(screen.queryByRole('menu')).toBeNull()
+      expect(hostEscapeCount).toBe(0)
+      expect(document.activeElement).toBe(trigger)
+    } finally {
+      document.removeEventListener('keydown', observeHostEscape)
+    }
+  })
+
+  it('部署层提供自定义尺寸时如实显示，不冒充跟随默认', () => {
+    mountPanel({ prefs: createPrefs({ ...DEFAULT_PREFS, defaultSize: '2048*1152' }) })
+    fireEvent.click(screen.getByRole('tab', { name: '生成偏好' }))
+
+    expect(screen.getByRole('button', { name: '默认尺寸' }).textContent).toContain('2048*1152')
   })
 })
 
@@ -516,9 +690,7 @@ describe('PreferencesPage dirty state', () => {
 
     expect(screen.getByText(/进程内模式或只读/)).toBeTruthy()
     expect(screen.getByRole<HTMLInputElement>('radio', { name: 'Web' }).disabled).toBe(true)
-    expect(screen.getByRole<HTMLSelectElement>('combobox', { name: '默认尺寸' }).disabled).toBe(
-      true,
-    )
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: '默认尺寸' }).disabled).toBe(true)
   })
 
   it('草稿恢复为保存值后立即重新禁用保存按钮', () => {

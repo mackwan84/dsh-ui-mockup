@@ -151,6 +151,7 @@ export const zh = {
   'panel.models.highFidelity': '高保真',
   'panel.models.draftShort': '方向稿',
   'panel.models.followDefault': '跟随提供方默认',
+  'panel.models.options': '{label}候选',
 
   // 生成偏好页
   'panel.prefs.fidelity': '保真度偏好',
@@ -356,6 +357,7 @@ export const en = {
   'panel.models.highFidelity': 'High fidelity',
   'panel.models.draftShort': 'Draft',
   'panel.models.followDefault': 'Follow provider default',
+  'panel.models.options': '{label} suggestions',
 
   'panel.prefs.fidelity': 'Fidelity preference',
   'panel.prefs.fidelityWireframe': 'Wireframe',

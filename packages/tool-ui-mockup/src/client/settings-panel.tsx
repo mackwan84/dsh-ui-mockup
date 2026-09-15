@@ -1,7 +1,7 @@
 /**
  * 「UI 草图」设置区块：单个 settings.section 挂四张子页（概览 / 提供方与模型 /
  * 生成偏好 / 生成历史），子页内切换与已确认线框一致。
- * 视觉完全使用 DSH 主题令牌（--dsw-*）与原生控件，浅/深色自适应；
+ * 视觉完全使用 DSH 主题令牌（--dsw-*）与 UI primitives，浅/深色自适应；
  * 数据面：偏好经同名 settings 命名空间镜像读写，历史/锚点/测试连接走私有 RPC 频道。
  */
 import {
@@ -13,13 +13,16 @@ import {
   useState,
   type KeyboardEvent,
   type ReactNode,
+  type RefObject,
 } from 'react'
 import {
   Button,
   IconCheckOutline16,
+  IconChevronDownOutline14,
   IconEditOutline16,
   IconNewChatOutline16,
   Input,
+  Menu,
   StateDot,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
@@ -209,19 +212,6 @@ const tabStyle = {
 }
 
 const tabActiveStyle = {
-  color: tokens.labelPrimary,
-} as const
-
-/** select 与原生 .input 同款（34px 高 / 8px 圆角 / layer-3 背景 / focus 品牌色边框）。 */
-const selectStyle = {
-  height: 34,
-  padding: '0 12px',
-  border: `1px solid ${tokens.border}`,
-  borderRadius: 8,
-  background: tokens.bgLayer,
-  font: 'inherit',
-  fontSize: 13,
-  lineHeight: '20px',
   color: tokens.labelPrimary,
 } as const
 
@@ -508,6 +498,9 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
   const [effectiveBaseUrl, setEffectiveBaseUrl] = useState('')
   const [baseUrlDraft, setBaseUrlDraft] = useState<string | null>(null)
   const [baseUrlBusy, setBaseUrlBusy] = useState(false)
+  const [openModelTier, setOpenModelTier] = useState<'wireframe' | 'highFidelity' | 'draft' | null>(
+    null,
+  )
   const [baseUrlNotice, setBaseUrlNotice] = useState<{ kind: 'ok' | 'error'; text: string } | null>(
     null,
   )
@@ -699,6 +692,7 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
   const [fetchedModels, setFetchedModels] = useState<string[]>([])
   useEffect(() => {
     let alive = true
+    setOpenModelTier(null)
     setFetchedModels([])
     void callPanel<{ models?: string[] }>(connection, 'provider/models')
       .then((value) => {
@@ -739,24 +733,24 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
       key: 'wireframe' as const,
       pref: 'wireframeModel',
       label: t('panel.models.wireframe'),
+      menuLabel: t('panel.models.options', { label: t('panel.models.wireframe') }),
       visibleLabel: t('panel.models.wireframe'),
-      listId: 'ui-mockup-model-options-wireframe',
       value: snap.value?.wireframeModel ?? '',
     },
     {
       key: 'highFidelity' as const,
       pref: 'highFidelityModel',
       label: t('panel.models.highFidelity'),
+      menuLabel: t('panel.models.options', { label: t('panel.models.highFidelity') }),
       visibleLabel: t('panel.models.highFidelity'),
-      listId: 'ui-mockup-model-options-high-fidelity',
       value: snap.value?.highFidelityModel ?? '',
     },
     {
       key: 'draft' as const,
       pref: 'draftModel',
       label: t('panel.models.draft'),
+      menuLabel: t('panel.models.options', { label: t('panel.models.draft') }),
       visibleLabel: t('panel.models.draftShort'),
-      listId: 'ui-mockup-model-options-draft',
       value: snap.value?.draftModel ?? '',
     },
   ]
@@ -956,24 +950,21 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
       </ConfigSection>
 
       <ConfigSection title={t('panel.models.title')} description={t('panel.models.description')}>
-        {/* 组合框（input + datalist）：候选 = 静态 hints ∪ 网关建议，且永远可手填
-            任意模型名；空值即「跟随提供方默认」（占位符提示）。 */}
+        {/* 可编辑组合框：输入框保留任意模型名手填能力，候选弹层统一复用 DSH Menu。 */}
         <div className="ui-mockup-model-grid">
           {modelTiers.map((tier) => (
-            <label key={tier.key} className="ui-mockup-model-field">
+            <div key={tier.key} className="ui-mockup-model-field">
               <span className="ui-mockup-model-label">{tier.visibleLabel}</span>
-              <input
-                list={tier.listId}
-                aria-label={tier.label}
-                className="ui-mockup-model-select"
+              <EditableMenuCombobox
+                label={tier.label}
+                menuLabel={tier.menuLabel}
                 value={tier.value}
                 placeholder={t('panel.models.followDefault')}
-                autoComplete="off"
-                spellCheck={false}
-                onChange={(event) =>
-                  void writePref(prefs, tier.pref, event.target.value.trim(), setWriteError)
-                }
-                style={selectStyle}
+                options={suggestionsOf(tier.key)}
+                open={openModelTier === tier.key}
+                onOpenChange={(open) => setOpenModelTier(open ? tier.key : null)}
+                onChange={(value) => void writePref(prefs, tier.pref, value.trim(), setWriteError)}
+                disabled={snap.mode === 'memory' || !snap.writable}
               />
               <span className="ui-mockup-model-hint">
                 {t('panel.models.recommended', {
@@ -982,24 +973,9 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
                     t('panel.models.followDefault'),
                 })}
               </span>
-            </label>
+            </div>
           ))}
         </div>
-        <datalist id="ui-mockup-model-options-wireframe">
-          {suggestionsOf('wireframe').map((m) => (
-            <option key={m} value={m} />
-          ))}
-        </datalist>
-        <datalist id="ui-mockup-model-options-high-fidelity">
-          {suggestionsOf('highFidelity').map((m) => (
-            <option key={m} value={m} />
-          ))}
-        </datalist>
-        <datalist id="ui-mockup-model-options-draft">
-          {suggestionsOf('draft').map((m) => (
-            <option key={m} value={m} />
-          ))}
-        </datalist>
       </ConfigSection>
     </div>
   )
@@ -1212,18 +1188,18 @@ function PreferencesPage({ t, prefs }: Omit<PanelProps, 'connection'>) {
           </span>
         </FieldRow>
         <FieldRow label={t('panel.prefs.size')}>
-          <select
-            aria-label={t('panel.prefs.size')}
+          <MenuSelect
+            label={t('panel.prefs.size')}
             value={draft.defaultSize}
-            onChange={(event) => patch({ defaultSize: event.target.value })}
+            options={[
+              { value: '', label: t('panel.models.followDefault') },
+              { value: '1024*1024', label: '1024*1024' },
+              { value: '1280*720', label: '1280*720' },
+              { value: '720*1280', label: '720*1280' },
+            ]}
+            onChange={(value) => patch({ defaultSize: value })}
             disabled={readonlyNote || mutating}
-            style={selectStyle}
-          >
-            <option value="">{t('panel.models.followDefault')}</option>
-            <option value="1024*1024">1024*1024</option>
-            <option value="1280*720">1280*720</option>
-            <option value="720*1280">720*1280</option>
-          </select>
+          />
         </FieldRow>
       </Card>
       <div
@@ -1655,6 +1631,206 @@ function formatTime(iso: string): string {
 }
 
 /* ---------------- 小部件与钩子 ---------------- */
+
+function MenuSelect({
+  label,
+  value,
+  options,
+  onChange,
+  disabled,
+}: {
+  label: string
+  value: string
+  options: ReadonlyArray<{ value: string; label: string }>
+  onChange: (value: string) => void
+  disabled?: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const idOf = (optionValue: string) => (optionValue === '' ? '__default__' : optionValue)
+  const selected = options.find((option) => option.value === value)
+  const closeMenu = useCallback(() => setOpen(false), [])
+  useMenuEscapeBoundary(open, closeMenu, triggerRef)
+
+  return (
+    <Menu
+      open={open}
+      onClose={closeMenu}
+      items={options.map((option) => ({ id: idOf(option.value), label: option.label }))}
+      selectedId={idOf(value)}
+      onSelect={(id) => {
+        const option = options.find((entry) => idOf(entry.value) === id)
+        if (option === undefined) return
+        triggerRef.current?.focus()
+        closeMenu()
+        onChange(option.value)
+      }}
+      align="end"
+      portal
+      anchor={
+        <button
+          ref={triggerRef}
+          type="button"
+          className="ui-mockup-select-trigger"
+          aria-label={label}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          disabled={disabled}
+          onClick={() => setOpen((current) => !current)}
+        >
+          <span>{selected?.label ?? value}</span>
+          <IconChevronDownOutline14 className="ui-mockup-select-chevron" />
+        </button>
+      }
+    />
+  )
+}
+
+function EditableMenuCombobox({
+  label,
+  menuLabel,
+  value,
+  placeholder,
+  options,
+  open,
+  onOpenChange,
+  onChange,
+  disabled,
+}: {
+  label: string
+  menuLabel: string
+  value: string
+  placeholder: string
+  options: readonly string[]
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onChange: (value: string) => void
+  disabled?: boolean
+}) {
+  const [activeOptionId, setActiveOptionId] = useState<string | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const activeOption =
+    activeOptionId !== null && options.includes(activeOptionId) ? activeOptionId : undefined
+
+  useEffect(() => {
+    if (!open || (activeOptionId !== null && !options.includes(activeOptionId))) {
+      setActiveOptionId(null)
+    }
+  }, [activeOptionId, open, options])
+
+  const closeMenu = useCallback(() => {
+    onOpenChange(false)
+    setActiveOptionId(null)
+  }, [onOpenChange])
+  useMenuEscapeBoundary(open, closeMenu, inputRef)
+
+  const selectOption = (option: string) => {
+    inputRef.current?.focus()
+    closeMenu()
+    onChange(option)
+  }
+
+  return (
+    <Menu
+      open={open && options.length > 0}
+      onClose={closeMenu}
+      items={options.map((option) => ({ id: option, label: option }))}
+      selectedId={activeOption ?? (options.includes(value) ? value : undefined)}
+      onSelect={selectOption}
+      align="start"
+      portal
+      className="ui-mockup-model-menu"
+      anchor={
+        <span className="ui-mockup-model-combobox" data-disabled={disabled === true}>
+          <input
+            ref={inputRef}
+            type="text"
+            role="combobox"
+            aria-label={label}
+            aria-haspopup="menu"
+            aria-expanded={open && options.length > 0}
+            aria-autocomplete="list"
+            value={value}
+            placeholder={placeholder}
+            autoComplete="off"
+            spellCheck={false}
+            disabled={disabled}
+            onFocus={() => onOpenChange(true)}
+            onClick={() => onOpenChange(true)}
+            onChange={(event) => {
+              onOpenChange(true)
+              setActiveOptionId(null)
+              onChange(event.target.value)
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                closeMenu()
+                return
+              }
+              if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                if (options.length === 0) return
+                event.preventDefault()
+                onOpenChange(true)
+                setActiveOptionId((current) => {
+                  const currentIndex = current === null ? -1 : options.indexOf(current)
+                  if (currentIndex < 0) {
+                    return event.key === 'ArrowDown'
+                      ? (options[0] ?? null)
+                      : (options.at(-1) ?? null)
+                  }
+                  const delta = event.key === 'ArrowDown' ? 1 : -1
+                  return options[(currentIndex + delta + options.length) % options.length] ?? null
+                })
+                return
+              }
+              if (event.key === 'Enter' && open && activeOption !== undefined) {
+                event.preventDefault()
+                selectOption(activeOption)
+              }
+            }}
+          />
+          <button
+            type="button"
+            className="ui-mockup-model-menu-trigger"
+            aria-label={menuLabel}
+            aria-haspopup="menu"
+            aria-expanded={open && options.length > 0}
+            disabled={disabled || options.length === 0}
+            onClick={() => {
+              setActiveOptionId(null)
+              onOpenChange(!open)
+            }}
+          >
+            <IconChevronDownOutline14 />
+          </button>
+        </span>
+      }
+    />
+  )
+}
+
+/**
+ * DSH Menu 与宿主 Modal 都在 document 监听 Esc。菜单打开时由更靠前的捕获阶段
+ * 消费该按键并归还焦点，避免一次 Esc 同时关闭菜单和整个设置弹窗。
+ */
+function useMenuEscapeBoundary(
+  open: boolean,
+  onClose: () => void,
+  returnFocus: RefObject<HTMLElement | null>,
+): void {
+  useEffect(() => {
+    if (!open) return
+    const consumeEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      returnFocus.current?.focus()
+      onClose()
+    }
+    document.addEventListener('keydown', consumeEscape, true)
+    return () => document.removeEventListener('keydown', consumeEscape, true)
+  }, [open, onClose, returnFocus])
+}
 
 function Radio(props: {
   label: string
