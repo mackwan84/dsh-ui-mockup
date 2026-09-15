@@ -335,5 +335,8 @@ design/*
 # 本地验收与文档生成制品
 .artifacts/
 
+# Codex 隔离开发工作区
+.worktrees/
+
 # 兼容旧版验收采集路径
 /docs/test-evidence/
