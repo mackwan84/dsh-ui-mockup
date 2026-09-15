@@ -632,6 +632,28 @@ describe('PreferencesPage dirty state', () => {
 })
 
 describe('HistoryPage search', () => {
+  it.each([
+    [0, '共 0 条'],
+    [1, '共 1 条'],
+    [5, '共 5 条'],
+  ])('单页或空态 total=%i 时仍显示总条数且不显示分页按钮', async (historyTotal, copy) => {
+    mountPanel({ historyTotal })
+    fireEvent.click(screen.getByRole('tab', { name: '生成历史' }))
+
+    expect(await screen.findByText(copy)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '上一页' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '下一页' })).toBeNull()
+  })
+
+  it('多页同时显示总条数和分页按钮', async () => {
+    mountPanel({ historyTotal: 6 })
+    fireEvent.click(screen.getByRole('tab', { name: '生成历史' }))
+
+    expect(await screen.findByText('共 6 条')).toBeTruthy()
+    expect(screen.getByRole('button', { name: '上一页' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '下一页' })).toBeTruthy()
+  })
+
   it('输入草稿时保留当前结果并提示，点击搜索后从第 1 页提交', async () => {
     const { calls } = mountPanel({ historyTotal: 6 })
     fireEvent.click(screen.getByRole('tab', { name: '生成历史' }))

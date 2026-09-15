@@ -1591,20 +1591,20 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
         </div>
       )}
 
-      {totalPages > 1 && (
-        <div
-          className="ui-mockup-history-pagination"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 8,
-            flexWrap: 'wrap',
-          }}
-        >
-          <span style={{ fontSize: 12, color: tokens.labelTertiary }}>
-            {t('panel.history.totalCount', { n: total })}
-          </span>
+      <div
+        className="ui-mockup-history-pagination"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 8,
+          flexWrap: 'wrap',
+        }}
+      >
+        <span style={{ fontSize: 12, color: tokens.labelTertiary }}>
+          {t('panel.history.totalCount', { n: total })}
+        </span>
+        {totalPages > 1 && (
           <div
             className="ui-mockup-history-pages"
             style={{ display: 'flex', alignItems: 'center', gap: 4 }}
@@ -1637,8 +1637,8 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
               {t('panel.history.next')}
             </Button>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {anchorFile !== null && rows.some((r) => r.anchored) && (
         <Notice>{t('panel.history.anchorHint')}</Notice>
