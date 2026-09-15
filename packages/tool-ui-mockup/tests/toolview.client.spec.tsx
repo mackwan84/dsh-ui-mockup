@@ -249,7 +249,7 @@ describe('UiMockupToolview 方向稿精修按钮', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '按这版精修' }))
     expect(setDraft).toHaveBeenLastCalledWith(
-      '请按 design/images/mockup-1.png 这一版方向精修：同一描述，改用精修档（不要传 fastPreview）。',
+      '请按 design/images/mockup-1.png 这一版方向精修：复用该方向稿原 description，调用 ui_mockup 时使用 fidelity=high-fidelity，并省略 fastPreview、reference、baseImage、editNote；文件名只用于识别方向，不作为 reference/baseImage 参数。',
     )
     expect(submit).toHaveBeenCalledTimes(1)
   })

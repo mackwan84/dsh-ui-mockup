@@ -27,7 +27,7 @@ export const zh = {
   'card.annotateHint': '点击放大并圈选标注要修改的区域',
   'card.refine': '按这版精修',
   'card.refineMessage':
-    '请按 design/images/{name} 这一版方向精修：同一描述，改用精修档（不要传 fastPreview）。',
+    '请按 design/images/{name} 这一版方向精修：复用该方向稿原 description，调用 ui_mockup 时使用 fidelity=high-fidelity，并省略 fastPreview、reference、baseImage、editNote；文件名只用于识别方向，不作为 reference/baseImage 参数。',
 
   // 标注弹窗
   'annotate.title': '标注修改区域',
@@ -227,7 +227,7 @@ export const en = {
   'card.annotateHint': 'Click to zoom in and mark the regions to change',
   'card.refine': 'Refine this direction',
   'card.refineMessage':
-    '请按 design/images/{name} 这一版方向精修：同一描述，改用精修档（不要传 fastPreview）。',
+    '请按 design/images/{name} 这一版方向精修：复用该方向稿原 description，调用 ui_mockup 时使用 fidelity=high-fidelity，并省略 fastPreview、reference、baseImage、editNote；文件名只用于识别方向，不作为 reference/baseImage 参数。',
 
   'annotate.title': 'Mark regions to change',
   'annotate.hintPan': 'Drag to move the image; click an existing mark to select it.',
