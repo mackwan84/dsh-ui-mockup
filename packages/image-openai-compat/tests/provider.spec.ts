@@ -167,6 +167,32 @@ describe('请求形状（最小公共子集）', () => {
 })
 
 describe('响应归一（双格式）', () => {
+  it('成功响应省略或留空 model 时回落到本次请求模型', async () => {
+    const responses = [
+      JSON.stringify({ data: [{ b64_json: 'aWNl' }] }),
+      JSON.stringify({ model: '   ', data: [{ b64_json: 'aWNl' }] }),
+    ]
+    for (const response of responses) {
+      mockFetch(() => new Response(response, { status: 200 }))
+      const result = await provider().generate({
+        ...wireframeSpec,
+        model: 'requested-image-model',
+      })
+      expect(result.model).toBe('requested-image-model')
+    }
+  })
+
+  it('成功响应提供非空 model 时以响应模型为准', async () => {
+    mockFetch(
+      () =>
+        new Response(JSON.stringify({ model: 'gateway-model', data: [{ b64_json: 'aWNl' }] }), {
+          status: 200,
+        }),
+    )
+    const result = await provider().generate({ ...wireframeSpec, model: 'requested-model' })
+    expect(result.model).toBe('gateway-model')
+  })
+
   it('data[].url 原样透传', async () => {
     mockFetch(
       () => new Response(okBody('gpt-image-2', [{ url: 'https://cdn/x.png' }]), { status: 200 }),

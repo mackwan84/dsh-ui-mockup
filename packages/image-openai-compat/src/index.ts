@@ -221,7 +221,9 @@ export default class OpenaiCompatImageProvider extends ImageGenerationService {
         `HTTP ${status}${parsed.code !== '' ? ` (${parsed.code})` : ''}: ${textOf(parsed.message || '无响应体')}`,
       )
     }
-    const model = typeof data.model === 'string' ? data.model : ''
+    const responseModel = typeof data.model === 'string' ? data.model.trim() : ''
+    const requestedModel = typeof body.model === 'string' ? body.model : ''
+    const model = responseModel !== '' ? responseModel : requestedModel
     const images = extractImages(data.data)
     if (images.length === 0) {
       // 非 JSON 的 2xx 响应按网关方言处理（如地址缺 /v1 前缀时返回网关前端 HTML 页）：

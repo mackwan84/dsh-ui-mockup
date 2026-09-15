@@ -113,7 +113,8 @@ dsh plugin --profile web add github:mackwan84/dsh-ui-mockup#main   # 需 prepare
   等任何专属参数；`n` 原生下传（单次请求多图，不串行拆单）；尺寸 `W*H → WxH` 归一后
   透传，本地不设预设白名单、不改比例，由网关自行校验；
 - 双返回格式归一：`data[].b64_json` → data URL；`data[].url` 原样透传（消费方现有
-  下载链路立即转存）；错误体兼容 `error.{code,message}` 包裹与顶层 `code/message`；
+  下载链路立即转存）；成功响应未返回有效 `model` 时使用本次请求模型，确保结果文案与
+  历史记录可追溯；错误体兼容 `error.{code,message}` 包裹与顶层 `code/message`；
 - 能力边界：参考图（I2I）与指令编辑显式 `NOT_IMPLEMENTED`——风格锚点经消费方元数据表
   的 `supportsReference` 闸门一律跳过注入并在结果消息说明；
 - 凭据：`OPENAI_COMPAT_API_KEY`（credentials seam → 启动环境 → `MISSING_CREDENTIAL`）；
