@@ -178,7 +178,8 @@ describe('generate request shape', () => {
 
   it('response omits model 时保留实际请求模型，供调用方写入生成历史', async () => {
     const calls = mockFetch(
-      () => new Response(JSON.stringify({ data: [{ url: 'https://ark-cdn/r.png' }] }), { status: 200 }),
+      () =>
+        new Response(JSON.stringify({ data: [{ url: 'https://ark-cdn/r.png' }] }), { status: 200 }),
     )
     const result = await provider().generate(wireframeSpec)
 
