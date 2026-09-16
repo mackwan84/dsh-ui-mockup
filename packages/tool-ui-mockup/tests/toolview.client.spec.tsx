@@ -127,6 +127,30 @@ describe('UiMockupToolview 生成中计时', () => {
 })
 
 describe('UiMockupToolview 反馈与告警', () => {
+  it('后一次设锚会清除旧卡片的即时锚点状态', async () => {
+    const anchor = { set: vi.fn((file: string) => Promise.resolve({ anchorFile: file })) }
+    render(
+      <>
+        <UiMockupToolview {...propsOf(settledBlock(['mockup-1.png']))} anchor={anchor} />
+        <UiMockupToolview {...propsOf(settledBlock(['mockup-2.png']))} anchor={anchor} />
+      </>,
+    )
+
+    const buttons = screen.getAllByRole('button', { name: '设为锚点' })
+    await act(() => {
+      fireEvent.click(buttons[0]!)
+      return Promise.resolve()
+    })
+    expect(screen.getByText('mockup-1.png · 风格锚点')).toBeDefined()
+
+    await act(() => {
+      fireEvent.click(buttons[1]!)
+      return Promise.resolve()
+    })
+    expect(screen.queryByText('mockup-1.png · 风格锚点')).toBeNull()
+    expect(screen.getByText('mockup-2.png · 风格锚点')).toBeDefined()
+  })
+
   it('提交修改意见使用次级描边层级', () => {
     render(<UiMockupToolview {...propsOf(settledBlock(['mockup-1.png']))} />)
 
