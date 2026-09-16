@@ -176,6 +176,18 @@ describe('generate request shape', () => {
     expect(result.images).toEqual([{ url: 'https://ark-cdn/r.png' }])
   })
 
+  it('response omits model 时保留实际请求模型，供调用方写入生成历史', async () => {
+    const calls = mockFetch(
+      () => new Response(JSON.stringify({ data: [{ url: 'https://ark-cdn/r.png' }] }), { status: 200 }),
+    )
+    const result = await provider().generate(wireframeSpec)
+
+    expect(JSON.parse(bodyOf(calls[0]!))).toMatchObject({
+      model: 'doubao-seedream-4-5-251128',
+    })
+    expect(result.model).toBe('doubao-seedream-4-5-251128')
+  })
+
   it('respects explicit model and translated size', async () => {
     const calls = mockFetch(() => new Response(okBody(), { status: 200 }))
     await provider({ wireframeModel: 'doubao-seedream-3-0-t2i-250415' }).generate({
