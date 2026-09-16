@@ -30,10 +30,14 @@
 ```text
 <type>[optional scope]: <中文描述>
 
-[body]
+[required body]
 
 [optional footer(s)]
 ```
+
+### BREAKING CHANGE
+
+在脚注中包含 BREAKING CHANGE: 或 <类型>(范围) 后面有一个 ! 的提交，表示引入了破坏性 API 变更（这和语义化版本中的 MAJOR 相对应）。 破坏性变更可以是任意 类型 提交的一部分
 
 ### Type 类型
 
