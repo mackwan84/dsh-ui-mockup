@@ -21,6 +21,9 @@
     - id: image-openai-compat
       name: '@mackwan84/dsh-image-openai-compat'
       disabled: true
+      config:
+        wireframeModel: gpt-image-2
+        highFidelityModel: gpt-image-2.5-flare
 
     - id: tool-ui-mockup
       name: '@mackwan84/dsh-tool-ui-mockup'

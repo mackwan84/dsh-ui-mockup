@@ -118,6 +118,7 @@ dsh plugin --profile web add github:mackwan84/dsh-ui-mockup#main   # 需 prepare
 - 能力边界：参考图（I2I）与指令编辑显式 `NOT_IMPLEMENTED`——风格锚点经消费方元数据表
   的 `supportsReference` 闸门一律跳过注入并在结果消息说明；
 - 凭据：`OPENAI_COMPAT_API_KEY`（credentials seam → 启动环境 → `MISSING_CREDENTIAL`）；
+- 组合包部署默认：线框 `gpt-image-2`、高保真 `gpt-image-2.5-flare`；Provider 单包仍允许部署层或面板覆盖，保存 baseUrl 时通过生效配置重述保留分层默认，避免整替 config 后无模型可用；
 - 无内置退避重试：429 直接 `RATE_LIMITED` 上报；已知网关方言（`n>1` 拒绝、模型不存在
   503、无 `/v1` 前缀返回 HTML-200）见 `docs/references/`。
 
