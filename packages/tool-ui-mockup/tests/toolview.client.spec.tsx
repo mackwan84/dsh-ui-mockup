@@ -127,6 +127,12 @@ describe('UiMockupToolview 生成中计时', () => {
 })
 
 describe('UiMockupToolview 反馈与告警', () => {
+  it('提交修改意见使用次级描边层级', () => {
+    render(<UiMockupToolview {...propsOf(settledBlock(['mockup-1.png']))} />)
+
+    expect(screen.getByRole('button', { name: '提交修改意见' }).className).toContain('outline')
+  })
+
   it('英文界面发送给模型的确认、选版和修改意见仍固定为中文', () => {
     const setDraft = vi.fn()
     const submit = vi.fn()
@@ -252,6 +258,22 @@ describe('UiMockupToolview 方向稿精修按钮', () => {
       '请按 design/images/mockup-1.png 这一版方向精修：复用该方向稿原 description，调用 ui_mockup 时使用 fidelity=high-fidelity，并省略 fastPreview、reference、baseImage、editNote；文件名只用于识别方向，不作为 reference/baseImage 参数。',
     )
     expect(submit).toHaveBeenCalledTimes(1)
+  })
+
+  it('确认采用与按这版精修使用不同视觉层级', () => {
+    render(
+      <UiMockupToolview
+        {...propsOf(
+          blockWithArgs(
+            JSON.stringify({ description: 'x', fidelity: 'high-fidelity', fastPreview: true }),
+          ),
+        )}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: '确认采用这版' }).className).not.toBe(
+      screen.getByRole('button', { name: '按这版精修' }).className,
+    )
   })
 
   it('非方向稿、窗口截断（call 为 null）与损坏的 argsRaw 都不显示按钮', () => {

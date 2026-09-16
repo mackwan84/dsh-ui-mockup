@@ -253,7 +253,7 @@ export function UiMockupToolview({ block, inputActions, cwd, t, anchor }: Props)
         </Button>
         {showRefine && (
           <Button
-            variant="primary"
+            variant="outline"
             size="sm"
             onClick={() =>
               send(
@@ -347,7 +347,7 @@ export function UiMockupToolview({ block, inputActions, cwd, t, anchor }: Props)
           ))}
         {/* 「打开原图」入口移入标注弹窗底部（第 4 轮提案）：图片本体在资产库，
             弹窗内走图片路由新开页 */}
-        <Button variant="ghost" size="sm" onClick={() => setShowFeedback((value) => !value)}>
+        <Button variant="outline" size="sm" onClick={() => setShowFeedback((value) => !value)}>
           {t('card.feedback')}
         </Button>
       </div>
