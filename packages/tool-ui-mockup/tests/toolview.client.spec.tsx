@@ -76,6 +76,21 @@ describe('UiMockupToolview 生成中计时', () => {
     expect(screen.getByText('生成中 · 已耗时 2 分 5 秒')).toBeDefined()
   })
 
+  it('在 59 秒到 1 分钟边界立即切换为分秒文案', () => {
+    vi.useFakeTimers()
+    render(<UiMockupToolview {...propsOf({})} />)
+
+    act(() => {
+      vi.advanceTimersByTime(59_000)
+    })
+    expect(screen.getByText('生成中 · 已耗时 59 秒')).toBeDefined()
+
+    act(() => {
+      vi.advanceTimersByTime(1_000)
+    })
+    expect(screen.getByText('生成中 · 已耗时 1 分 0 秒')).toBeDefined()
+  })
+
   it('页面刷新后按工具调用时间恢复累计耗时并继续递增', () => {
     vi.useFakeTimers()
     const now = new Date('2026-09-04T10:00:00.000Z')
