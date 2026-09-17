@@ -1,5 +1,7 @@
 # @mackwan84/dsh-image
 
+[English](README.en.md)
+
 图像生成 capability 的 Service Definition：为 UI 草图生成/编辑提供跨提供方的统一抽象契约。
 
 - `ImageGenerationService`：抽象服务基类，实现类加载即注册为 `ctx.image`；

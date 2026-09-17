@@ -1,5 +1,7 @@
 # @mackwan84/dsh-image-openai-compat
 
+[English](README.en.md)
+
 OpenAI 兼容网关图像生成 Provider，实现 `@mackwan84/dsh-image` 的
 `ImageGenerationService`。面向 one-api / new-api 等私有聚合网关（官方 OpenAI
 是可配特例），锚定 `POST {baseUrl}/images/generations` 同步协议：

@@ -1,5 +1,7 @@
 # dsh-ui-mockup · 产品文档
 
+[English](../en/guides/product-guide.md)
+
 > 状态：M1–M5 已实现（image 服务 + 双 Provider + ui_mockup 工具 + 编辑模式 + bundle 挂载 + 设置面板
 >
 > - 标注式精准反馈 + fastPreview 方向稿）；M2 已实现（对话内卡片 / 图片路由 / i18n）；
@@ -223,8 +225,8 @@ Seedream 均可按基准图保持配色、字体、圆角一致。
 ## 7. 开发与贡献
 
 - 仓库结构、依赖策略与里程碑见 [implementation-plan.md](../architecture/overview.md)；
-- 发布门禁与验收结论见 [0.2.0 发布检查清单](../releases/v0.2.0.md)；
+- v0.3.0 候选验收结论与尚未执行的发布步骤见 [v0.3.0 发布记录](../releases/v0.3.0.md)；
 - 本地开发：`pnpm install && pnpm build && pnpm test`（含 Loader 真实组合测试）；
 - 真实 API 冒烟：`DASHSCOPE_API_KEY=sk-xxx npx tsx scripts/generate-smoke.ts`
   （火山分支：`ARK_API_KEY=ark-xxx npx tsx scripts/generate-smoke.ts --provider volcengine`）；
-- 发布顺序：`dsh-image` → `dsh-image-dashscope` → `dsh-image-volcengine` → `dsh-tool-ui-mockup` → bundle。
+- 发布顺序：`dsh-image` → `dsh-image-dashscope` → `dsh-image-volcengine` → `dsh-image-openai-compat` → `dsh-tool-ui-mockup` → bundle。

@@ -1,5 +1,7 @@
 # dsh-ui-mockup
 
+[English](README.en.md)
+
 [![npm version](https://img.shields.io/npm/v/%40mackwan84%2Fdsh-ui-mockup-bundle)](https://www.npmjs.com/package/@mackwan84/dsh-ui-mockup-bundle)
 [![npm downloads](https://img.shields.io/npm/dm/%40mackwan84%2Fdsh-ui-mockup-bundle)](https://www.npmjs.com/package/@mackwan84/dsh-ui-mockup-bundle)
 [![GitHub release](https://img.shields.io/github/v/release/mackwan84/dsh-ui-mockup)](https://github.com/mackwan84/dsh-ui-mockup/releases)
@@ -21,8 +23,8 @@
 - **设计资产库**：生成图 / 锚点 / 历史集中存于 `$DSH_HOME/mockups/<工作区>/`（slug 与 DSH sessions 同款），
   项目工作区不再落运行时产物；`design/spec.md` 等交付物仍留在项目内；
 - **模型分层**：按保真度分层，默认随生效提供方（百炼：线框 `qwen-image-3.0` / 高保真
-  `qwen-image-3.0-pro`；火山：线框 `doubao-seedream-4-5-251128` / 高保真
-  `doubao-seedream-5-0-pro-260628`）；
+  `qwen-image-3.0-pro`；火山仅承诺高保真 `doubao-seedream-5-0-pro-260628` 与整图编辑；
+  对火山的线框请求会在工具层拒绝并提示切换 Provider）；
 - **当前万相能力**：百炼仅支持 `wan2.7-image` / `wan2.7-image-pro`，使用新版异步图像端点，
   支持文生图与单参考图 I2I；Wan 2.2/2.6 与旧 `text2image` 端点已废弃；
 - **三提供方**：阿里云百炼 DashScope（默认启用）、火山方舟 Volcengine Ark 与 OpenAI 兼容网关
@@ -75,7 +77,8 @@ dsh plugin --profile web add /path/to/dsh-ui-mockup/bundle/ui-mockup
 
 - DSH Web profile；
 - 桌面端推荐宽度为 1024px 及以上，这是设置面板和结果卡片的正式验收基线；
-- 至少配置一个图像服务凭据：阿里云百炼 `DASHSCOPE_API_KEY` 或火山方舟 `ARK_API_KEY`；
+- 至少配置一个图像服务凭据：阿里云百炼 `DASHSCOPE_API_KEY`、火山方舟 `ARK_API_KEY`，
+  或 OpenAI 兼容网关的 `OPENAI_COMPAT_API_KEY` 与网关地址；
 - 耗时预期：线框图通常数十秒；高保真 pro 模型默认思考模式，单张 1~5 分钟属正常
   （火山同步 API 默认窗口 300s）。生成卡片按工具调用时间显示本地已等待时长，刷新后继续累计；
   该数值不能用于判断远端进度或存活状态。
@@ -83,7 +86,8 @@ dsh plugin --profile web add /path/to/dsh-ui-mockup/bundle/ui-mockup
 ## 配置
 
 凭据按以下优先级读取，**任选其一即可**；生效提供方决定凭据名：
-DashScope 用 `DASHSCOPE_API_KEY`（阿里云百炼），火山方舟用 `ARK_API_KEY`。
+DashScope 用 `DASHSCOPE_API_KEY`（阿里云百炼），火山方舟用 `ARK_API_KEY`，OpenAI 兼容网关用
+`OPENAI_COMPAT_API_KEY`。
 
 1. 进程环境变量：启动 DSH 前 `export DASHSCOPE_API_KEY=sk-xxx`（CI / 容器同理）；
 2. DSH 密钥存储：`~/.dsh/.credentials.yaml`（在 DSH 设置 · 模型页写入，优先生效于 .env）；
@@ -126,10 +130,10 @@ patch（`~/.dsh/cordis.patch.yml`，只增改这些行的 id/disabled、不触�
 ## 开发
 
 - [docs/README.md](docs/README.md) — 完整文档导航与维护约定
+- [docs/README.en.md](docs/README.en.md) — 面向国际 npm 用户与集成开发者的英文文档导航
 - [docs/guides/product-guide.md](docs/guides/product-guide.md) — 产品使用指南与 FAQ
 - [docs/architecture/overview.md](docs/architecture/overview.md) — 当前架构、能力边界与关键实现事实
-- [docs/testing/v0.2.0/browser-cases.md](docs/testing/v0.2.0/browser-cases.md) — 0.2.0 可复用浏览器回归用例
-- [docs/releases/v0.2.0.md](docs/releases/v0.2.0.md) — 发布门禁、最终验收结论与已知限制
+- [docs/releases/v0.3.0.md](docs/releases/v0.3.0.md) — v0.3.0 候选验收结论与尚未执行的发布步骤
 
 常用命令：
 
