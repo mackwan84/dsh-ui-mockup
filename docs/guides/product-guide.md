@@ -2,7 +2,7 @@
 
 [English](../en/guides/product-guide.md)
 
-> 状态：M1–M5 已实现（image 服务 + 双 Provider + ui_mockup 工具 + 编辑模式 + bundle 挂载 + 设置面板
+> 状态：M1–M5 已实现（image 服务 + 三 Provider + ui_mockup 工具 + 编辑模式 + bundle 挂载 + 设置面板
 >
 > - 标注式精准反馈 + fastPreview 方向稿）；M2 已实现（对话内卡片 / 图片路由 / i18n）；
 >   M3 已实现（设置面板 4 页 / 生成历史 / 风格锚点）。
