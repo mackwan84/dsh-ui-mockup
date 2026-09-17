@@ -22,7 +22,7 @@ afterEach(async () => {
   await Promise.all(temporaryDirectories.splice(0).map((path) => rm(path, { recursive: true })))
 })
 
-describe('0.2.0 发布元数据', () => {
+describe('0.3.0 发布元数据', () => {
   it('pack:all 在打包任何工作区前先执行全仓构建', async () => {
     const pkg = await readJson('package.json')
     const packAllScript = (pkg['scripts'] as Record<string, string>)['pack:all']
@@ -40,6 +40,7 @@ describe('0.2.0 发布元数据', () => {
         'packages/image',
         'packages/image-dashscope',
         'packages/image-volcengine',
+        'packages/image-openai-compat',
         'packages/tool-ui-mockup',
         'bundle/ui-mockup',
       ].map((path) => mkdir(resolve(fixtureRoot, path), { recursive: true })),
@@ -62,21 +63,30 @@ describe('0.2.0 发布元数据', () => {
       'pack --pack-destination ../../dist',
       'pack --pack-destination ../../dist',
       'pack --pack-destination ../../dist',
+      'pack --pack-destination ../../dist',
     ])
   })
 
-  it('五个发布包版本统一为根版本', async () => {
+  it('六个发布包版本统一为根版本', async () => {
     const rootPackage = await readJson('package.json')
     const version = String(rootPackage['version'])
     const packagePaths = [
       'packages/image/package.json',
       'packages/image-dashscope/package.json',
       'packages/image-volcengine/package.json',
+      'packages/image-openai-compat/package.json',
       'packages/tool-ui-mockup/package.json',
       'bundle/ui-mockup/package.json',
     ]
     for (const path of packagePaths) {
       expect((await readJson(path))['version'], path).toBe(version)
     }
+  })
+
+  it('组合包为 OpenAI 兼容网关预置可生成的分层默认模型', async () => {
+    const patch = await readText('bundle/ui-mockup/cordis.patch.yml')
+    expect(patch).toMatch(
+      /id: image-openai-compat[\s\S]*?config:\s*\n\s*wireframeModel: gpt-image-2\s*\n\s*highFidelityModel: gpt-image-2\.5-flare/,
+    )
   })
 })

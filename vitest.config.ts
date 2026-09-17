@@ -37,6 +37,10 @@ export default defineConfig({
         replacement: workspaceSource('./packages/image-volcengine/src/index.ts'),
       },
       {
+        find: /^@mackwan84\/dsh-image-openai-compat$/,
+        replacement: workspaceSource('./packages/image-openai-compat/src/index.ts'),
+      },
+      {
         find: /^@mackwan84\/dsh-tool-ui-mockup$/,
         replacement: workspaceSource('./packages/tool-ui-mockup/src/index.ts'),
       },

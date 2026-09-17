@@ -1,5 +1,7 @@
 # @mackwan84/dsh-image-dashscope
 
+[English](README.en.md)
+
 阿里云百炼图像生成 Provider，实现 `@mackwan84/dsh-image` 的 `ImageGenerationService`：
 
 - **qwen-image 3.0 系列**：`/api/v1/services/aigc/image-generation/generation` 异步任务（`input.messages` 结构，本 Provider 支持单张参考图的 I2I 风格一致）；

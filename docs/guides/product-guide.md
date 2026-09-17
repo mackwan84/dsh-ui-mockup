@@ -1,6 +1,8 @@
 # dsh-ui-mockup · 产品文档
 
-> 状态：M1–M5 已实现（image 服务 + 双 Provider + ui_mockup 工具 + 编辑模式 + bundle 挂载 + 设置面板
+[English](../en/guides/product-guide.md)
+
+> 状态：M1–M5 已实现（image 服务 + 三 Provider + ui_mockup 工具 + 编辑模式 + bundle 挂载 + 设置面板
 >
 > - 标注式精准反馈 + fastPreview 方向稿）；M2 已实现（对话内卡片 / 图片路由 / i18n）；
 >   M3 已实现（设置面板 4 页 / 生成历史 / 风格锚点）。
@@ -61,7 +63,7 @@ sequenceDiagram
 ### 4.1 安装
 
 ```sh
-dsh plugin --profile web add @mackwan84/dsh-ui-mockup-bundle@0.2.0
+dsh plugin --profile web add @mackwan84/dsh-ui-mockup-bundle@0.3.0
 ```
 
 安装完成即自动挂载（`dsh.bundle.patch`），重启 `dsh web` 后工具出现在会话中。
@@ -90,13 +92,29 @@ DASHSCOPE_API_KEY=sk-xxxx
 
 ### 4.4 切换提供方（M4）
 
-安装包同时内置阿里云百炼（默认启用）与火山方舟两个 Provider（`ctx.image` 单槽位，
-同时只生效一个）。在 **设置 · UI 草图 · 提供方与模型** 页**点击提供方卡片**即可切换：
-插件把两行 id 定向 `disabled` 写入 DSH 用户层 patch（`~/.dsh/cordis.patch.yml`），
-组合热重载后立即生效，无需重启。
+安装包同时内置阿里云百炼（默认启用）、火山方舟与 OpenAI 兼容网关三个 Provider
+（`ctx.image` 单槽位，同时只生效一个）。在 **设置 · UI 草图 · 提供方与模型** 页
+**点击提供方卡片**即可切换：插件把各行 id 定向 `disabled` 写入 DSH 用户层 patch
+（`~/.dsh/cordis.patch.yml`），组合热重载后立即生效，无需重启。
 
-火山方舟用 `ARK_API_KEY` 凭据（面板凭据卡随生效提供方自动切换读写目标）。
+火山方舟用 `ARK_API_KEY` 凭据，OpenAI 兼容网关用 `OPENAI_COMPAT_API_KEY`
+（连接设置区的 API 密钥行随生效提供方自动切换读写目标）。
 编辑模式（`baseImage` + `editNote` 指令重绘）当前仅火山方舟支持。
+火山方舟在本产品中**只承诺高保真设计稿与整图指令编辑**：`fidelity=wireframe`
+会在调用前被明确拒绝，不消耗生成配额；请切换至 DashScope 或 OpenAI 兼容网关生成线框，
+或直接改用高保真。它保留的 `wireframeModel` 配置仅用于高保真方向稿的既有回落链，
+不是线框质量承诺。
+OpenAI 兼容网关面向 one-api / new-api 等私有聚合网关：网关地址在其
+**连接设置** 区的网关地址行中填写（仅该提供方显示；校验 http/https 并提示通常以
+`/v1` 结尾，保存写入 DSH 用户层配置并热重载，几秒内生效）；只承诺
+`model/prompt/n/size` 最小参数子集与 `b64_json`/`url` 双返回格式，
+不支持参考图（I2I，风格锚点会被自动跳过）与指令编辑；网关地址未配置时
+生成与测试连接会给出明确错误。模型分层为可编辑组合框：候选 = 内置静态推荐 ∪
+从网关 `/v1/models` 拉取的建议（拉取失败静默降级），且**任何时候都可以
+直接手填任意模型名**。组合包预置线框图 `gpt-image-2` 与高保真
+`gpt-image-2.5-flare`；保存网关地址会保留这两个部署默认值，用户仍可在面板覆盖。
+候选弹层与生成偏好的默认尺寸统一复用 DSH `Menu`，
+不再显示随浏览器或操作系统变化的原生 `select` / `datalist` 弹层。
 
 ## 5. 使用指南
 
@@ -119,19 +137,23 @@ flowchart LR
 可传 `model` 参数覆盖（线框图如 `qwen-image-2.0`、`wan2.7-image`，高保真如
 `qwen-image-2.0-pro`、`wan2.7-image-pro`；设置面板「提供方与模型」页可配置各层默认）。
 方向稿（`fastPreview`）另有独立的「方向稿模型」档（面板同页配置）；解析顺序为
-显式 `model` → 方向稿模型 → 线框图模型档 → Provider 内置默认。
+显式 `model` → 方向稿模型 → 线框图模型档 → 当前 Provider 配置的 `wireframeModel`。
+三档偏好为空时，若 Provider 已配置非空白 `wireframeModel`，方向稿使用该线框默认模型；
+否则工具传入 `undefined`，交由 Provider 处理。普通高保真仍使用其高保真默认模型。
 Wan 仅支持当前 2.7 系列，旧 Wan 2.2/2.6 不再兼容。Wan 2.7 Web/Mobile 缺省尺寸为
 `2048*1152` / `1152*2048`，文生图与单参考图 I2I 均走新版异步图像端点。
 
 ### 5.3 图片卡片的反馈按钮
 
-| 按钮         | 作用                                                             |
-| ------------ | ---------------------------------------------------------------- |
-| 确认采用这版 | 发送固定中文确认消息（携带文件名），Agent 提炼 `design/spec.md`  |
-| 选用第 N 版  | 多方向生成时选定一张；模型可见消息固定中文                       |
-| 打开原图     | 在标注弹窗底部，新标签打开原始 PNG / JPEG / WebP                 |
-| 提交修改意见 | 非空意见才可提交；Agent 优先用`baseImage + editNote`整图指令重绘 |
-| 点击图片     | 进入标注弹窗（见 5.4）                                           |
+| 按钮         | 作用                                                                         |
+| ------------ | ---------------------------------------------------------------------------- |
+| 确认采用这版 | 唯一主按钮；发送固定中文确认消息（携带文件名），Agent 提炼 `design/spec.md`  |
+| 按这版精修   | 仅方向稿显示的描边次按钮；以该方向进入高保真精修                             |
+| 选用第 N 版  | 多方向生成时选定一张；中性下拉，模型可见消息固定中文                         |
+| 设为锚点     | 中性状态操作；成功后所有已打开卡片同步唯一锚点状态，旧卡片不保留过期标签     |
+| 打开原图     | 在标注弹窗底部，新标签打开原始 PNG / JPEG / WebP                             |
+| 提交修改意见 | 描边次按钮；非空意见才可提交，Agent 优先用`baseImage + editNote`整图指令重绘 |
+| 点击图片     | 进入标注弹窗（见 5.4）                                                       |
 
 ### 5.4 标注反馈（圈选要改哪里）
 
@@ -159,7 +181,8 @@ Wan 仅支持当前 2.7 系列，旧 Wan 2.2/2.6 不再兼容。Wan 2.7 Web/Mobi
 - Agent 在高保真探索、方向尚未定时会先带 `fastPreview` 出**方向稿**（面板「方向稿模型」档，快模型）；
   该使用时机已写入提示词规则，你也可以直接说“先出个方向稿”；
 - 你确认方向后，点方向稿结果卡上的「**按这版精修**」按钮（或让 Agent 直接精修），
-  同一描述去掉 `fastPreview` 跑精修档；
+  同一描述去掉 `fastPreview` 跑精修档；方向稿文件名只用于标识已确认方向，不作为
+  `reference`、`baseImage` 或 `editNote` 参数；
 - 方向稿正常进生成历史（带「方向稿」标签，可筛选）；**方向稿设为风格锚点时会收到一次性
   提示**——快模型稿当全站视觉基准是质量陷阱，提示而不禁止；
 - `fidelity='wireframe'` 时 `fastPreview` 被忽略（线框档本身已是快模型），结果消息会说明。
@@ -169,6 +192,7 @@ Wan 仅支持当前 2.7 系列，旧 Wan 2.2/2.6 不再兼容。Wan 2.7 Web/Mobi
 同一站点的后续页面：高保真生成时以已确认页面为 `reference`，Qwen Image、Wan 2.7 和
 Seedream 均可按基准图保持配色、字体、圆角一致。
 生成历史（`$DSH_HOME/mockups/<工作区>/history.jsonl`）可在对话图片卡片一键「设为锚点」（M3）。
+历史页始终显示当前搜索与筛选条件下的总条数；只有结果超过一页时才显示翻页控件。
 
 ### 5.7 设计锁定
 
@@ -201,8 +225,8 @@ Seedream 均可按基准图保持配色、字体、圆角一致。
 ## 7. 开发与贡献
 
 - 仓库结构、依赖策略与里程碑见 [implementation-plan.md](../architecture/overview.md)；
-- 发布门禁与验收结论见 [0.2.0 发布检查清单](../releases/v0.2.0.md)；
+- v0.3.0 候选验收结论与尚未执行的发布步骤见 [v0.3.0 发布记录](../releases/v0.3.0.md)；
 - 本地开发：`pnpm install && pnpm build && pnpm test`（含 Loader 真实组合测试）；
 - 真实 API 冒烟：`DASHSCOPE_API_KEY=sk-xxx npx tsx scripts/generate-smoke.ts`
   （火山分支：`ARK_API_KEY=ark-xxx npx tsx scripts/generate-smoke.ts --provider volcengine`）；
-- 发布顺序：`dsh-image` → `dsh-image-dashscope` → `dsh-image-volcengine` → `dsh-tool-ui-mockup` → bundle。
+- 发布顺序：`dsh-image` → `dsh-image-dashscope` → `dsh-image-volcengine` → `dsh-image-openai-compat` → `dsh-tool-ui-mockup` → bundle。

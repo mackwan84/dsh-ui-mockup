@@ -2,6 +2,7 @@
  * 真实 API 冒烟测试：用本机 key 跑一次完整链路。
  * 用法：DASHSCOPE_API_KEY=sk-xxx npx tsx scripts/generate-smoke.ts
  *      ARK_API_KEY=ark-xxx npx tsx scripts/generate-smoke.ts --provider volcengine
+ *      OPENAI_COMPAT_BASE_URL=https://gw/v1 OPENAI_COMPAT_API_KEY=xxx npx tsx scripts/generate-smoke.ts --provider openai-compat
  * 结果落盘到临时目录（默认 /tmp 下新建），并打印图片路径与附件信息。
  */
 import { mkdtemp, rm } from 'node:fs/promises'
@@ -10,6 +11,7 @@ import { join } from 'node:path'
 import { Context, Service } from '@deepseek-ai/cordis'
 import DashscopeImageProvider from '@mackwan84/dsh-image-dashscope'
 import VolcengineImageProvider from '@mackwan84/dsh-image-volcengine'
+import OpenaiCompatImageProvider from '@mackwan84/dsh-image-openai-compat'
 import {
   apply as toolApply,
   inject as toolInject,
@@ -82,17 +84,47 @@ class SystemPromptStub extends Service {
 }
 
 const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-smoke-'))
-// --provider volcengine：切换烟测提供方（需 ARK_API_KEY）；默认 DashScope。
+// --provider volcengine|openai-compat：切换烟测提供方；默认 DashScope。
 // 注意 description 是位置参数，放在 --provider 之前：npx tsx … "描述" --provider volcengine
 const providerIndex = process.argv.indexOf('--provider')
-const useVolcengine = providerIndex !== -1 && process.argv[providerIndex + 1] === 'volcengine'
+const providerName = providerIndex !== -1 ? process.argv[providerIndex + 1] : 'dashscope'
+// 未知 provider 值直接报错，避免拼写错误（如 --provider openai-compt）静默回退 DashScope
+// 而在真实网关验收时跑错提供方、消耗错额度并得到误导性结论
+const KNOWN_PROVIDERS = ['dashscope', 'volcengine', 'openai-compat']
+if (!KNOWN_PROVIDERS.includes(providerName ?? '')) {
+  console.error(`--provider 只支持 ${KNOWN_PROVIDERS.join(' | ')}，收到: ${String(providerName)}`)
+  await rm(dir, { recursive: true, force: true })
+  process.exit(1)
+}
+const useVolcengine = providerName === 'volcengine'
+const useOpenaiCompat = providerName === 'openai-compat'
 const ctx = new Context()
 await ctx.plugin(CredentialsStub)
 await ctx.plugin(ToolsStub)
 await ctx.plugin(SandboxPolicyStub, { workspaceRoot: dir })
 await ctx.plugin(AttachmentsStub)
 await ctx.plugin(SystemPromptStub)
-await ctx.plugin(useVolcengine ? VolcengineImageProvider : DashscopeImageProvider)
+if (useOpenaiCompat) {
+  // openai-compat 无内置网关：地址与模型由环境变量给出（地址通常以 /v1 结尾）
+  const baseUrl = (process.env['OPENAI_COMPAT_BASE_URL'] ?? '').trim()
+  if (baseUrl === '') {
+    console.error(
+      '--provider openai-compat 需要 OPENAI_COMPAT_BASE_URL（通常以 /v1 结尾）与 OPENAI_COMPAT_API_KEY',
+    )
+    await rm(dir, { recursive: true, force: true })
+    process.exit(1)
+  }
+  const model = process.env['OPENAI_COMPAT_MODEL'] ?? 'gpt-image-2'
+  await ctx.plugin(OpenaiCompatImageProvider, {
+    apiKey: 'OPENAI_COMPAT_API_KEY',
+    baseUrl,
+    wireframeModel: model,
+    highFidelityModel: model,
+    requestTimeoutMs: 300_000,
+  })
+} else {
+  await ctx.plugin(useVolcengine ? VolcengineImageProvider : DashscopeImageProvider)
+}
 await ctx.plugin({ name: toolName, inject: toolInject, apply: toolApply })
 
 const tools = ctx.get('tools') as unknown as ToolsStub
@@ -110,11 +142,24 @@ const execute = definition.execute as (
 const description =
   process.argv[2] ?? '一个待办事项应用的主页：顶部导航栏、任务输入框、任务列表、底部筛选栏'
 console.log(
-  `[smoke] 提供方: ${useVolcengine ? '火山方舟（doubao-seedream）' : '百炼（qwen-image-3.0）'}`,
+  `[smoke] 提供方: ${
+    useOpenaiCompat
+      ? `OpenAI 兼容网关（${process.env['OPENAI_COMPAT_MODEL'] ?? 'gpt-image-2'}）`
+      : useVolcengine
+        ? '火山方舟（doubao-seedream）'
+        : '百炼（qwen-image-3.0）'
+  }`,
 )
 console.log(`[smoke] 生成中：${description.slice(0, 40)}…`)
 const value = await execute(
-  { description, fidelity: 'wireframe', platform: 'web' },
+  {
+    description,
+    fidelity: 'wireframe',
+    platform: 'web',
+    // new_api 系已知方言：部分网关拒绝 n>1（400 请求参数无法处理）；
+    // openai-compat 冒烟按单图跑，多图由调用方按网关能力自行多次调用
+    ...(useOpenaiCompat ? { count: 1 } : {}),
+  },
   { signal: new AbortController().signal },
 )
 console.log('[smoke] 结果:', JSON.stringify(value, null, 2).slice(0, 2000))

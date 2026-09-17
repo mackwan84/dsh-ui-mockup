@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { ComponentProps } from 'react'
 import { UiMockupSection, type PanelPrefs } from '../src/client/settings-panel.js'
-import { zh } from '../src/client/locales.js'
+import { en, zh } from '../src/client/locales.js'
 import type {
   ConnectionFace,
   PrefScope,
@@ -27,13 +27,17 @@ const DEFAULT_PREFS: PanelPrefs = {
 
 type Translator = ComponentProps<typeof UiMockupSection>['t']
 
-const t = ((key: keyof typeof zh, params?: Record<string, unknown>) => {
-  let text: string = zh[key]
-  for (const [name, value] of Object.entries(params ?? {})) {
-    text = text.replaceAll(`{${name}}`, String(value))
-  }
-  return text
-}) as Translator
+function translator(locale: typeof zh): Translator {
+  return ((key: keyof typeof zh, params?: Record<string, unknown>) => {
+    let text: string = locale[key]
+    for (const [name, value] of Object.entries(params ?? {})) {
+      text = text.replaceAll(`{${name}}`, String(value))
+    }
+    return text
+  }) as Translator
+}
+
+const t = translator(zh)
 
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void
@@ -110,53 +114,84 @@ function createConnection({
   historyTotal = 0,
   pendingSwitch = false,
   pendingLandsBeforeRefresh = false,
+  activeProvider = 'dashscope',
+  baseUrl = '',
+  providerModels,
 }: {
   historyTotal?: number
   pendingSwitch?: boolean
   pendingLandsBeforeRefresh?: boolean
+  activeProvider?: string
+  baseUrl?: string
+  /** 'degraded' = 宿主降级语义；缺省 = 未提供 models 字段的旧宿主形态。 */
+  providerModels?: string[] | 'degraded' | Promise<string[]>
 } = {}) {
   let switchRequested = false
+  // 生效地址随 provider/baseurl/set 落位而变，模拟宿主热重载后 provider/status 回显新值
+  let currentBaseUrl = baseUrl
+  // 归一化调用日志（去 ui-mockup/ 前缀），供断言读取——call.mock.calls 保留原始带前缀端点
+  const calls: Array<[string, unknown]> = []
   const call = vi.fn(
-    (_channel: string, endpoint: string, _payload?: unknown): Promise<RpcResultLike<unknown>> => {
+    (
+      _channel: string,
+      rawEndpoint: string,
+      _payload?: unknown,
+    ): Promise<RpcResultLike<unknown>> => {
+      // 0.1.5 起客户端走共享 /api 通道，端点名带 ui-mockup/ 前缀；桩内归一为裸端点名
+      const endpoint = rawEndpoint.replace(/^ui-mockup\//, '')
+      calls.push([endpoint, _payload])
+      if (endpoint === 'provider/models' && providerModels instanceof Promise) {
+        return providerModels.then((models) => ({ ok: true as const, value: { models } }))
+      }
       if (endpoint === 'provider/switch' && pendingSwitch) switchRequested = true
+      if (endpoint === 'provider/baseurl/set') {
+        const next = (_payload as { baseUrl?: unknown })?.baseUrl
+        if (typeof next === 'string') currentBaseUrl = next
+      }
       const value =
         endpoint === 'overview'
           ? {
-              provider: 'dashscope',
+              provider: activeProvider,
               credential: { configured: true, source: 'file', writable: true },
               anchor: null,
             }
           : endpoint === 'provider/status'
             ? {
-                active: switchRequested && pendingLandsBeforeRefresh ? 'volcengine' : 'dashscope',
+                active:
+                  switchRequested && pendingLandsBeforeRefresh ? 'volcengine' : activeProvider,
+                baseUrl: currentBaseUrl,
               }
             : endpoint === 'provider/switch' && pendingSwitch
               ? { active: 'dashscope', pending: true }
-              : endpoint === 'history/list'
-                ? {
-                    anchorFile: null,
-                    anchorIndex: -1,
-                    total: historyTotal,
-                    page: 1,
-                    pageSize: 5,
-                    entries:
-                      historyTotal === 0
-                        ? []
-                        : [
-                            {
-                              time: '2026-08-31T00:00:00.000Z',
-                              description: '移动端登录页',
-                              files: [],
-                              anchored: false,
-                            },
-                          ],
-                  }
-                : {}
+              : endpoint === 'provider/models'
+                ? providerModels === 'degraded'
+                  ? { models: [], degraded: true }
+                  : { models: providerModels ?? [] }
+                : endpoint === 'history/list'
+                  ? {
+                      anchorFile: null,
+                      anchorIndex: -1,
+                      total: historyTotal,
+                      page: 1,
+                      pageSize: 5,
+                      entries:
+                        historyTotal === 0
+                          ? []
+                          : [
+                              {
+                                time: '2026-08-31T00:00:00.000Z',
+                                description: '移动端登录页',
+                                files: [],
+                                anchored: false,
+                              },
+                            ],
+                    }
+                  : {}
       return Promise.resolve({ ok: true as const, value })
     },
   )
   const connection: ConnectionFace = { isLoopback: true, rpc: { call } }
-  return { connection, call }
+  return { connection, call, calls }
 }
 
 function mountPanel(
@@ -165,13 +200,21 @@ function mountPanel(
     pendingSwitch?: boolean
     pendingLandsBeforeRefresh?: boolean
     prefs?: PrefScope<PanelPrefs>
+    activeProvider?: string
+    baseUrl?: string
+    providerModels?: string[] | 'degraded' | Promise<string[]>
+    translator?: Translator
   } = {},
 ) {
-  const { connection, call } = createConnection(options)
+  const { connection, call, calls } = createConnection(options)
   const view = render(
-    <UiMockupSection t={t} prefs={options.prefs ?? createPrefs()} connection={connection} />,
+    <UiMockupSection
+      t={options.translator ?? t}
+      prefs={options.prefs ?? createPrefs()}
+      connection={connection}
+    />,
   )
-  return { ...view, call }
+  return { ...view, call, calls }
 }
 
 describe('UiMockupSection tabs', () => {
@@ -250,6 +293,15 @@ describe('OverviewPage visuals', () => {
 })
 
 describe('Provider switch state', () => {
+  it('把三家提供方呈现为一个完整单选组，并明确标出当前使用项', async () => {
+    mountPanel({ activeProvider: 'openai-compat', baseUrl: 'https://gw.test/v1' })
+    fireEvent.click(screen.getByRole('tab', { name: '提供方与模型' }))
+
+    const providers = await screen.findByRole('radiogroup', { name: '提供方' })
+    expect(within(providers).getAllByRole('radio')).toHaveLength(3)
+    expect(within(providers).getByText('当前使用')).toBeTruthy()
+  })
+
   it('热重载超时返回 pending 时显示尚未完成提示', async () => {
     mountPanel({ pendingSwitch: true })
     fireEvent.click(screen.getByRole('tab', { name: '提供方与模型' }))
@@ -280,12 +332,15 @@ describe('Provider switch state', () => {
     ).toBe('')
   })
 
-  it('模型候选说明覆盖三个档位，不漏方向稿', async () => {
+  it('把三个档位的推荐模型分别放在对应字段旁，不漏方向稿', async () => {
     mountPanel()
     fireEvent.click(screen.getByRole('tab', { name: '提供方与模型' }))
-    // 三个档位都有控件，说明文案就不能只列两个
-    const notice = await screen.findByText(/线框图: .*高保真: /)
-    expect(notice.textContent).toContain('方向稿模型（fastPreview）: qwen-image-3.0, wan2.7-image')
+    const models = await screen.findByRole('region', { name: '模型分层默认' })
+    expect(
+      within(models)
+        .getAllByText(/^推荐：/)
+        .map((node) => node.textContent),
+    ).toEqual(['推荐：qwen-image-3.0', '推荐：qwen-image-3.0-pro', '推荐：qwen-image-3.0'])
   })
 
   it('pending 尚未落位时也清除即将失效的旧模型默认值', async () => {
@@ -306,11 +361,250 @@ describe('Provider switch state', () => {
   })
 })
 
+describe('OpenAI 兼容连接配置卡', () => {
+  it('把网关、密钥和连接测试收拢到同一连接区域，并默认折叠其他配置方式', async () => {
+    mountPanel({ activeProvider: 'openai-compat', baseUrl: '' })
+    fireEvent.click(screen.getByRole('tab', { name: '提供方与模型' }))
+
+    const connection = await screen.findByRole('region', { name: '连接设置' })
+    expect(within(connection).getByLabelText('网关地址 baseUrl')).toBeTruthy()
+    expect(within(connection).getByLabelText('OPENAI_COMPAT_API_KEY 密钥')).toBeTruthy()
+    expect(within(connection).getByRole('button', { name: '测试连接' })).toBeTruthy()
+    const disclosure = within(connection).getByText('其他配置方式').closest('details')
+    expect(disclosure?.open).toBe(false)
+  })
+
+  it('openai-compat 生效时回显生效地址，保存走 provider/baseurl/set', async () => {
+    const { calls } = mountPanel({
+      activeProvider: 'openai-compat',
+      baseUrl: 'https://old-gw.test/v1',
+    })
+    fireEvent.click(screen.getByRole('tab', { name: '提供方与模型' }))
+    const input = await screen.findByLabelText<HTMLInputElement>('网关地址 baseUrl')
+    expect(input.value).toBe('https://old-gw.test/v1')
+    // 帮助文案常驻：提示 /v1 习惯与热重载语义
+    expect(screen.getByText(zh['panel.connection.baseUrlHint'])).toBeTruthy()
+
+    fireEvent.change(input, { target: { value: 'https://gw.test/v1/' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存网关地址' }))
+    await waitFor(() => {
+      const hit = calls.find((entry) => entry[0] === 'provider/baseurl/set')
+      expect(hit).toBeDefined()
+      // 客户端先做同款归一：去尾部斜杠再发
+      expect(hit?.[1]).toEqual({ baseUrl: 'https://gw.test/v1' })
+    })
+    expect(await screen.findByText(zh['panel.connection.saved'])).toBeTruthy()
+  })
+
+  it('非法地址在客户端即被拒绝，不发起 RPC', async () => {
+    const { calls } = mountPanel({ activeProvider: 'openai-compat', baseUrl: '' })
+    fireEvent.click(screen.getByRole('tab', { name: '提供方与模型' }))
+    const input = await screen.findByLabelText('网关地址 baseUrl')
+    fireEvent.change(input, { target: { value: 'ftp://gw.test' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存网关地址' }))
+    expect(await screen.findByText(zh['panel.connection.invalid'])).toBeTruthy()
+    expect(calls.some((entry) => entry[0] === 'provider/baseurl/set')).toBe(false)
+  })
+
+  it('baseUrl 为空时测试连接置灰，配置地址后恢复可用', async () => {
+    mountPanel({ activeProvider: 'openai-compat', baseUrl: '' })
+    fireEvent.click(screen.getByRole('tab', { name: '提供方与模型' }))
+    const test = await screen.findByRole('button', { name: '测试连接' })
+    expect(test.getAttribute('disabled')).not.toBeNull()
+  })
+
+  it('非 openai-compat 提供方不渲染连接配置卡', async () => {
+    mountPanel()
+    fireEvent.click(screen.getByRole('tab', { name: '提供方与模型' }))
+    await screen.findByRole('radio', { name: '阿里云百炼 DashScope' })
+    expect(screen.queryByLabelText('网关地址 baseUrl')).toBeNull()
+  })
+})
+
+describe('模型发现建议与手填', () => {
+  it('在模型分层区域同时呈现三档可编辑模型', async () => {
+    mountPanel({ activeProvider: 'openai-compat' })
+    fireEvent.click(screen.getByRole('tab', { name: '提供方与模型' }))
+
+    const models = await screen.findByRole('region', { name: '模型分层默认' })
+    expect(within(models).getByRole('combobox', { name: '线框图' })).toBeTruthy()
+    expect(within(models).getByRole('combobox', { name: '高保真' })).toBeTruthy()
+    expect(within(models).getByRole('combobox', { name: '方向稿模型（fastPreview）' })).toBeTruthy()
+  })
+
+  it('候选合并静态 hints 与网关建议（去重），且永远可手填任意模型名', async () => {
+    mountPanel({
+      activeProvider: 'openai-compat',
+      providerModels: ['gpt-image-2', 'my-gw-model'],
+    })
+    fireEvent.click(screen.getByRole('tab', { name: '提供方与模型' }))
+    const input = await screen.findByRole<HTMLInputElement>('combobox', {
+      name: '线框图',
+    })
+    fireEvent.click(input)
+    const options = within(await screen.findByRole('menu'))
+      .getAllByRole('menuitem')
+      .map((option) => option.textContent)
+    // 静态 hint 'gpt-image-2' 与网关同名建议去重；'my-gw-model' 为新增建议
+    expect(options).toEqual(['gpt-image-2', 'my-gw-model'])
+
+    fireEvent.change(input, { target: { value: 'custom-model-x' } })
+    await waitFor(() => expect(input.value).toBe('custom-model-x'))
+  })
+
+  it('模型候选使用 DSH 菜单，选择后立即写入且不保留原生 datalist', async () => {
+    const prefs = createPrefs()
+    const { container } = mountPanel({
+      prefs,
+      activeProvider: 'openai-compat',
+      providerModels: ['gpt-image-2', 'my-gw-model'],
+    })
+    fireEvent.click(screen.getByRole('tab', { name: '提供方与模型' }))
+    const input = await screen.findByRole<HTMLInputElement>('combobox', { name: '线框图' })
+
+    expect(input.getAttribute('list')).toBeNull()
+    expect(container.querySelector('datalist')).toBeNull()
+    fireEvent.click(input)
+    const menu = await screen.findByRole('menu')
+    expect(
+      within(menu)
+        .getAllByRole('menuitem')
+        .map((item) => item.textContent),
+    ).toEqual(['gpt-image-2', 'my-gw-model'])
+
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'my-gw-model' }))
+    await waitFor(() => expect(input.value).toBe('my-gw-model'))
+    expect(prefs.getSnapshot().value?.wireframeModel).toBe('my-gw-model')
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(document.activeElement).toBe(input)
+  })
+
+  it('模型组合框支持方向键选择、Enter 提交与 Esc 关闭', async () => {
+    const prefs = createPrefs()
+    mountPanel({
+      prefs,
+      activeProvider: 'openai-compat',
+      providerModels: ['gpt-image-2', 'my-gw-model'],
+    })
+    fireEvent.click(screen.getByRole('tab', { name: '提供方与模型' }))
+    const input = await screen.findByRole<HTMLInputElement>('combobox', { name: '线框图' })
+
+    input.focus()
+    expect(await screen.findByRole('menu')).toBeTruthy()
+    fireEvent.keyDown(input, { key: 'Escape' })
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(document.activeElement).toBe(input)
+
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    await waitFor(() => expect(input.value).toBe('my-gw-model'))
+    expect(prefs.getSnapshot().value?.wireframeModel).toBe('my-gw-model')
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(document.activeElement).toBe(input)
+  })
+
+  it('从模型菜单项按 Esc 时关闭菜单并把焦点还给输入框', async () => {
+    mountPanel({ activeProvider: 'openai-compat' })
+    fireEvent.click(screen.getByRole('tab', { name: '提供方与模型' }))
+    const input = await screen.findByRole<HTMLInputElement>('combobox', { name: '线框图' })
+
+    fireEvent.click(screen.getByRole('button', { name: '线框图候选' }))
+    const option = await screen.findByRole('menuitem', { name: 'gpt-image-2' })
+    option.focus()
+    fireEvent.keyDown(option, { key: 'Escape' })
+
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(document.activeElement).toBe(input)
+  })
+
+  it('键盘焦点移到下一模型字段时只保留当前候选菜单', async () => {
+    mountPanel({ activeProvider: 'openai-compat' })
+    fireEvent.click(screen.getByRole('tab', { name: '提供方与模型' }))
+    const wireframe = await screen.findByRole<HTMLInputElement>('combobox', { name: '线框图' })
+    const highFidelity = screen.getByRole<HTMLInputElement>('combobox', { name: '高保真' })
+
+    act(() => {
+      wireframe.focus()
+    })
+    expect(screen.getAllByRole('menu')).toHaveLength(1)
+    act(() => {
+      highFidelity.focus()
+    })
+
+    expect(screen.getAllByRole('menu')).toHaveLength(1)
+    expect(document.activeElement).toBe(highFidelity)
+  })
+
+  it('动态候选迟到并改变排序时仍按稳定模型 id 提交活动项', async () => {
+    const models = deferred<string[]>()
+    mountPanel({ activeProvider: 'openai-compat', providerModels: models.promise })
+    fireEvent.click(screen.getByRole('tab', { name: '提供方与模型' }))
+    const input = await screen.findByRole<HTMLInputElement>('combobox', { name: '线框图' })
+
+    input.focus()
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    models.resolve(['aaa-model'])
+    expect(await screen.findByRole('menuitem', { name: 'aaa-model' })).toBeTruthy()
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    await waitFor(() => expect(input.value).toBe('gpt-image-2'))
+  })
+
+  it('英文界面的模型候选按钮使用英文无障碍名称', async () => {
+    mountPanel({ activeProvider: 'openai-compat', translator: translator(en) })
+    fireEvent.click(screen.getByRole('tab', { name: en['panel.tab.provider'] }))
+
+    expect(
+      await screen.findByRole('button', {
+        name: `${en['panel.models.wireframe']} suggestions`,
+      }),
+    ).toBeTruthy()
+  })
+
+  it('保存 baseUrl 后重新拉取模型建议（首次配地址即能拿到网关建议）', async () => {
+    // 初始地址为空→宿主降级；保存后 provider/status 回显新地址，
+    // effect 因 effectiveBaseUrl 变化重跑，再次调 provider/models
+    const { calls } = mountPanel({
+      activeProvider: 'openai-compat',
+      baseUrl: '',
+      providerModels: ['gpt-image-2', 'my-gw-model'],
+    })
+    fireEvent.click(screen.getByRole('tab', { name: '提供方与模型' }))
+    const input = await screen.findByLabelText<HTMLInputElement>('网关地址 baseUrl')
+    // 等提供方状态落定后记下现有 provider/models 调用次数（挂载期会多次触发）
+    const modelsCalls = () => calls.filter((entry) => entry[0] === 'provider/models').length
+    await waitFor(() => expect(modelsCalls()).toBeGreaterThanOrEqual(1))
+    const before = modelsCalls()
+
+    fireEvent.change(input, { target: { value: 'https://gw.test/v1' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存网关地址' }))
+    // 保存后 effectiveBaseUrl 变化→effect 重跑→provider/models 再被调用
+    await waitFor(() => expect(modelsCalls()).toBeGreaterThan(before))
+  })
+
+  it('模型拉取降级时静默回退静态候选：无错误提示，手填仍可用', async () => {
+    mountPanel({ activeProvider: 'openai-compat', providerModels: 'degraded' })
+    fireEvent.click(screen.getByRole('tab', { name: '提供方与模型' }))
+    const input = await screen.findByRole<HTMLInputElement>('combobox', {
+      name: '线框图',
+    })
+    fireEvent.click(input)
+    const options = within(await screen.findByRole('menu'))
+      .getAllByRole('menuitem')
+      .map((option) => option.textContent)
+    expect(options).toEqual(['gpt-image-2'])
+    fireEvent.change(input, { target: { value: 'fallback-typed-model' } })
+    await waitFor(() => expect(input.value).toBe('fallback-typed-model'))
+  })
+})
+
 describe('Settings form accessibility', () => {
   it('可通过可见字段名定位模型选择控件和凭据输入', async () => {
     mountPanel()
     fireEvent.click(screen.getByRole('tab', { name: '提供方与模型' }))
 
+    // 模型分层保留可手填输入，并通过显式 combobox 语义暴露 DSH 候选菜单。
     expect(await screen.findByRole('combobox', { name: '线框图' })).toBeTruthy()
     expect(screen.getByRole('combobox', { name: '高保真' })).toBeTruthy()
     expect(await screen.findByLabelText('DASHSCOPE_API_KEY 密钥')).toBeTruthy()
@@ -321,7 +615,58 @@ describe('Settings form accessibility', () => {
     fireEvent.click(screen.getByRole('tab', { name: '生成偏好' }))
 
     expect(screen.getByRole('spinbutton', { name: '轮询超时' })).toBeTruthy()
-    expect(screen.getByRole('combobox', { name: '默认尺寸' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '默认尺寸' })).toBeTruthy()
+  })
+})
+
+describe('设置下拉视觉一致性', () => {
+  it('默认尺寸使用 DSH 菜单并在选择后更新草稿', async () => {
+    const { container } = mountPanel()
+    fireEvent.click(screen.getByRole('tab', { name: '生成偏好' }))
+
+    expect(container.querySelector('select')).toBeNull()
+    const trigger = screen.getByRole('button', { name: '默认尺寸' })
+    expect(trigger.getAttribute('aria-haspopup')).toBe('menu')
+
+    fireEvent.click(trigger)
+    const menu = await screen.findByRole('menu')
+    fireEvent.click(within(menu).getByRole('menuitem', { name: '1280*720' }))
+
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(trigger.textContent).toContain('1280*720')
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: '保存' }).disabled).toBe(false)
+    expect(document.activeElement).toBe(trigger)
+  })
+
+  it('Esc 只关闭尺寸菜单并把焦点还给触发器，不泄漏给宿主弹窗', async () => {
+    let hostEscapeCount = 0
+    const observeHostEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') hostEscapeCount += 1
+    }
+    document.addEventListener('keydown', observeHostEscape)
+    try {
+      mountPanel()
+      fireEvent.click(screen.getByRole('tab', { name: '生成偏好' }))
+      const trigger = screen.getByRole<HTMLButtonElement>('button', { name: '默认尺寸' })
+      fireEvent.click(trigger)
+      const option = await screen.findByRole('menuitem', { name: '1024*1024' })
+      option.focus()
+
+      fireEvent.keyDown(option, { key: 'Escape' })
+
+      expect(screen.queryByRole('menu')).toBeNull()
+      expect(hostEscapeCount).toBe(0)
+      expect(document.activeElement).toBe(trigger)
+    } finally {
+      document.removeEventListener('keydown', observeHostEscape)
+    }
+  })
+
+  it('部署层提供自定义尺寸时如实显示，不冒充跟随默认', () => {
+    mountPanel({ prefs: createPrefs({ ...DEFAULT_PREFS, defaultSize: '2048*1152' }) })
+    fireEvent.click(screen.getByRole('tab', { name: '生成偏好' }))
+
+    expect(screen.getByRole('button', { name: '默认尺寸' }).textContent).toContain('2048*1152')
   })
 })
 
@@ -345,9 +690,7 @@ describe('PreferencesPage dirty state', () => {
 
     expect(screen.getByText(/进程内模式或只读/)).toBeTruthy()
     expect(screen.getByRole<HTMLInputElement>('radio', { name: 'Web' }).disabled).toBe(true)
-    expect(screen.getByRole<HTMLSelectElement>('combobox', { name: '默认尺寸' }).disabled).toBe(
-      true,
-    )
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: '默认尺寸' }).disabled).toBe(true)
   })
 
   it('草稿恢复为保存值后立即重新禁用保存按钮', () => {
@@ -461,34 +804,56 @@ describe('PreferencesPage dirty state', () => {
 })
 
 describe('HistoryPage search', () => {
+  it.each([
+    [0, '共 0 条'],
+    [1, '共 1 条'],
+    [5, '共 5 条'],
+  ])('单页或空态 total=%i 时仍显示总条数且不显示分页按钮', async (historyTotal, copy) => {
+    mountPanel({ historyTotal })
+    fireEvent.click(screen.getByRole('tab', { name: '生成历史' }))
+
+    expect(await screen.findByText(copy)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '上一页' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '下一页' })).toBeNull()
+  })
+
+  it('多页同时显示总条数和分页按钮', async () => {
+    mountPanel({ historyTotal: 6 })
+    fireEvent.click(screen.getByRole('tab', { name: '生成历史' }))
+
+    expect(await screen.findByText('共 6 条')).toBeTruthy()
+    expect(screen.getByRole('button', { name: '上一页' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '下一页' })).toBeTruthy()
+  })
+
   it('输入草稿时保留当前结果并提示，点击搜索后从第 1 页提交', async () => {
-    const { call } = mountPanel({ historyTotal: 6 })
+    const { calls } = mountPanel({ historyTotal: 6 })
     fireEvent.click(screen.getByRole('tab', { name: '生成历史' }))
     const search = await screen.findByRole('searchbox', { name: '搜索生成历史' })
     await waitFor(() => {
-      expect(call.mock.calls.filter((args) => args[1] === 'history/list')).toHaveLength(1)
+      expect(calls.filter((args) => args[0] === 'history/list')).toHaveLength(1)
     })
 
     fireEvent.change(search, { target: { value: '登录' } })
-    expect(call.mock.calls.filter((args) => args[1] === 'history/list')).toHaveLength(1)
+    expect(calls.filter((args) => args[0] === 'history/list')).toHaveLength(1)
     expect(screen.getByRole('status').textContent).toContain('搜索条件已更改')
 
     fireEvent.click(screen.getByRole('button', { name: '搜索' }))
     await waitFor(() => {
-      const historyCalls = call.mock.calls.filter((args) => args[1] === 'history/list')
+      const historyCalls = calls.filter((args) => args[0] === 'history/list')
       expect(historyCalls).toHaveLength(2)
-      expect(historyCalls[1]?.[2]).toMatchObject({ query: '登录', page: 1 })
+      expect(historyCalls[1]?.[1]).toMatchObject({ query: '登录', page: 1 })
     })
 
     fireEvent.click(screen.getByRole('button', { name: '下一页' }))
     await waitFor(() => {
-      const historyCalls = call.mock.calls.filter((args) => args[1] === 'history/list')
-      expect(historyCalls.at(-1)?.[2]).toMatchObject({ query: '登录', page: 2 })
+      const historyCalls = calls.filter((args) => args[0] === 'history/list')
+      expect(historyCalls.at(-1)?.[1]).toMatchObject({ query: '登录', page: 2 })
     })
   })
 
   it('按 Enter 与搜索按钮使用相同的提交语义', async () => {
-    const { call } = mountPanel()
+    const { calls } = mountPanel()
     fireEvent.click(screen.getByRole('tab', { name: '生成历史' }))
     const search = await screen.findByRole('searchbox', { name: '搜索生成历史' })
 
@@ -496,19 +861,19 @@ describe('HistoryPage search', () => {
     fireEvent.keyDown(search, { key: 'Enter', code: 'Enter' })
 
     await waitFor(() => {
-      const historyCalls = call.mock.calls.filter((args) => args[1] === 'history/list')
-      expect(historyCalls.at(-1)?.[2]).toMatchObject({ query: '仪表盘', page: 1 })
+      const historyCalls = calls.filter((args) => args[0] === 'history/list')
+      expect(historyCalls.at(-1)?.[1]).toMatchObject({ query: '仪表盘', page: 1 })
     })
   })
 
   it('清空历史后仍按已提交条件重载结果', async () => {
-    const { call } = mountPanel({ historyTotal: 6 })
+    const { calls } = mountPanel({ historyTotal: 6 })
     fireEvent.click(screen.getByRole('tab', { name: '生成历史' }))
     const search = await screen.findByRole('searchbox', { name: '搜索生成历史' })
     fireEvent.change(search, { target: { value: '登录' } })
     fireEvent.click(screen.getByRole('button', { name: '搜索' }))
     await waitFor(() => {
-      expect(call.mock.calls.filter((args) => args[1] === 'history/list')).toHaveLength(2)
+      expect(calls.filter((args) => args[0] === 'history/list')).toHaveLength(2)
     })
 
     fireEvent.change(search, { target: { value: '仪表盘' } })
@@ -518,9 +883,9 @@ describe('HistoryPage search', () => {
     fireEvent.click(screen.getByRole('button', { name: '确认清空?' }))
 
     await waitFor(() => {
-      expect(call.mock.calls.some((args) => args[1] === 'history/clear')).toBe(true)
-      const historyCalls = call.mock.calls.filter((args) => args[1] === 'history/list')
-      expect(historyCalls.at(-1)?.[2]).toMatchObject({ query: '登录', page: 1 })
+      expect(calls.some((args) => args[0] === 'history/clear')).toBe(true)
+      const historyCalls = calls.filter((args) => args[0] === 'history/list')
+      expect(historyCalls.at(-1)?.[1]).toMatchObject({ query: '登录', page: 1 })
     })
   })
 
@@ -533,13 +898,13 @@ describe('HistoryPage search', () => {
       name: '只看方向稿',
     })
     await waitFor(() => {
-      expect(first.call.mock.calls.filter((args) => args[1] === 'history/list')).toHaveLength(1)
+      expect(first.calls.filter((args) => args[0] === 'history/list')).toHaveLength(1)
     })
 
     fireEvent.click(draftOnly)
     await waitFor(() => {
-      const historyCalls = first.call.mock.calls.filter((args) => args[1] === 'history/list')
-      expect(historyCalls.at(-1)?.[2]).toMatchObject({ draftOnly: true, page: 1 })
+      const historyCalls = first.calls.filter((args) => args[0] === 'history/list')
+      expect(historyCalls.at(-1)?.[1]).toMatchObject({ draftOnly: true, page: 1 })
     })
     expect(draftOnly.checked).toBe(true)
 
@@ -548,9 +913,9 @@ describe('HistoryPage search', () => {
     const second = createConnection({ historyTotal: 6 })
     view.rerender(<UiMockupSection t={t} prefs={prefs} connection={second.connection} />)
     await waitFor(() => {
-      const historyCalls = second.call.mock.calls.filter((args) => args[1] === 'history/list')
+      const historyCalls = second.calls.filter((args) => args[0] === 'history/list')
       expect(historyCalls).toHaveLength(1)
-      expect(historyCalls[0]?.[2]).not.toHaveProperty('draftOnly')
+      expect(historyCalls[0]?.[1]).not.toHaveProperty('draftOnly')
     })
     expect(screen.getByRole<HTMLInputElement>('checkbox', { name: '只看方向稿' }).checked).toBe(
       false,

@@ -1,7 +1,7 @@
 {
   "name": "@mackwan84/dsh-ui-mockup-bundle",
-  "version": "0.2.0",
-  "description": "dsh-ui-mockup 安装层：把图像 Provider（DashScope + 火山方舟，默认启用前者）与 ui_mockup 工具挂载进 dsh profile 的 bundle patch",
+  "version": "0.3.0",
+  "description": "dsh-ui-mockup 安装层：把图像 Provider（DashScope 默认启用 + 火山方舟 + OpenAI 兼容网关）与 ui_mockup 工具挂载进 dsh profile 的 bundle patch",
   "keywords": [
     "dsh",
     "deepseek-harness",
@@ -39,7 +39,8 @@
   "dependencies": {
     "@mackwan84/dsh-image-dashscope": "workspace:^",
     "@mackwan84/dsh-image-volcengine": "workspace:^",
-    "@mackwan84/dsh-tool-ui-mockup": "workspace:^"
+    "@mackwan84/dsh-tool-ui-mockup": "workspace:^",
+    "@mackwan84/dsh-image-openai-compat": "workspace:^"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1"

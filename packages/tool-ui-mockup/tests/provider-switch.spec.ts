@@ -15,6 +15,7 @@ describe('mergeProviderSwitchRows', () => {
     expect(mergeProviderSwitchRows([], 'volcengine')).toEqual([
       { id: 'image-dashscope', disabled: true },
       { id: 'image-volcengine', disabled: false },
+      { id: 'image-openai-compat', disabled: true },
     ])
   })
 
@@ -27,6 +28,7 @@ describe('mergeProviderSwitchRows', () => {
     expect(merged).toEqual([
       { id: 'image-dashscope', disabled: false },
       { id: 'image-volcengine', disabled: true },
+      { id: 'image-openai-compat', disabled: true },
     ])
     // 纯函数：不得改写调用方传入的数组
     expect(existing[0]).toEqual({ id: 'image-dashscope', disabled: true })
@@ -38,10 +40,11 @@ describe('mergeProviderSwitchRows', () => {
       { id: 'tools', disabled: true },
     ]
     const merged = mergeProviderSwitchRows(existing, 'volcengine')
-    expect(merged).toHaveLength(3)
+    expect(merged).toHaveLength(4)
     expect(merged[0]).toEqual({ id: 'image-dashscope', disabled: true, custom: 'keep-me' })
     expect(merged[1]).toEqual({ id: 'tools', disabled: true })
     expect(merged[2]).toEqual({ id: 'image-volcengine', disabled: false })
+    expect(merged[3]).toEqual({ id: 'image-openai-compat', disabled: true })
   })
 
   it('ignores non-object entries instead of crashing', () => {
@@ -50,6 +53,7 @@ describe('mergeProviderSwitchRows', () => {
       { id: 'x' },
       { id: 'image-dashscope', disabled: false },
       { id: 'image-volcengine', disabled: true },
+      { id: 'image-openai-compat', disabled: true },
     ])
   })
 })

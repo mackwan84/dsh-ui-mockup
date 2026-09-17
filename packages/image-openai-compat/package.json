@@ -1,0 +1,56 @@
+{
+  "name": "@mackwan84/dsh-image-openai-compat",
+  "version": "0.3.0",
+  "description": "OpenAI 兼容网关图像生成 Provider：面向 one-api / new-api 等聚合网关与官方 OpenAI 的 /v1/images/generations 同步调用（最小公共子集：model/prompt/n/size + b64/url 双格式归一）",
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "dsh-plugin",
+    "image-generation",
+    "ui-mockup",
+    "openai",
+    "openai-compatible",
+    "gateway",
+    "one-api",
+    "new-api"
+  ],
+  "homepage": "https://github.com/mackwan84/dsh-ui-mockup#readme",
+  "bugs": {
+    "url": "https://github.com/mackwan84/dsh-ui-mockup/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mackwan84/dsh-ui-mockup.git",
+    "directory": "packages/image-openai-compat"
+  },
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    }
+  },
+  "files": [
+    "lib"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@deepseek-ai/dsh-credentials": "^0.0.1-rc.1",
+    "@deepseek-ai/dsh-launch-environment": "^0.0.1-rc.3",
+    "@deepseek-ai/schemastery": "^3.18.1",
+    "@mackwan84/dsh-image": "workspace:^"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}

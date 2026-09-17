@@ -30,10 +30,14 @@
 ```text
 <type>[optional scope]: <中文描述>
 
-[optional body]
+[required body]
 
 [optional footer(s)]
 ```
+
+### BREAKING CHANGE
+
+在脚注中包含 BREAKING CHANGE: 或 <类型>(范围) 后面有一个 ! 的提交，表示引入了破坏性 API 变更（这和语义化版本中的 MAJOR 相对应）。 破坏性变更可以是任意 类型 提交的一部分
 
 ### Type 类型
 
@@ -69,7 +73,7 @@
 3. **界面证据：** 用户可见 UI 变更必须从最终构建的真实浏览器重新截图；原始证据先进入 `.artifacts/` 并经目视检查，长期图片压缩后放入 `docs/assets/`，确保编码、扩展名、尺寸与引用均正确。
 4. **发布前校验：** 扫描陈旧文案、旧版本号、旧测试数量和“待执行”状态；检查全部 Markdown 本地链接，并通过 `pnpm test`、`pnpm typecheck`、`pnpm lint`、`pnpm format:check`、`pnpm build` 与 `pnpm pack:all`。任一项失败即停止发布。
 5. **MR 先行：** 先创建集成分支到远端默认分支的发布 MR，等待合并后重新 fetch，并确认远端默认分支已包含发布候选提交；在此完成条件满足前，不创建正式标签、不发布 npm。
-6. **同一产物：** 从已验证的远端默认分支提交生成唯一一套 tarball；发布前对5个包逐一执行 npm dry-run，并在隔离空目录验证本地 tarball 依赖闭包。
+6. **同一产物：** 从已验证的远端默认分支提交生成唯一一套 tarball；发布前对 6 个包（image / image-dashscope / image-volcengine / image-openai-compat / tool-ui-mockup / ui-mockup-bundle）逐一执行 npm dry-run，并在隔离空目录验证本地 tarball 依赖闭包。
 7. **对外发布：** 按依赖顺序发布 npm，随后逐包回读版本、`latest` 和 `dist.shasum`，再从公网空目录安装 bundle 并检查安装版本与审计结果；已成功发布的 npm 版本只做回读，不得重复发布。
 8. **Git 发布：** 注解标签必须指向与 npm tarball 相同的发布提交；推送标签后创建 GitHub Release，回读标签、Release、README 徽章和公开图片/链接。
 9. **发布后记录：** 把 npm、Git 标签、GitHub Release、registry 回读、公网干净安装和已知验证缺口的最终事实写入对应 `docs/releases/vX.Y.Z.md`；若回写产生新提交，通过独立资料 MR 合入默认分支。

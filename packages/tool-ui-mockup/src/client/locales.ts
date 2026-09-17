@@ -27,7 +27,7 @@ export const zh = {
   'card.annotateHint': '点击放大并圈选标注要修改的区域',
   'card.refine': '按这版精修',
   'card.refineMessage':
-    '请按 design/images/{name} 这一版方向精修：同一描述，改用精修档（不要传 fastPreview）。',
+    '请按 design/images/{name} 这一版方向精修：复用该方向稿原 description，调用 ui_mockup 时使用 fidelity=high-fidelity，并省略 fastPreview、reference、baseImage、editNote；文件名只用于识别方向，不作为 reference/baseImage 参数。',
 
   // 标注弹窗
   'annotate.title': '标注修改区域',
@@ -82,8 +82,11 @@ export const zh = {
 
   // 提供方与模型页
   'panel.provider.title': '提供方',
+  'panel.provider.description': '选择用于生成 UI 草图的图像服务',
+  'panel.provider.current': '当前使用',
   'panel.provider.dashscopeName': '阿里云百炼 DashScope',
   'panel.provider.volcengineName': '火山方舟 Volcengine',
+  'panel.provider.openaiCompatName': 'OpenAI 兼容网关',
   'panel.provider.unknown': '未挂载图像提供方',
   'panel.provider.fallbackActive': '默认生效（DashScope）',
   'panel.provider.unknownHint':
@@ -94,6 +97,21 @@ export const zh = {
   'panel.provider.modelsReset':
     '已随切换把模型分层默认重置为「跟随提供方默认」——旧提供方的模型 ID 对新提供方无效。',
   'panel.provider.switchPending': '提供方切换尚未完成；请稍后重试，或检查 DSH 配置与日志。',
+  'panel.connection.title': '连接设置',
+  'panel.connection.readyStatus': '连接就绪',
+  'panel.connection.incompleteStatus': '待完成配置',
+  'panel.connection.checkingStatus': '正在检查配置',
+  'panel.connection.baseUrlShortLabel': '网关地址',
+  'panel.connection.apiKeyLabel': 'API 密钥',
+  'panel.connection.moreMethods': '其他配置方式',
+  'panel.action.save': '保存',
+  'panel.connection.baseUrlLabel': '网关地址 baseUrl',
+  'panel.connection.baseUrlPlaceholder': 'https://你的网关地址/v1',
+  'panel.connection.baseUrlHint': '通常以 /v1 结尾；保存后几秒内生效。留空表示未配置。',
+  'panel.connection.save': '保存网关地址',
+  'panel.connection.saved': '网关地址已保存并生效 ✓',
+  'panel.connection.pending': '网关地址已写入，热重载落位确认超时；稍后重试或检查 DSH 配置与日志。',
+  'panel.connection.invalid': '地址必须以 http:// 或 https:// 开头（通常以 /v1 结尾）。',
   'panel.credential.title': '凭据（{credential}）',
   'panel.credential.ready': '凭据已配置',
   'panel.credential.missing': '未配置 {credential}',
@@ -113,7 +131,7 @@ export const zh = {
   'panel.credential.source.project-env': '项目 .env',
   'panel.credential.source.user-env': '~/.dsh/.env',
   'panel.credential.source.ambient': '启动环境',
-  'panel.credential.writePlaceholder': '输入新的 {credential}（写入即覆盖，不会回显）',
+  'panel.credential.writePlaceholder': '输入 {credential}',
   'panel.credential.save': '保存（覆盖）',
   'panel.credential.clear': '清除已存密钥',
   'panel.credential.savedNotice': '已写入 DSH 密钥存储 ✓',
@@ -127,9 +145,13 @@ export const zh = {
   'panel.test.gatewayFail': '网关不可达: {detail}',
   'panel.test.unknown': '探测结果无法判定（{detail}）——网关行为有变化，请直接生成一张草图验证。',
   'panel.models.title': '模型分层默认',
+  'panel.models.description': '留空时跟随提供方默认',
+  'panel.models.recommended': '推荐：{models}',
   'panel.models.wireframe': '线框图',
   'panel.models.highFidelity': '高保真',
+  'panel.models.draftShort': '方向稿',
   'panel.models.followDefault': '跟随提供方默认',
+  'panel.models.options': '{label}候选',
 
   // 生成偏好页
   'panel.prefs.fidelity': '保真度偏好',
@@ -206,7 +228,7 @@ export const en = {
   'card.annotateHint': 'Click to zoom in and mark the regions to change',
   'card.refine': 'Refine this direction',
   'card.refineMessage':
-    '请按 design/images/{name} 这一版方向精修：同一描述，改用精修档（不要传 fastPreview）。',
+    '请按 design/images/{name} 这一版方向精修：复用该方向稿原 description，调用 ui_mockup 时使用 fidelity=high-fidelity，并省略 fastPreview、reference、baseImage、editNote；文件名只用于识别方向，不作为 reference/baseImage 参数。',
 
   'annotate.title': 'Mark regions to change',
   'annotate.hintPan': 'Drag to move the image; click an existing mark to select it.',
@@ -260,8 +282,11 @@ export const en = {
   'panel.overview.statusLine': 'Provider: {provider} · {credential}',
 
   'panel.provider.title': 'Provider',
+  'panel.provider.description': 'Choose the image service used to generate UI mockups',
+  'panel.provider.current': 'In use',
   'panel.provider.dashscopeName': 'Alibaba DashScope',
   'panel.provider.volcengineName': 'Volcengine Ark',
+  'panel.provider.openaiCompatName': 'OpenAI-compatible gateway',
   'panel.provider.unknown': 'No image provider mounted',
   'panel.provider.fallbackActive': 'Active by default (DashScope)',
   'panel.provider.unknownHint':
@@ -273,6 +298,24 @@ export const en = {
     "Model defaults were reset to 'follow provider default' on switch — the previous provider's model IDs are not valid here.",
   'panel.provider.switchPending':
     'Provider switching has not completed. Retry shortly, or check the DSH configuration and logs.',
+  'panel.connection.title': 'Connection settings',
+  'panel.connection.readyStatus': 'Connection ready',
+  'panel.connection.incompleteStatus': 'Setup required',
+  'panel.connection.checkingStatus': 'Checking configuration',
+  'panel.connection.baseUrlShortLabel': 'Gateway URL',
+  'panel.connection.apiKeyLabel': 'API key',
+  'panel.connection.moreMethods': 'Other configuration methods',
+  'panel.action.save': 'Save',
+  'panel.connection.baseUrlLabel': 'Gateway URL (baseUrl)',
+  'panel.connection.baseUrlPlaceholder': 'https://your-gateway/v1',
+  'panel.connection.baseUrlHint':
+    'Usually ends with /v1; changes take effect within seconds. Empty means unconfigured.',
+  'panel.connection.save': 'Save gateway URL',
+  'panel.connection.saved': 'Gateway URL saved and active ✓',
+  'panel.connection.pending':
+    'Gateway URL written, but hot-reload settlement timed out; retry shortly or check the DSH configuration and logs.',
+  'panel.connection.invalid':
+    'The URL must start with http:// or https:// (usually ending with /v1).',
   'panel.credential.title': 'Credentials ({credential})',
   'panel.credential.ready': 'API key configured',
   'panel.credential.missing': '{credential} not configured',
@@ -292,7 +335,7 @@ export const en = {
   'panel.credential.source.project-env': 'project .env',
   'panel.credential.source.user-env': '~/.dsh/.env',
   'panel.credential.source.ambient': 'launch environment',
-  'panel.credential.writePlaceholder': 'Enter a new {credential} (overwrites, never echoed back)',
+  'panel.credential.writePlaceholder': 'Enter {credential}',
   'panel.credential.save': 'Save (overwrite)',
   'panel.credential.clear': 'Clear stored key',
   'panel.credential.savedNotice': 'Written to the DSH credential store ✓',
@@ -308,9 +351,13 @@ export const en = {
   'panel.test.unknown':
     'Probe result inconclusive ({detail}) — gateway behavior may have changed; verify by generating a sketch.',
   'panel.models.title': 'Model defaults by fidelity',
+  'panel.models.description': 'Leave empty to follow the provider default',
+  'panel.models.recommended': 'Recommended: {models}',
   'panel.models.wireframe': 'Wireframe',
   'panel.models.highFidelity': 'High fidelity',
+  'panel.models.draftShort': 'Draft',
   'panel.models.followDefault': 'Follow provider default',
+  'panel.models.options': '{label} suggestions',
 
   'panel.prefs.fidelity': 'Fidelity preference',
   'panel.prefs.fidelityWireframe': 'Wireframe',

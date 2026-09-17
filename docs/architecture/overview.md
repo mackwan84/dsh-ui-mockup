@@ -1,6 +1,8 @@
 # dsh-ui-mockup · 架构与实现
 
-> 当前实现版本：0.2.0。本文记录仓库结构、能力边界与经验证的关键实现事实。
+[English](../en/architecture/overview.md)
+
+> 当前实现版本：0.3.0。本文记录仓库结构、能力边界与经验证的关键实现事实。
 
 ## 1. 产品目标
 
@@ -19,11 +21,12 @@ dsh-ui-mockup/
 │   ├── image/                         # @mackwan84/dsh-image · Service Definition（图像生成/编辑契约）
 │   ├── image-dashscope/               # @mackwan84/dsh-image-dashscope · 百炼 Provider（文生图 + I2I 参考图）
 │   ├── image-volcengine/              # @mackwan84/dsh-image-volcengine · 火山方舟 Provider（同步 API + 指令编辑，M4）
+│   ├── image-openai-compat/           # @mackwan84/dsh-image-openai-compat · OpenAI 兼容网关 Provider（最小子集，v0.3.0）
 │   └── tool-ui-mockup/                # @mackwan84/dsh-tool-ui-mockup · Consumer
 │                                      #   （ui_mockup 工具 + 提示词 + 客户端卡片 + 设置面板 + i18n）
 ├── bundle/
 │   └── ui-mockup/                     # @mackwan84/dsh-ui-mockup-bundle · dsh.bundle.patch 挂载行
-│                                      #   （两行 Provider：dashscope 启用 / volcengine disabled: true）
+│                                      #   （三行 Provider：dashscope 启用 / volcengine、openai-compat disabled: true）
 └── docs/
     ├── README.md                       # 文档导航与维护约定
     ├── guides/                         # 当前产品使用指南
@@ -42,7 +45,7 @@ dsh-ui-mockup/
 
 ```sh
 # 产品形态
-dsh plugin --profile web add @mackwan84/dsh-ui-mockup-bundle@0.2.0
+dsh plugin --profile web add @mackwan84/dsh-ui-mockup-bundle@0.3.0
 # → pnpm 安装 → 检测 dsh.bundle.patch → 自动挂载 → 工具立即可用
 
 # 开发期
@@ -96,32 +99,59 @@ dsh plugin --profile web add github:mackwan84/dsh-ui-mockup#main   # 需 prepare
   `watermark: false`；size 翻译见 Provider README（档位 1K/2K/4K 或显式 WxH 合法域钳制）；
 - 编辑：Seedream 同端点（image + prompt）；**mask 不受支持**（方舟无掩码编辑）→ `NOT_IMPLEMENTED`；
 - 多图请求串行拆单图调用（组图参数未在本仓验证）；
+- **产品能力边界**：`ui_mockup` 在生效 Provider 为 Volcengine 且请求
+  `fidelity='wireframe'` 时于工具层提前拒绝并引导切换 DashScope / OpenAI 兼容网关，
+  不调用方舟接口、不消耗用户配额；方舟只作为高保真与整图指令编辑 Provider 承诺。
+  Provider 内部保留 `wireframeModel` 是为了 `fastPreview` 的既有模型回落，不能推导为
+  对外线框质量能力；
 - 限流：HTTP 429（`ModelAccountIpmRateLimitExceeded` 等）→ 25s × 2 退避；
-- 提供方切换：bundle 预置两行 Provider（volcengine 默认 `disabled: true`），用户 patch 翻转
-  disabled；`ctx.image` 单槽位互斥，对齐 DSH `llm-deepseek` 单行语义；
+- 提供方切换：bundle 预置三行 Provider（volcengine 与 openai-compat 默认 `disabled: true`），
+  用户 patch 翻转 disabled；`ctx.image` 单槽位互斥，对齐 DSH `llm-deepseek` 单行语义；
 - 面板：`provider/status` 端点按 `providerId`（契约成员）返回生效方；`test-connection`
-  按生效提供方探测对应网关（空体 POST，401 无效 / 400·429 鉴权已过）。
+  按生效提供方探测对应网关（空体 POST，401 无效 / 400·429 鉴权已过）；
+  无默认网关的提供方（openai-compat）未配置 baseUrl 时探测返回可操作原因而非网络异常。
+
+### 6.2.2 Provider · OpenAI 兼容网关（image-openai-compat，v0.3.0）
+
+- 面向 one-api / new-api 等私有聚合网关与官方 OpenAI（可配特例）：
+  `POST {baseUrl}/images/generations` 同步协议，baseUrl 填到 `/v1 为止、默认空、
+  未配置报明确错误、不自动补前缀；
+- **最小公共子集**：`model + prompt + n + size` 四参数，无 `response_format`/`watermark`
+  等任何专属参数；`n` 原生下传（单次请求多图，不串行拆单）；尺寸 `W*H → WxH` 归一后
+  透传，本地不设预设白名单、不改比例，由网关自行校验；
+- 双返回格式归一：`data[].b64_json` → data URL；`data[].url` 原样透传（消费方现有
+  下载链路立即转存）；成功响应未返回有效 `model` 时使用本次请求模型，确保结果文案与
+  历史记录可追溯；错误体兼容 `error.{code,message}` 包裹与顶层 `code/message`；
+- 能力边界：参考图（I2I）与指令编辑显式 `NOT_IMPLEMENTED`——风格锚点经消费方元数据表
+  的 `supportsReference` 闸门一律跳过注入并在结果消息说明；
+- 凭据：`OPENAI_COMPAT_API_KEY`（credentials seam → 启动环境 → `MISSING_CREDENTIAL`）；
+- 组合包部署默认：线框 `gpt-image-2`、高保真 `gpt-image-2.5-flare`；Provider 单包仍允许部署层或面板覆盖，保存 baseUrl 时通过生效配置重述保留分层默认，避免整替 config 后无模型可用；
+- 无内置退避重试：429 直接 `RATE_LIMITED` 上报；已知网关方言（`n>1` 拒绝、模型不存在
+  503、无 `/v1` 前缀返回 HTML-200）见 `docs/references/`。
 
 ### 6.3 Consumer 工具（tool-ui-mockup）
 
 - 工具 `ui_mockup`（参数/模板/结果呈现沿用 MVP 验证实现）：
   - 参数：description、fidelity（必填），以及 platform、style、count、model、size、reference、fastPreview；编辑时成对传 baseImage + editNote；凭据不属于工具参数；
-  - `fastPreview`（0.2.0）：仅 high-fidelity 生效，用「方向稿模型」档快速产出方向稿；模型解析顺序为显式 `model` → `draftModel` 偏好（空串回落 `wireframeModel`）→ Provider 内置分层默认；与 `fidelity='wireframe'` 组合时忽略并在结果消息说明（工具 schema DSL 无法表达条件约束，执行层显式处理）；使用时机与「确认后去掉 fastPreview 跑精修档」写入 `ui-mockup-usage` 提示词规则，不仅依赖 schema 字段描述；
+  - `fastPreview`（0.2.0）：仅 high-fidelity 生效，用「方向稿模型」档快速产出方向稿；模型解析顺序为显式 `model` → `draftModel` 偏好 → `wireframeModel` 偏好 → 当前 Provider 配置的 `wireframeModel` → `undefined`，由工具层读取生效服务配置，保留高保真提示词且避免空偏好误选精修默认；普通生成不提前注入 Provider 默认；与 `fidelity='wireframe'` 组合时忽略并在结果消息说明（工具 schema DSL 无法表达条件约束，执行层显式处理）；使用时机与「确认后去掉 fastPreview 跑精修档」写入 `ui-mockup-usage` 提示词规则，不仅依赖 schema 字段描述；
   - 模板：wireframe 使用无品牌名的低保真手绘线框 + 中文短标签；high-fidelity 使用风格词、单状态组件与低文字密度约束；reference 时追加与基准图一致约束；
   - 结果：落盘资产库 `$DSH_HOME/mockups/<工作区>/images/` → `attachments.saveImage` → 工具结果图片块呈现；模型只看到 `design/images/<文件名>` 语义引用；
   - 历史：逐行 JSONL；损坏行读取时跳过，坏尾行缺换行时先补分隔符再追加；历史写入失败不丢生成图片，并在成功结果中给出不会进入历史页的非致命告警；0.2.0 起方向稿记 `fastPreview: true`（纯增量字段，旧行兼容）；
   - **限流自动退避重试**（Throttling/RateQuota → 25s × 2 次）；
   - **标注反馈处理（0.2.0）**：卡片标注弹窗提交的消息形如「对 design/images/<名> 的标注反馈（ISO 时间戳）：编号区域（归一化坐标）：①…。意见：…」；提示词规则要求按编号区域空间语言组织 editNote/description、`baseImage` 恒传原图语义路径、同一图多轮标注以最新为准；`execute` 编辑分支对「标注图命名特征 + 文件不存在」的 baseImage 返回可操作错误（硬防护，避免误报「文件不存在」）。
 - 提示词注入（systemPrompt section）：何时主动提议草图、fidelity 选择、确认后写 `design/spec.md`、spec 未确认不写前端代码、标注反馈消息的解读规则；
+- **供应商元数据表（单一数据源）**：提供方的显示名词条键、凭据名、三档模型候选、鉴权探测参数（默认网关/路径）、补丁行 id、参考图能力闸门收敛为共享元数据模块（宿主/客户端两半区共用，模块自身不 import 客户端代码，host 构建保持排除 `src/client`）；面板卡片渲染、切换校验、切换补丁行合并（注册表驱动的 N 行单选语义）、`test-connection` 探测分流、凭据名映射全部查表；两家场景的补丁合并输出与 0.2.0 两行硬编码逐字节一致（合并纯函数测试锁定），新增提供方只需在注册表追加条目；
+- **面板 RPC 错误信封**：所有 `/api/ui-mockup/*` 失败结果都携带 `error.{code,message,details}`，其中无扩展信息时 `details={}`，与 DSH generic connection 的运行时校验一致；客户端因此能展示业务错误码与可操作消息，不退化成 `invalid server-response failure`；
 - 设计锁定：用户确认后提炼 `design/spec.md`（配色、字体、间距、组件清单、页面清单）。
 
 ### 6.4 客户端 UI
 
-- **工具卡片**：`tool.call.toolview` keyed `ui_mockup`——图片内嵌（点击进入标注弹窗）、确认/选用/修改意见按钮（模型可见消息固定中文）；方向稿结果卡显示「按这版精修」按钮（解析 `block.call.argsRaw` 中 `fastPreview === true`，窗口截断 `call` 为 null 或解析失败时静默不显示）；运行中按持久化的工具调用事件时间计时，刷新后续表；空意见禁止提交，部分下载、附件超限与历史写入失败告警保持可见；「打开原图」入口在标注弹窗底部；
+- **工具卡片**：`tool.call.toolview` keyed `ui_mockup`——图片内嵌（点击进入标注弹窗）、确认/选用/修改意见按钮（模型可见消息固定中文）；「确认采用这版」是唯一主按钮，方向稿的「按这版精修」和「提交修改意见」使用描边次按钮，设锚与多图选择保持中性状态操作；方向稿结果卡解析 `block.call.argsRaw` 中 `fastPreview === true` 显示精修入口（窗口截断 `call` 为 null 或解析失败时静默不显示），精修消息要求复用原 description 并省略 `fastPreview/reference/baseImage/editNote`，文件名只标识已确认方向；运行中按持久化的工具调用事件时间计时，刷新后续表；空意见禁止提交，部分下载、附件超限与历史写入失败告警保持可见；「打开原图」入口在标注弹窗底部；
 - **标注弹窗（0.2.0）**：叠层架构——底图 `<img>` 渲染（显示不需要像素），标注画在同尺寸透明 canvas 叠层（纯几何，几何计算全部在 `src/annotation.ts` 纯函数模块，可 node 环境单测）；默认“选择/移动”拖动滚动视口，单击已有标记按矩形内部/线段8px显示容差从上层到下层命中，选中项增加虚线包围框；说明/状态栏固定 44px 高度并使用单行双列布局，按工具状态动态切换内容但不改变弹窗高度，绘图模式使用 DSH 警示图标和语义令牌引导切回选择工具；选中态复用 DSH `Pill`/`Button`/垃圾桶图标与主题令牌，可点显式删除按钮，也可用Delete与macOS Backspace删除选中标记（仅画布自身聚焦时拦截，输入控件与工具条按钮持有焦点时不删标记）；标记快照栈使创建、删除、清空都可撤销（栈深上限 50），删除后剩余标记按顺序重新编号；矩形/画笔/箭头三种绘制工具、缩放下拉（默认“适合窗口”，完整显示且不超过100%；固定50%/100%/150%/200%切换时保持视口中心）、三色；提交时编号归一化坐标投影 + 意见经 `inputActions.setDraft + submit` 发出（底图固有尺寸未就绪前提交按钮保持禁用）；无标注提交退化为纯文字反馈；弹窗焦点陷阱 + Esc关闭，不承诺键盘绘制等价能力（canvas圈选本质不可键盘操作）；
 - **图片路由**：webServer prefix `/ui-mockup/images` 服务资产库图片（cwd 经信任源全集校验）；
-- **设置面板 4 页**（已确认线框）：概览 / 提供方与模型（含方向稿模型档，候选说明覆盖三个档位）/ 生成偏好 / 生成历史（方向稿标签 + 「只看方向稿」服务端过滤，工作区/连接变化时过滤位与请求参数一同复位）；
-  视觉跟随 DSH 主题（主题令牌 + 原生控件，浅/深色自适应），不做独立风格探索；
+- **设置面板 4 页**（已确认线框）：概览 / 提供方与模型（三列提供方选择、统一连接设置与三档模型默认）/ 生成偏好 / 生成历史（方向稿标签 + 「只看方向稿」服务端过滤，工作区/连接变化时过滤位与请求参数一同复位；空态、单页和多页始终显示过滤后的总条数，仅多页显示翻页控件）；
+  0.3.0 起模型分层使用“可编辑 input + DSH Menu”组合框：候选 = 注册表静态 hints ∪ `provider/models` 网关拉取建议（仅 openai-compat 拉取；失败/未配置/HTML-200 一律静默降级为空），永远可手填任意模型名；父级只允许一档菜单打开，活动候选按稳定模型 id 跟踪，避免迟到响应重排后误选；方向键循环候选、Enter 选中、Esc 关闭且焦点保持在输入框。生成偏好的默认尺寸同样使用 DSH Menu；两处均不再依赖操作系统绘制的原生 `select` / `datalist` 弹层。openai-compat 在连接设置区额外显示网关地址行（baseUrl 编辑经 `provider/baseurl/set` 写用户层补丁 config 节并热重载落位，restates 生效配置全部键）；凭据的其他配置方式默认折叠，减少首屏说明占用；
+  视觉跟随 DSH 主题（主题令牌 + UI primitives，浅/深色自适应），不做独立风格探索；
   「快速使用」文案以修正版为准（见 §6.4.1）；方向稿设锚返回一次性提示（anchor/set 端点按历史标记返回 `hint`，卡片琥珀色展示）。
 
 #### 6.4.1 概览页「快速使用」修正文案（线框图为杜撰，禁止采纳）

@@ -406,7 +406,11 @@ export default class VolcengineImageProvider extends ImageGenerationService {
         `HTTP ${last.status}${parsed.code !== '' ? ` (${parsed.code})` : ''}: ${textOf(parsed.message || '无响应体')}`,
       )
     }
-    const model = typeof last.data.model === 'string' ? last.data.model : ''
+    // 方舟成功响应并不保证回传 model；请求体的模型已是实际调用值，回落它可确保
+    // 历史记录与用户侧结果都能追溯本次生成所用的模型。
+    const responseModel = typeof last.data.model === 'string' ? last.data.model.trim() : ''
+    const requestedModel = typeof body.model === 'string' ? body.model : ''
+    const model = responseModel !== '' ? responseModel : requestedModel
     const images = extractImages(last.data.data)
     if (images.length === 0) {
       throw new ImageProviderError('BAD_RESPONSE', '响应缺少 data[].url 图片结果')

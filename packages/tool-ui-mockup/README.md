@@ -1,5 +1,7 @@
 # @mackwan84/dsh-tool-ui-mockup
 
+[English](README.en.md)
+
 `ui_mockup` 工具 Consumer：研讨阶段生成 UI 线框图/高保真设计稿，落盘设计资产库
 `$DSH_HOME/mockups/<工作区>/images/`，写入同目录 `history.jsonl` 生成历史，
 并注入提示词规则引导"确认后写 `design/spec.md`、未确认不写实现代码"。

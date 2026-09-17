@@ -9,6 +9,7 @@ import Loader from '@deepseek-ai/cordis-plugin-loader'
 import { ImageGenerationService } from '@mackwan84/dsh-image'
 import DashscopeImageProvider from '@mackwan84/dsh-image-dashscope'
 import VolcengineImageProvider from '@mackwan84/dsh-image-volcengine'
+import OpenaiCompatImageProvider from '@mackwan84/dsh-image-openai-compat'
 import {
   apply as uiMockupApply,
   inject as uiMockupInject,
@@ -153,40 +154,60 @@ class SettingsStub extends Service {
 
 /** RPC 结果形状（与宿主半区 RpcResultLike 同构）。 */
 type CompositionRpcResult =
-  { ok: true; value: unknown } | { ok: false; error: { code: string; message: string } }
+  | { ok: true; value: unknown }
+  | { ok: false; error: { code: string; message: string; details: Record<string, unknown> } }
 
-/** connection 桩：记录私有频道注册并支持测试内直接调用端点。 */
+/** connection 桩：记录 /api 精确 Fetch 路由注册并支持测试内直接调用端点。 */
 class ConnectionStub extends Service {
-  readonly channels = new Map<
-    string,
-    (endpoint: string, payload: unknown, signal: AbortSignal) => Promise<CompositionRpcResult>
-  >()
+  /** path → Fetch 处理器（/api/ui-mockup/<endpoint>）。 */
+  readonly fetchRoutes = new Map<string, (request: Request) => Promise<Response>>()
 
   constructor(ctx: Context) {
     super(ctx, 'connection')
   }
 
-  get rpc() {
+  get fetch() {
     return {
-      handle: (
-        channel: string,
-        handler: (
-          endpoint: string,
-          payload: unknown,
-          signal: AbortSignal,
-        ) => Promise<CompositionRpcResult>,
-      ) => {
-        this.channels.set(channel, handler)
-        return () => {}
+      register: (route: {
+        path: string
+        methods: readonly string[]
+        requestBody: string
+        fetch: (request: Request) => Promise<Response>
+      }) => {
+        this.fetchRoutes.set(route.path, route.fetch)
+        return () => Promise.resolve()
       },
     }
   }
 
-  /** 测试辅助：直接调用已注册频道的端点。 */
+  /** 测试辅助：直接调用已注册端点。兼容旧私有通道写法 ('/ui-mockup', '<ep>')，
+   *  内部统一归一到 /api/ui-mockup/<ep>。 */
   async call(channel: string, endpoint: string, payload?: unknown): Promise<CompositionRpcResult> {
-    const handler = this.channels.get(channel)
-    if (handler === undefined) throw new Error(`channel not registered: ${channel}`)
-    return handler(endpoint, payload ?? {}, new AbortController().signal)
+    const path = channel === '/ui-mockup' ? `/api/ui-mockup/${endpoint}` : `${channel}/${endpoint}`
+    const handler = this.fetchRoutes.get(path)
+    if (handler === undefined) throw new Error(`route not registered: ${path}`)
+    const request = new Request(`http://test.local${path}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        type: 'client-request',
+        rpcId: 'test-rpc',
+        method: endpoint,
+        payload: payload ?? {},
+      }),
+    })
+    const response = await handler(request)
+    const envelope = (await response.json()) as {
+      type: string
+      rpcId: string
+      result: CompositionRpcResult
+    }
+    return envelope.result
+  }
+
+  /** 端点是否已注册（供断言）。 */
+  hasRoute(path: string): boolean {
+    return this.fetchRoutes.has(path)
   }
 }
 
@@ -230,26 +251,43 @@ interface Booted {
 
 async function bootComposition(
   dir: string,
-  options: { provider?: 'dashscope' | 'volcengine' } = {},
+  options: {
+    provider?: 'dashscope' | 'volcengine' | 'openai-compat'
+    /** 生效提供方行的 config 键值对（如 openai-compat 的 baseUrl/分层模型）。 */
+    providerConfig?: Record<string, string>
+  } = {},
 ): Promise<Booted> {
-  // 提供方行与 bundle patch 同构：默认 dashscope 启用 + volcengine 禁用（bundle 预置形态）；
-  // volcengine 场景模拟用户 patch 翻转 disabled——两行并存、单槽位只生效一个。
-  const providerRows =
-    options.provider === 'volcengine'
-      ? [
-          '- id: image-dashscope',
-          "  name: '@mackwan84/dsh-image-dashscope'",
-          '  disabled: true',
-          '- id: image-volcengine',
-          "  name: '@mackwan84/dsh-image-volcengine'",
-        ]
-      : [
-          '- id: image-dashscope',
-          "  name: '@mackwan84/dsh-image-dashscope'",
-          '- id: image-volcengine',
-          "  name: '@mackwan84/dsh-image-volcengine'",
-          '  disabled: true',
-        ]
+  // 提供方行与 bundle patch 同构：默认 dashscope 启用、其余禁用（bundle 预置形态）；
+  // 指定 provider 时模拟用户 patch 翻转 disabled——三行并存、单槽位只生效一个。
+  const providerRow = (id: string, name: string, disabled: boolean) => {
+    const lines = disabled
+      ? [`- id: ${id}`, `  name: '${name}'`, '  disabled: true']
+      : [`- id: ${id}`, `  name: '${name}'`]
+    if (!disabled && options.providerConfig !== undefined) {
+      lines.push('  config:')
+      for (const [key, value] of Object.entries(options.providerConfig)) {
+        lines.push(`    ${key}: ${JSON.stringify(value)}`)
+      }
+    }
+    return lines
+  }
+  const providerRows = [
+    ...providerRow(
+      'image-dashscope',
+      '@mackwan84/dsh-image-dashscope',
+      options.provider !== undefined && options.provider !== 'dashscope',
+    ),
+    ...providerRow(
+      'image-volcengine',
+      '@mackwan84/dsh-image-volcengine',
+      options.provider !== 'volcengine',
+    ),
+    ...providerRow(
+      'image-openai-compat',
+      '@mackwan84/dsh-image-openai-compat',
+      options.provider !== 'openai-compat',
+    ),
+  ]
   const configPath = join(dir, 'cordis.yml')
   await writeFile(
     configPath,
@@ -290,6 +328,7 @@ async function bootComposition(
     ['test-settings', SettingsStub],
     ['@mackwan84/dsh-image-dashscope', DashscopeImageProvider],
     ['@mackwan84/dsh-image-volcengine', VolcengineImageProvider],
+    ['@mackwan84/dsh-image-openai-compat', OpenaiCompatImageProvider],
     [
       '@mackwan84/dsh-tool-ui-mockup',
       { name: uiMockupName, inject: uiMockupInject, apply: uiMockupApply },
@@ -342,6 +381,7 @@ beforeEach(() => {
   vi.stubEnv('DSH_HOME', home)
   vi.stubEnv('DASHSCOPE_API_KEY', 'sk-composition-key')
   vi.stubEnv('ARK_API_KEY', 'ark-composition-key')
+  vi.stubEnv('OPENAI_COMPAT_API_KEY', 'compat-composition-key')
   return () => undefined
 })
 
@@ -498,6 +538,125 @@ describe('ui-mockup real dynamic composition', () => {
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
+  })
+
+  describe.each([
+    {
+      provider: 'dashscope' as const,
+      wireframeModel: 'qwen-image-2.0',
+      highFidelityModel: 'qwen-image-3.0-pro',
+      draftModel: 'qwen-image-3.0',
+      preferenceModel: 'qwen-image-2.0-pro',
+    },
+    {
+      provider: 'volcengine' as const,
+      wireframeModel: 'doubao-seedream-4-0-250828',
+      highFidelityModel: 'doubao-seedream-5-0-pro-260628',
+      draftModel: 'doubao-seedream-4-5-251128',
+      preferenceModel: 'doubao-seedream-5-0-260128',
+    },
+  ])('PRV-04 $provider 方向稿模型解析', (models) => {
+    afterEach(() => {
+      vi.restoreAllMocks()
+    })
+
+    it.each([
+      { scenario: '三档为空回落 Provider 自定义线框模型', tier: 'empty', fastPreview: true },
+      { scenario: 'Provider 空白默认不下传模型', tier: 'blank', fastPreview: true },
+      { scenario: '线框偏好优先于 Provider 默认', tier: 'wireframe', fastPreview: true },
+      { scenario: '方向稿偏好优先于线框偏好', tier: 'draft', fastPreview: true },
+      { scenario: '显式模型优先于三档偏好', tier: 'explicit', fastPreview: true },
+      { scenario: '普通高保真仍由 Provider 选择默认', tier: 'empty', fastPreview: false },
+    ])('$scenario', async ({ tier, fastPreview }) => {
+      const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+      try {
+        const booted = await bootComposition(dir, {
+          provider: models.provider,
+          providerConfig: {
+            wireframeModel: tier === 'blank' ? '   ' : models.wireframeModel,
+            highFidelityModel: models.highFidelityModel,
+          },
+        })
+        Object.assign(booted.settings.resolved, {
+          draftModel: tier === 'draft' || tier === 'explicit' ? models.draftModel : '',
+          wireframeModel: tier !== 'empty' && tier !== 'blank' ? models.preferenceModel : '',
+          highFidelityModel: tier !== 'empty' && tier !== 'blank' ? models.highFidelityModel : '',
+        })
+        // 保留真实 Provider，只替换外部网络；观察工具传入模型与 Provider 实际请求。
+        const service = booted.ctx.get('image') as ImageGenerationService
+        const generate = vi.spyOn(service, 'generate')
+        const requestedModels: unknown[] = []
+        const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00])
+        vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+          if (url.includes('image-generation/generation') || url.includes('/images/generations')) {
+            if (typeof init?.body !== 'string') throw new Error('expected JSON request body')
+            const body = JSON.parse(init.body) as { model: string }
+            requestedModels.push(body.model)
+            return new Response(
+              JSON.stringify(
+                models.provider === 'dashscope'
+                  ? { output: { task_id: 'task-prv04', task_status: 'PENDING' } }
+                  : { model: body.model, data: [{ url: 'https://oss.example/prv04.png' }] },
+              ),
+              { status: 200 },
+            )
+          }
+          if (url.includes('/api/v1/tasks/task-prv04')) {
+            return new Response(
+              JSON.stringify({
+                output: {
+                  task_id: 'task-prv04',
+                  task_status: 'SUCCEEDED',
+                  choices: [{ message: { content: [{ image: 'https://oss.example/prv04.png' }] } }],
+                },
+              }),
+              { status: 200 },
+            )
+          }
+          if (url === 'https://oss.example/prv04.png') {
+            return new Response(png, { status: 200, headers: { 'content-type': 'image/png' } })
+          }
+          throw new Error(`unexpected fetch: ${url}`)
+        })
+
+        const definition = booted.tools.registered.find((item) => item.name === 'ui_mockup')!
+        const execute = definition.execute as (
+          args: Record<string, unknown>,
+          exec: { signal: AbortSignal; agent: { session: { header: { cwd: string } } } },
+        ) => Promise<Record<string, unknown>>
+        const value = await execute(
+          {
+            description: '无锚点的客户管理工作台',
+            fidelity: 'high-fidelity',
+            platform: 'web',
+            count: 1,
+            fastPreview,
+            ...(tier === 'explicit' ? { model: models.highFidelityModel } : {}),
+          },
+          { signal: new AbortController().signal, agent: { session: { header: { cwd: dir } } } },
+        )
+        const expectedModel =
+          !fastPreview || tier === 'explicit' || tier === 'blank'
+            ? models.highFidelityModel
+            : tier === 'draft'
+              ? models.draftModel
+              : tier === 'wireframe'
+                ? models.preferenceModel
+                : models.wireframeModel
+        expect(generate.mock.calls[0]?.[0]).toMatchObject({
+          fidelity: 'high-fidelity',
+          model: fastPreview && tier !== 'blank' ? expectedModel : undefined,
+          reference: undefined,
+        })
+        expect(value.ok, String(value.message)).toBe(true)
+        expect(requestedModels).toEqual([expectedModel])
+        expect(String(value.message)).toContain(expectedModel)
+        const history = await readFile(join(storeDirFor(dir), 'history.jsonl'), 'utf8')
+        expect(JSON.parse(history.trim())).toMatchObject({ model: expectedModel })
+      } finally {
+        await rm(dir, { recursive: true, force: true })
+      }
+    })
   })
 
   it('fastPreview 与线框档组合时忽略并说明，不改变线框档模型解析', async () => {
@@ -878,11 +1037,13 @@ describe('ui-mockup real dynamic composition', () => {
     }
   })
 
-  it('registers the /ui-mockup rpc channel and the preferences namespace', async () => {
+  it('registers the panel /api routes and the preferences namespace', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
     try {
       const booted = await bootComposition(dir)
-      expect(booted.connection.channels.has('/ui-mockup')).toBe(true)
+      // 0.1.5 起面板端点挂在共享 /api 通道的精确路由上
+      expect(booted.connection.hasRoute('/api/ui-mockup/overview')).toBe(true)
+      expect(booted.connection.hasRoute('/api/ui-mockup/test-connection')).toBe(true)
       expect(booted.settings.namespaces).toContain('ui-mockup')
     } finally {
       await rm(dir, { recursive: true, force: true })
@@ -1423,12 +1584,120 @@ describe('ui-mockup real dynamic composition', () => {
     const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
     try {
       const booted = await bootComposition(dir, { provider: 'volcengine' })
-      // 两行并存但单槽位只生效一个：禁用的 dashscope 不注册，火山行胜出
+      // 多行并存但单槽位只生效一个：禁用的 dashscope 不注册，火山行胜出
       const service = booted.ctx.get('image') as unknown as InstanceType<
         typeof VolcengineImageProvider
       >
       expect(service).toBeInstanceOf(VolcengineImageProvider)
       expect(service.providerId).toBe('volcengine')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('拒绝 Volcengine 的线框生成并给出可操作的替代路径', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+    try {
+      const booted = await bootComposition(dir, { provider: 'volcengine' })
+      const service = booted.ctx.get('image') as unknown as InstanceType<
+        typeof VolcengineImageProvider
+      >
+      const generate = vi.spyOn(service, 'generate')
+      const definition = booted.tools.registered.find((item) => item.name === 'ui_mockup')!
+      const execute = definition.execute as (
+        args: Record<string, unknown>,
+        exec: { signal: AbortSignal; agent?: { session: { header: { cwd?: string } } } },
+      ) => Promise<Record<string, unknown>>
+
+      const value = await execute(
+        {
+          description: 'CRM 销售工作台',
+          fidelity: 'wireframe',
+          platform: 'web',
+        },
+        { signal: new AbortController().signal, agent: { session: { header: { cwd: dir } } } },
+      )
+
+      expect(value).toEqual({
+        ok: false,
+        message:
+          'Volcengine 当前仅承诺高保真设计稿与编辑，不提供线框图质量保证：请切换到 DashScope 或 OpenAI 兼容提供方生成 wireframe，或改用 fidelity="high-fidelity"。',
+      })
+      expect(generate).not.toHaveBeenCalled()
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('boots the openai-compat provider when the bundle row flips disabled', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+    try {
+      const booted = await bootComposition(dir, { provider: 'openai-compat' })
+      // 三行并存但单槽位只生效一个：openai-compat 行胜出，其余两家不注册
+      const service = booted.ctx.get('image') as unknown as InstanceType<
+        typeof OpenaiCompatImageProvider
+      >
+      expect(service).toBeInstanceOf(OpenaiCompatImageProvider)
+      expect(service.providerId).toBe('openai-compat')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('generates end-to-end on the openai-compat provider (four-param body + b64 归一)', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+    try {
+      const booted = await bootComposition(dir, {
+        provider: 'openai-compat',
+        providerConfig: { baseUrl: 'https://compat-gw.test/v1', wireframeModel: 'gpt-image-2' },
+      })
+
+      const bodies: Array<Record<string, unknown>> = []
+      const realFetch = globalThis.fetch
+      vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+        // b64_json 归一出的 data URL 交给真实 fetch 解码（消费方下载转存的真实链路）
+        if (url.startsWith('data:')) return realFetch(url)
+        if (url.endsWith('/images/generations')) {
+          bodies.push(JSON.parse(init?.body as string) as Record<string, unknown>)
+          const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00])
+          return new Response(
+            JSON.stringify({
+              model: 'gpt-image-2',
+              created: 0,
+              data: [{ b64_json: png.toString('base64') }],
+            }),
+            { status: 200 },
+          )
+        }
+        throw new Error(`unexpected fetch: ${url}`)
+      })
+
+      const definition = booted.tools.registered.find((item) => item.name === 'ui_mockup')!
+      const execute = definition.execute as (
+        args: Record<string, unknown>,
+        exec: { signal: AbortSignal; agent?: { session: { header: { cwd?: string } } } },
+      ) => Promise<Record<string, unknown>>
+      const value = await execute(
+        {
+          description: 'CRM 列表页',
+          fidelity: 'wireframe',
+          platform: 'web',
+          size: '1280*720',
+        },
+        { signal: new AbortController().signal, agent: { session: { header: { cwd: dir } } } },
+      )
+
+      expect(value.ok, String(value.message)).toBe(true)
+      // 最小公共子集：恰好 model/prompt/n/size 四参数，尺寸 W*H 归一 WxH
+      expect(bodies).toHaveLength(1)
+      expect(Object.keys(bodies[0]!).sort()).toEqual(['model', 'n', 'prompt', 'size'])
+      expect(bodies[0]).toMatchObject({ model: 'gpt-image-2', n: 2, size: '1280x720' })
+      // b64_json 经 data URL 归一后由消费方下载转存进资产库
+      const images = value.images as Array<{ path: string }>
+      expect(images).toHaveLength(1)
+      expect(await readFile(images[0]!.path)).toEqual(
+        Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]),
+      )
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
@@ -1654,13 +1923,196 @@ describe('ui-mockup real dynamic composition', () => {
 
       const homePatch = await readFile(join(process.env['DSH_HOME']!, 'cordis.patch.yml'), 'utf8')
       expect(homePatch).toContain('id: image-dashscope')
-      expect(homePatch).toContain('disabled: true')
       expect(homePatch).toContain('id: image-volcengine')
-      expect(homePatch).toContain('disabled: false')
+      expect(homePatch).toContain('id: image-openai-compat')
+      // N 行单选：目标行启用、其余全部禁用（行内紧随的 disabled 值逐行判定）
+      const rowDisabled = (id: string): string | undefined =>
+        /disabled: (true|false)/.exec(
+          homePatch.slice(homePatch.indexOf(`id: ${id}`), homePatch.indexOf(`id: ${id}`) + 80),
+        )?.[1]
+      expect(rowDisabled('image-dashscope')).toBe('true')
+      expect(rowDisabled('image-volcengine')).toBe('false')
+      expect(rowDisabled('image-openai-compat')).toBe('true')
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
   }, 20_000)
+
+  it('saves the openai-compat baseUrl into the home user patch config node', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+    try {
+      const booted = await bootComposition(dir, {
+        provider: 'openai-compat',
+        providerConfig: { baseUrl: 'https://old-gw.test/v1', wireframeModel: 'gpt-image-2' },
+      })
+      const call = (endpoint: string, payload?: unknown) =>
+        booted.connection.call('/ui-mockup', endpoint, payload)
+
+      // provider/status 携带生效提供方的 baseUrl，供连接卡回显与测试连接置灰判定
+      const status = valueOf<{ active: string; baseUrl: string }>(await call('provider/status'))
+      expect(status.active).toBe('openai-compat')
+      expect(status.baseUrl).toBe('https://old-gw.test/v1')
+
+      // 保存（含尾部斜杠）：写用户层 config 节，restates 生效配置的全部键
+      const saved = valueOf<{ pending?: boolean }>(
+        await call('provider/baseurl/set', { baseUrl: 'https://gw.corp.test/v1/' }),
+      )
+      expect(saved.pending).toBe(true)
+
+      const homePatch = await readFile(join(process.env['DSH_HOME']!, 'cordis.patch.yml'), 'utf8')
+      const rows = homePatch
+        .split('- id: ')
+        .slice(1)
+        .map((chunk) => `- id: ${chunk.split('\n- ')[0]!.trimEnd()}`)
+      const compatRow = rows.find((row) => row.includes('image-openai-compat'))
+      expect(compatRow).toBeDefined()
+      expect(compatRow).toContain('baseUrl: https://gw.corp.test/v1')
+      // restates：分层模型键随 config 一并重述，避免整替 config 丢失部署层预置
+      expect(compatRow).toContain('wireframeModel: gpt-image-2')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  }, 20_000)
+
+  it('rejects a non-http(s) baseUrl without touching the patch file', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+    try {
+      const booted = await bootComposition(dir, {
+        provider: 'openai-compat',
+        providerConfig: { baseUrl: 'https://old-gw.test/v1' },
+      })
+      const call = (endpoint: string, payload?: unknown) =>
+        booted.connection.call('/ui-mockup', endpoint, payload)
+      const rejected = await call('provider/baseurl/set', { baseUrl: 'ftp://gw.test' })
+      expect(rejected.ok).toBe(false)
+      if (!rejected.ok) expect(rejected.error.code).toBe('INVALID_PARAMETER')
+      // 校验失败绝不落盘：patch 文件保持不存在
+      await expect(
+        readFile(join(process.env['DSH_HOME']!, 'cordis.patch.yml'), 'utf8'),
+      ).rejects.toThrow()
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects baseUrl saving while a provider without panel-editable address is active', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+    try {
+      const booted = await bootComposition(dir)
+      const rejected = await booted.connection.call('/ui-mockup', 'provider/baseurl/set', {
+        baseUrl: 'https://gw.corp.test/v1',
+      })
+      expect(rejected.ok).toBe(false)
+      if (!rejected.ok) expect(rejected.error.code).toBe('INVALID_PARAMETER')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('accepts an empty baseUrl as the unconfigured reset', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+    try {
+      const booted = await bootComposition(dir, {
+        provider: 'openai-compat',
+        providerConfig: { baseUrl: 'https://old-gw.test/v1' },
+      })
+      const saved = valueOf<{ pending?: boolean }>(
+        await booted.connection.call('/ui-mockup', 'provider/baseurl/set', { baseUrl: '  ' }),
+      )
+      expect(saved.pending).toBe(true)
+      const homePatch = await readFile(join(process.env['DSH_HOME']!, 'cordis.patch.yml'), 'utf8')
+      expect(homePatch).toContain('image-openai-compat')
+      expect(homePatch).toContain("baseUrl: ''")
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  }, 20_000)
+
+  it('provider/models 拉取网关模型列表（openai-compat + 有效 baseUrl）', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+    try {
+      const booted = await bootComposition(dir, {
+        provider: 'openai-compat',
+        providerConfig: { baseUrl: 'https://compat-gw.test/v1' },
+      })
+      const modelsUrls: string[] = []
+      vi.stubGlobal('fetch', async (url: string) => {
+        if (url.endsWith('/models')) {
+          modelsUrls.push(url)
+          return new Response(
+            JSON.stringify({
+              object: 'list',
+              data: [{ id: 'gpt-image-2' }, { id: 'gpt-image-2.5-flare' }, { no: 'id' }, null, 42],
+            }),
+            { status: 200 },
+          )
+        }
+        throw new Error(`unexpected fetch: ${url}`)
+      })
+      const result = valueOf<{ models: string[]; degraded?: boolean }>(
+        await booted.connection.call('/ui-mockup', 'provider/models'),
+      )
+      expect(modelsUrls).toEqual(['https://compat-gw.test/v1/models'])
+      expect(result.models).toEqual(['gpt-image-2', 'gpt-image-2.5-flare'])
+      expect(result.degraded).toBeUndefined()
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('provider/models 对 HTML-200 陷阱静默降级（models 空 + degraded）', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+    try {
+      const booted = await bootComposition(dir, {
+        provider: 'openai-compat',
+        providerConfig: { baseUrl: 'https://compat-gw.test' },
+      })
+      vi.stubGlobal(
+        'fetch',
+        async () => new Response('<!doctype html><html>gateway frontend</html>', { status: 200 }),
+      )
+      const result = valueOf<{ models: string[]; degraded?: boolean }>(
+        await booted.connection.call('/ui-mockup', 'provider/models'),
+      )
+      expect(result.models).toEqual([])
+      expect(result.degraded).toBe(true)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('provider/models 网络错误与非 openai-compat 提供方都按降级处理', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+    try {
+      // 非 openai-compat 生效：不发任何网关请求，直接降级
+      const dashscope = await bootComposition(dir)
+      vi.stubGlobal('fetch', async () => {
+        throw new Error('unexpected fetch: non-openai-compat must not call the gateway')
+      })
+      const skipped = valueOf<{ models: string[]; degraded?: boolean }>(
+        await dashscope.connection.call('/ui-mockup', 'provider/models'),
+      )
+      expect(skipped.models).toEqual([])
+      expect(skipped.degraded).toBe(true)
+      vi.unstubAllGlobals()
+
+      // openai-compat 生效但网关不可达：网络错误降级而非抛错
+      const compat = await bootComposition(dir, {
+        provider: 'openai-compat',
+        providerConfig: { baseUrl: 'https://compat-gw.test/v1' },
+      })
+      vi.stubGlobal('fetch', async () => {
+        throw new TypeError('fetch failed')
+      })
+      const degraded = valueOf<{ models: string[]; degraded?: boolean }>(
+        await compat.connection.call('/ui-mockup', 'provider/models'),
+      )
+      expect(degraded.models).toEqual([])
+      expect(degraded.degraded).toBe(true)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
 
   it('refuses to rewrite a user patch layer it cannot safely parse', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
@@ -1675,7 +2127,10 @@ describe('ui-mockup real dynamic composition', () => {
       await writeFile(patchFile, jsExpr, 'utf8')
       const jsResult = await call('provider/switch', { provider: 'volcengine' })
       expect(jsResult.ok).toBe(false)
-      if (!jsResult.ok) expect(jsResult.error.message).toContain('!!js')
+      if (!jsResult.ok) {
+        expect(jsResult.error.message).toContain('!!js')
+        expect(jsResult.error.details).toEqual({})
+      }
       expect(await readFile(patchFile, 'utf8')).toBe(jsExpr)
 
       // 合法 YAML 但非顶层数组同样是坏 patch：中止而不是用空数组覆盖
@@ -1683,7 +2138,10 @@ describe('ui-mockup real dynamic composition', () => {
       await writeFile(patchFile, notArray, 'utf8')
       const mapResult = await call('provider/switch', { provider: 'volcengine' })
       expect(mapResult.ok).toBe(false)
-      if (!mapResult.ok) expect(mapResult.error.message).toContain('YAML')
+      if (!mapResult.ok) {
+        expect(mapResult.error.message).toContain('YAML')
+        expect(mapResult.error.details).toEqual({})
+      }
       expect(await readFile(patchFile, 'utf8')).toBe(notArray)
     } finally {
       await rm(dir, { recursive: true, force: true })

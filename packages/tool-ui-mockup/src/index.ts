@@ -26,6 +26,15 @@ import {
   type MockupPrefs,
 } from './prefs.js'
 import { buildPrompt } from './prompt.js'
+import {
+  DEFAULT_PROVIDER_ID,
+  PROVIDER_REGISTRY,
+  mergeProviderConfigRow,
+  mergeProviderSwitchRows,
+  normalizeBaseUrl,
+  providerOf,
+  restateProviderConfig,
+} from './providers.js'
 
 export const name = 'ui-mockup'
 
@@ -155,25 +164,22 @@ interface SettingsFace {
   ): { get(): MockupPrefs }
 }
 
-/** connection 服务的结构面（本包只注册私有的设置面板数据通道）。 */
+/** connection 服务的结构面（本包把设置面板端点注册为共享 /api 通道上的精确 Fetch 路由）。 */
 interface ConnectionFace {
-  rpc: {
-    handle(
-      channel: string,
-      handler: (
-        endpoint: string,
-        payload: unknown,
-        signal: AbortSignal,
-      ) => Promise<RpcResultLike<unknown>>,
-      options: { authority: 'trusted-host' | 'loopback' },
-    ): () => void
+  fetch: {
+    register(route: {
+      path: string
+      methods: readonly ('GET' | 'HEAD' | 'POST')[]
+      requestBody: 'buffered' | 'streaming'
+      fetch: (request: Request) => Promise<Response>
+    }): () => Promise<void>
   }
 }
 
 /** 与 dsh-host-apiproxy 的 RpcResult 同构的最小形状（避免宿主半区引入该依赖）。 */
 export type RpcResultLike<T> =
   | { ok: true; value: T }
-  | { ok: false; error: { code: string; message: string; details?: Record<string, unknown> } }
+  | { ok: false; error: { code: string; message: string; details: Record<string, unknown> } }
 
 /** 成功结果包装。 */
 function rpcOk<T>(value: T): RpcResultLike<T> {
@@ -182,7 +188,7 @@ function rpcOk<T>(value: T): RpcResultLike<T> {
 
 /** 失败结果包装：错误码与提供方 resolver 语义保持一致风格。 */
 function rpcError(code: string, message: string): RpcResultLike<never> {
-  return { ok: false, error: { code, message } }
+  return { ok: false, error: { code, message, details: {} } }
 }
 
 interface ImageEntry {
@@ -212,7 +218,7 @@ const USAGE_SECTION = {
     '使用时机:',
     '- 功能需求讨论基本明确、准备开始写前端实现代码之前, 主动提议生成草图确认, 不要直接开始写代码。',
     '- 用户提到界面、页面、UI、视觉风格时, 主动询问是否需要生成草图。',
-    "- 布局与信息架构待确认: fidelity='wireframe'(面板分层默认里的线框图模型, 速度快)。",
+    "- 布局与信息架构待确认: fidelity='wireframe'(面板分层默认里的线框图模型, 速度快)。当前提供方是 Volcengine 时不生成线框图：改用 DashScope 或 OpenAI 兼容提供方，或改用 high-fidelity。",
     "- 视觉风格待确认: fidelity='high-fidelity'(面板分层默认里的高保真模型, 质量优先), 建议 count=2~4 一次给多个方向供用户选择。",
     "- 高保真单张耗时 1~5 分钟, 方向本身还没定时先出方向稿: 传 fastPreview=true(面板分层默认里的方向稿模型, 快速档)让用户先确认方向; 用户确认方向或要求「按这版精修」后, 用同一 description 去掉 fastPreview 再跑一次精修档。fidelity='wireframe' 时不要传 fastPreview: 线框档本身已是快模型, 传了会被忽略。",
     '- 同一个站点的多个页面在高保真阶段应传 reference=已确认页面的图, 保持风格一致(图生图模式)。',
@@ -519,11 +525,11 @@ async function readHistory(workspaceRoot: string): Promise<HistoryEntry[]> {
 function activeProviderOf(ctx: Context): { id: string; credential: string } {
   const service = ctx.get('image') as ImageGenerationServiceFace | undefined
   const id = service?.providerId ?? 'unknown'
-  const fallback = PROBES.dashscope.defaultCredential
+  const meta = providerOf(id)
   const credential =
-    id === 'volcengine' || id === 'dashscope'
-      ? (readProviderConfigString(service, 'apiKey') ?? PROBES[id].defaultCredential)
-      : fallback
+    meta !== undefined
+      ? (readProviderConfigString(service, 'apiKey') ?? meta.credential)
+      : (providerOf(DEFAULT_PROVIDER_ID)?.credential ?? '')
   return { id, credential }
 }
 
@@ -628,11 +634,6 @@ function allowedRoots(ctx: Context, known: ReadonlySet<string>): Set<string> {
   return roots
 }
 
-/** DashScope 当前可安全接收单参考图的模型族。 */
-function supportsDashscopeReference(model: string): boolean {
-  return model.startsWith('qwen-image') || model === 'wan2.7-image' || model === 'wan2.7-image-pro'
-}
-
 export function apply(ctx: Context, config: MockupPluginConfig = {}) {
   const tools = ctx.get('tools') as ToolsFace
   // 本插件进程内已生成过图片的工作区根（canonical）：图片路由 cwd 白名单的信任源之一
@@ -658,7 +659,7 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
     tools.register({
       name: 'ui_mockup',
       description:
-        '调用外部图像生成接口, 为界面/页面生成线框图(wireframe)或高保真(high-fidelity)设计草图, 供用户在编写实现代码之前确认界面方向。图片显示在对话中并保存到 DSH 设计资产库($DSH_HOME/mockups/<工作区>/images/)。用户需要修改时优先传 description、fidelity、baseImage、editNote, 其中生成图用 design/images/<文件名> 引用, 不要复制图片到项目。模型分层默认由设置面板「提供方与模型」管理(未配置时回落生效提供方的内置分层默认); 用户未点名模型时不要传 model 参数, 以免绕过面板配置。传 reference 参数可用已确认的图作为风格基准(图生图), 保持多页面风格一致。接口限流时自动退避重试。需要生效提供方的凭据(阿里云百炼 DASHSCOPE_API_KEY 或火山方舟 ARK_API_KEY, 取决于面板生效提供方, 通过凭据服务或环境变量提供)。',
+        '调用外部图像生成接口, 为界面/页面生成线框图(wireframe)或高保真(high-fidelity)设计草图, 供用户在编写实现代码之前确认界面方向。图片显示在对话中并保存到 DSH 设计资产库($DSH_HOME/mockups/<工作区>/images/)。用户需要修改时优先传 description、fidelity、baseImage、editNote, 其中生成图用 design/images/<文件名> 引用, 不要复制图片到项目。模型分层默认由设置面板「提供方与模型」管理(未配置时回落生效提供方的内置分层默认); 用户未点名模型时不要传 model 参数, 以免绕过面板配置。传 reference 参数可用已确认的图作为风格基准(图生图), 保持多页面风格一致。接口限流时自动退避重试。需要生效提供方的凭据(DASHSCOPE_API_KEY / ARK_API_KEY / OPENAI_COMPAT_API_KEY, 取决于面板生效提供方, 通过凭据服务或环境变量提供)。',
       parameters: {
         type: 'object',
         properties: {
@@ -838,10 +839,22 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
               }
             }
           }
-          // 模型解析顺序：显式 model 参数 → 分层偏好（fastPreview 时先方向稿模型，
-          // 空串回落线框档模型）→ Provider 内置分层默认（空串一路回落）。
+          const service = ctx.get('image') as ImageGenerationServiceFace | undefined
+          // 火山方舟的产品承诺聚焦高保真与编辑。线框图质量不稳定时在工具边界
+          // 提前拒绝，避免把一次可预见的不合格请求送往外部服务并消耗用户配额。
+          if (!isEdit && fidelity === 'wireframe' && service?.providerId === 'volcengine') {
+            return {
+              ok: false,
+              message:
+                'Volcengine 当前仅承诺高保真设计稿与编辑，不提供线框图质量保证：请切换到 DashScope 或 OpenAI 兼容提供方生成 wireframe，或改用 fidelity="high-fidelity"。',
+            }
+          }
+          // 方向稿仍保留高保真提示词，因此需显式回落 Provider 线框默认，
+          // 避免 Provider 按 fidelity 误选精修模型；普通生成继续由 Provider 分层回落。
           const tierModel = fastPreview
-            ? prefs.draftModel || prefs.wireframeModel
+            ? prefs.draftModel ||
+              prefs.wireframeModel ||
+              readProviderConfigString(service, 'wireframeModel')
             : fidelity === 'high-fidelity'
               ? prefs.highFidelityModel
               : prefs.wireframeModel
@@ -850,24 +863,26 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
               ? args.model
               : tierModel || undefined
           // 风格锚点联动：调用未显式传 reference 时自动引用当前锚点（I2I 保持多页风格一致）。
-          // 参考图能力按生效提供方分流：DashScope 当前支持 qwen-image 与 Wan 2.7；
-          // 其他自定义模型跳过注入并说明，否则 Provider 会以 INVALID_PARAMETER 拒绝且用户难以归因；
-          // volcengine 的 seedream 系原生支持 image 参考图，锚点正常注入。
-          // 模型为空串（交 Provider 自决）时仍注入：各提供方分层默认均支持参考图。
+          // 参考图能力按生效提供方分流（经元数据表的 supportsReference 闸门）：
+          // DashScope 当前支持 qwen-image 与 Wan 2.7；volcengine 的 seedream 系原生支持；
+          // openai-compat 最小公共子集不含参考图，无论模型为何一律跳过注入并说明。
           let anchorInjected: string | null = null
           let anchorSkippedForModel: string | null = null
+          let anchorSkipHint = '请更换支持参考图的模型或提供方'
           // 编辑模式不注入锚点：基准图本身就是风格基准，再叠参考图会互相干扰
           if (reference === undefined && !isEdit) {
             const anchorFile = await readAnchor(workspaceRoot)
             if (anchorFile !== null) {
-              const activeProviderId = (ctx.get('image') as ImageGenerationServiceFace | undefined)
-                ?.providerId
+              const activeProviderMeta = providerOf(
+                (ctx.get('image') as ImageGenerationServiceFace | undefined)?.providerId ?? '',
+              )
               const referenceUnsupported =
-                activeProviderId === 'dashscope' &&
-                effectiveModel !== undefined &&
-                !supportsDashscopeReference(effectiveModel)
+                activeProviderMeta?.supportsReference !== undefined &&
+                !activeProviderMeta.supportsReference(effectiveModel)
               if (referenceUnsupported) {
-                anchorSkippedForModel = effectiveModel
+                // 模型未定（交 Provider 自决）时记空串：提示按「提供方不支持」措辞组织
+                anchorSkippedForModel = effectiveModel ?? ''
+                anchorSkipHint = activeProviderMeta?.referenceSkipHint ?? anchorSkipHint
               } else {
                 anchorInjected = anchorFile
                 reference = `${IMAGE_DIR}/${anchorFile}`
@@ -910,12 +925,10 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
             cwd: referenceInStore ? storeOf(workspaceRoot).root : workspaceRoot,
           }
 
-          const service = ctx.get('image') as ImageGenerationServiceFace | undefined
           if (service === undefined) {
             return {
               ok: false,
-              message:
-                '未挂载图像生成服务(image): 请安装 @mackwan84/dsh-image-dashscope 或 @mackwan84/dsh-image-volcengine 并加入组合。',
+              message: `未挂载图像生成服务(image): 请安装 ${PROVIDER_REGISTRY.map((meta) => meta.packageName).join(' 或 ')} 并加入组合。`,
             }
           }
           const generated = isEdit
@@ -1062,7 +1075,11 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
             message += ` 已按风格锚点 ${anchorInjected} 自动注入参考图(可在设置 · UI 草图 · 生成历史中解除)。`
           }
           if (anchorSkippedForModel !== null) {
-            message += ` 当前生效模型 ${anchorSkippedForModel} 不支持参考图(I2I), 已跳过风格锚点注入; 请改用 qwen-image 或 wan2.7-image 系列。`
+            const subject =
+              anchorSkippedForModel !== ''
+                ? `当前生效模型 ${anchorSkippedForModel}`
+                : '当前生效提供方'
+            message += ` ${subject} 不支持参考图(I2I), 已跳过风格锚点注入; ${anchorSkipHint}。`
           }
           if (failures.length > 0) {
             message += buildFailuresNotice(failures)
@@ -1168,327 +1185,486 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
   })
 
   /**
-   * 设置面板数据通道：私有 RPC 频道，承载概览/历史/锚点/测试连接四类端点。
+   * 设置面板数据通道：承载概览/历史/锚点/测试连接四类端点。
    * 偏好读写不在此通道——客户端直接绑定同名 settings 命名空间镜像。
    * connection 与 webServer 同为晚就绪服务，走相同的 ctx.inject 等待模式。
+   *
+   * 0.1.5 起宿主 connection.rpc.handle 注册专属通道会因 cordis 隔离拿不到 webServer
+   * 而静默失败（面板 RPC 全部 HTTP 405）；改用共享 /api 通道上的精确 Fetch 路由
+   * （connection.fetch.register），由 /api 物理路由统一施加 Host/Origin 与 token 鉴权栅栏，
+   * 安全性与凭据类端点不变。每个端点一条路由：/api/ui-mockup/<endpoint>。
    */
   ctx.inject(['connection'], (scope) => {
     const connection = scope.get('connection') as ConnectionFace
-    // 同图片路由：effect 挂 scope，随本轮回调的子 fiber 销毁，防止重载累积
-    scope.effect(() =>
-      connection.rpc.handle(
-        '/ui-mockup',
-        async (endpoint: string, payload: unknown): Promise<RpcResultLike<unknown>> => {
-          const body = (payload ?? {}) as Record<string, unknown>
-          const cwd = typeof body.cwd === 'string' ? body.cwd : ''
-          switch (endpoint) {
-            case 'overview': {
-              const rootOrError = trustedRoot(ctx, knownRoots, cwd)
-              if (!rootOrError.ok) return rootOrError.error
-              const active = activeProviderOf(ctx)
-              return rpcOk({
-                provider: active.id,
-                credential: await credentialStatus(ctx, active.credential),
-                anchor: await readAnchor(rootOrError.root),
-              })
-            }
-            case 'credential/set': {
-              const credentials = ctx.get('credentials') as CredentialsFace | undefined
-              if (credentials === undefined) {
-                return rpcError(
-                  'NOT_AVAILABLE',
-                  '凭据服务不可用：当前部署没有可写密钥存储，请改用环境变量或 .env。',
-                )
-              }
-              const value = typeof body.value === 'string' ? body.value.trim() : ''
-              if (value === '') {
-                return rpcError('INVALID_PARAMETER', '密钥不能为空；如需删除请用清除操作。')
-              }
-              try {
-                await credentials.set(credentialRef(activeProviderOf(ctx).credential), value)
-              } catch (error) {
-                // 不原样透传上游异常文本：provider message 未来若夹带密钥片段会经
-                // RPC 抵达浏览器，「永不回值」承诺同样适用于错误通道；原文留服务端日志。
-                ctx
-                  .logger('ui-mockup')
-                  .debug(`凭据写入失败: ${error instanceof Error ? error.message : String(error)}`)
-                return rpcError(
-                  'CREDENTIAL_WRITE_FAILED',
-                  '凭据写入失败：存储层拒绝了本次写入（可能被环境变量等只读来源遮蔽），详见宿主日志。',
-                )
-              }
-              // 写入成功后回安全视图（仅 configured/source/writable，永不回值）
-              return rpcOk({
-                credential: await credentialStatus(ctx, activeProviderOf(ctx).credential),
-              })
-            }
-            case 'credential/unset': {
-              const credentials = ctx.get('credentials') as CredentialsFace | undefined
-              if (credentials === undefined) {
-                return rpcError('NOT_AVAILABLE', '凭据服务不可用，无存储可清除。')
-              }
-              try {
-                await credentials.unset(credentialRef(activeProviderOf(ctx).credential))
-              } catch (error) {
-                // 同 credential/set：不透传上游原文，防错误通道夹带密钥
-                ctx
-                  .logger('ui-mockup')
-                  .debug(`凭据清除失败: ${error instanceof Error ? error.message : String(error)}`)
-                return rpcError(
-                  'CREDENTIAL_WRITE_FAILED',
-                  '凭据清除失败：存储层拒绝了本次操作，详见宿主日志。',
-                )
-              }
-              return rpcOk({
-                credential: await credentialStatus(ctx, activeProviderOf(ctx).credential),
-              })
-            }
-            case 'history/list': {
-              const rootOrError = trustedRoot(ctx, knownRoots, cwd)
-              if (!rootOrError.ok) return rootOrError.error
-              // 服务端分页：先按 query 过滤得到全量有序列表，再切片返回当前页，
-              // 附带 total 与锚点在过滤后列表中的索引（客户端据此提示锚点所在页）。
-              // draftOnly 是纯增量过滤位（面板「只看方向稿」），旧客户端不传不受影响。
-              const draftOnly = body.draftOnly === true
-              const all = filterHistory(
-                await readHistory(rootOrError.root),
-                typeof body.query === 'string' ? body.query : undefined,
-              ).filter((entry) => !draftOnly || entry.fastPreview === true)
-              const pageSize = clampPageSize(body.pageSize)
-              const totalPages = Math.max(1, Math.ceil(all.length / pageSize))
-              const page = clampPage(body.page, totalPages)
-              const anchorFile = await readAnchor(rootOrError.root, false)
-              const entries = all.slice((page - 1) * pageSize, page * pageSize)
-              const anchorIndex =
-                anchorFile === null
-                  ? -1
-                  : all.findIndex((entry) =>
-                      entry.files.some((file) => basename(file) === anchorFile),
-                    )
-              return rpcOk({
-                anchorFile,
-                anchorIndex,
-                total: all.length,
-                page,
-                pageSize,
-                entries: entries.map((entry) => ({
-                  ...entry,
-                  anchored:
-                    anchorFile !== null &&
-                    entry.files.some((file) => basename(file) === anchorFile),
-                })),
-              })
-            }
-            case 'history/clear': {
-              const rootOrError = trustedRoot(ctx, knownRoots, cwd)
-              if (!rootOrError.ok) return rootOrError.error
-              const store = storeOf(rootOrError.root)
-              // 目录可能尚不存在（从未生成过就点清空），先建目录再原子截断
-              await mkdir(store.root, { recursive: true })
-              await writeFileAtomic(store.historyFile, '')
-              // 清空历史后锚点记录指向的行不复存在，按规格一并解除
-              await clearAnchor(rootOrError.root)
-              return rpcOk({})
-            }
-            case 'anchor/set': {
-              const rootOrError = trustedRoot(ctx, knownRoots, cwd)
-              if (!rootOrError.ok) return rootOrError.error
-              const file = sanitizeAnchorFileName(body.file)
-              if (file === null)
-                return rpcError('INVALID_PARAMETER', `不是合法的生成图文件名: ${String(body.file)}`)
-              const store = storeOf(rootOrError.root)
-              try {
-                await access(resolve(store.imagesDir, file))
-              } catch {
-                return rpcError('NOT_FOUND', `工作区中没有这张生成图: ${file}`)
-              }
-              // 方向稿设为风格锚点会把它注入后续所有生成——真实的质量陷阱：
-              // 提示而不禁止（用户可能确实只要方向一致）
-              const fastPreviewHint = (await historyFileIsFastPreview(store.historyFile, file))
-                ? '提示: 这张是方向稿(快模型生成), 设为锚点会注入后续所有生成; 若要精修视觉基准, 建议精修确认后改用高保真图。'
-                : undefined
-              await writeAnchor(rootOrError.root, file)
-              return rpcOk({
-                anchorFile: file,
-                ...(fastPreviewHint !== undefined ? { hint: fastPreviewHint } : {}),
-              })
-            }
-            case 'anchor/unset': {
-              const rootOrError = trustedRoot(ctx, knownRoots, cwd)
-              if (!rootOrError.ok) return rootOrError.error
-              await clearAnchor(rootOrError.root)
-              return rpcOk({})
-            }
-            case 'provider/status': {
-              // 面板「当前生效提供方」的唯一事实源：读 image 槽位的 providerId，
-              // 不从偏好或组合文件推断，避免面板与实际挂载漂移。
-              const service = ctx.get('image') as ImageGenerationServiceFace | undefined
-              return rpcOk({
-                active: service?.providerId ?? 'unknown',
-              })
-            }
-            case 'provider/switch': {
-              // 一键切换：改写 DSH home 用户层 patch（$DSH_HOME/cordis.patch.yml），
-              // launcher 的 HMR watcher 监听该文件并事务性重放组合，image 槽位
-              // 随之热替换（旧 Provider dispose、新 Provider 加载），无需重启。
-              // 只写 id + disabled 两行，不触碰用户层中任何其他内容。
-              const provider = body.provider
-              if (provider !== 'dashscope' && provider !== 'volcengine') {
-                return rpcError(
-                  'INVALID_PARAMETER',
-                  'provider 必须是 "dashscope" 或 "volcengine"。',
-                )
-              }
-              const service = ctx.get('image') as ImageGenerationServiceFace | undefined
-              if (service?.providerId === provider) {
-                return rpcOk({ active: provider })
-              }
-              const patchFile = join(dshHome(), HOME_PATCH_FILENAME)
-              // catch 的各分支要么赋值要么 return，TS 可判定赋值完毕
-              let patches: unknown[]
-              try {
-                const content = await readFile(patchFile, 'utf8')
-                const parsed: unknown = loadYaml(content)
-                // 合法 YAML 但非数组同样是坏 patch（宿主会 fail-loud）——
-                // 抛进 catch 统一走中止分支，绝不能用空数组覆盖用户文件
-                if (Array.isArray(parsed)) patches = parsed
-                else throw new Error('patch file is not a top-level array')
-              } catch {
-                // 文件不存在 = 空用户层；存在但不可解析时不要吞掉用户的错误——
-                // 直接中止切换并报告，绝不能用空数组覆盖用户写好的 patch。
-                let content: string | undefined
-                try {
-                  content = await readFile(patchFile, 'utf8')
-                } catch {
-                  content = undefined
-                }
-                if (content === undefined) {
-                  patches = []
-                } else if (content.includes('!!js')) {
-                  // 宿主 patch schema 允许 !!js 表达式，js-yaml 默认 schema 不认；
-                  // 代写会把表达式物化成字面值，只能请用户手工翻转
-                  return rpcError(
-                    'PROVIDER_SWITCH_FAILED',
-                    `用户层 patch 文件 ${patchFile} 含 !!js 表达式（宿主专有语法，本插件无法安全代写）；请手工翻转两行 Provider 的 disabled 后再试。`,
-                  )
-                } else {
-                  return rpcError(
-                    'PROVIDER_SWITCH_FAILED',
-                    `用户层 patch 文件 ${patchFile} 不是合法的 YAML 数组，请先手工修复后再切换。`,
-                  )
-                }
-              }
-              const merged = mergeProviderSwitchRows(patches, provider)
-              // 临时文件 + rename 原子写：watcher 读到半截文件会误判为坏 patch。
-              // js-yaml dump 无法保留原文件注释，头部注明代写来源与这一限制。
-              const tmpFile = `${patchFile}.${randomUUID().slice(0, 8)}.tmp`
-              try {
-                await writeFile(
-                  tmpFile,
-                  '# 本文件由 ui-mockup 提供方切换代写（js-yaml 往返不保留原注释）\n' +
-                    dumpYaml(merged, { lineWidth: -1 }),
-                  'utf8',
-                )
-                await rename(tmpFile, patchFile)
-              } catch (error) {
-                await rm(tmpFile, { force: true }).catch(() => {})
-                return rpcError(
-                  'PROVIDER_SWITCH_FAILED',
-                  `写入 ${patchFile} 失败: ${error instanceof Error ? error.message : String(error)}`,
-                )
-              }
-              // 等热重载落位：轮询 image 槽位直到目标 providerId 或超时
-              const deadline = Date.now() + 8_000
-              while (Date.now() < deadline) {
-                await sleep(250)
-                const current = (ctx.get('image') as ImageGenerationServiceFace | undefined)
-                  ?.providerId
-                if (current === provider) return rpcOk({ active: current })
-                // 热重载中槽位可能短暂为 undefined（旧实例已卸、新实例未就绪），继续等
-              }
-              const current = (ctx.get('image') as ImageGenerationServiceFace | undefined)
-                ?.providerId
-              return rpcOk({
-                active: current ?? 'unknown',
-                pending: true,
-              })
-            }
-            case 'test-connection': {
-              // 只回机器可判的 reason + 原始 detail；用户可见文案由客户端按语言渲染。
-              // 探测参数随生效提供方分流（网关、凭据引用、探测路径都不同）。
-              const service = ctx.get('image') as ImageGenerationServiceFace | undefined
-              const probe =
-                service?.providerId === 'volcengine' ? PROBES.volcengine : PROBES.dashscope
-              const credentialName =
-                readProviderConfigString(service, 'apiKey') ?? probe.defaultCredential
-              const ref = credentialRef(credentialName)
-              // 取值仅用于探测请求的 Authorization 头，永不进入任何响应
-              let apiKey: string | undefined
-              const credentials = ctx.get('credentials') as CredentialsFace | undefined
-              if (credentials !== undefined) {
-                const hit = await credentials.resolve(ref).catch(() => undefined)
-                apiKey = hit?.value
-              }
-              if (apiKey === undefined || apiKey === '') {
-                apiKey = launchEnvironmentOf(ctx).get(ref)?.value
-              }
-              if (apiKey === undefined || apiKey === '') {
-                return rpcOk({ ok: false, reason: 'missing-key' })
-              }
-              const baseUrl = readProviderConfigString(service, 'baseUrl') ?? probe.defaultBaseUrl
-              try {
-                // 鉴权探测：向图像生成端点发空体 POST（不消耗生成配额）。
-                // 两家网关都是鉴权先于参数校验：无效 key → 401；
-                // 有效 key → 400 参数错误；429 限流也说明鉴权已通过。
-                const res = await fetch(baseUrl + probe.path, {
-                  method: 'POST',
-                  headers: {
-                    Authorization: `Bearer ${apiKey}`,
-                    'content-type': 'application/json',
-                  },
-                  body: '{}',
-                  signal: AbortSignal.timeout(8_000),
-                  redirect: 'error',
-                })
-                const respBody = (await res.json().catch(() => ({}))) as { code?: unknown }
-                const code = typeof respBody.code === 'string' ? respBody.code : ''
-                if (
-                  res.status === 401 ||
-                  code.includes('InvalidApiKey') ||
-                  code.includes('Unauthorized') ||
-                  code.includes('AuthenticationError')
-                ) {
-                  return rpcOk({ ok: false, reason: 'invalid-key' })
-                }
-                // 正向判定鉴权已通过：网关鉴权先于参数与配额校验——
-                // 400 参数错误、429 限流都说明 key 已被网关接受。
-                // 其余未知响应（如未来新增的 403 或前置校验码）归入 unknown 灰态，
-                // 宁可不确定也不误报「连接正常」。
-                if (res.status === 400 || res.status === 429) {
-                  return rpcOk({ ok: true, reason: 'ok' })
-                }
-                return rpcOk({
-                  ok: false,
-                  reason: 'unknown',
-                  detail: `HTTP ${res.status}${code !== '' ? ` ${code}` : ''}`,
-                })
-              } catch (error) {
-                return rpcOk({
-                  ok: false,
-                  reason: 'gateway',
-                  detail: error instanceof Error ? error.message : String(error),
-                })
-              }
-            }
-            default:
-              return rpcError('NOT_FOUND', `未知端点: ${endpoint}`)
+    /** 端点分发：与旧私有通道同一 switch，仅传输层换成 /api Fetch 路由。 */
+    const dispatch = async (
+      endpoint: string,
+      payload: unknown,
+    ): Promise<RpcResultLike<unknown>> => {
+      const body = (payload ?? {}) as Record<string, unknown>
+      const cwd = typeof body.cwd === 'string' ? body.cwd : ''
+      switch (endpoint) {
+        case 'overview': {
+          const rootOrError = trustedRoot(ctx, knownRoots, cwd)
+          if (!rootOrError.ok) return rootOrError.error
+          const active = activeProviderOf(ctx)
+          return rpcOk({
+            provider: active.id,
+            credential: await credentialStatus(ctx, active.credential),
+            anchor: await readAnchor(rootOrError.root),
+          })
+        }
+        case 'credential/set': {
+          const credentials = ctx.get('credentials') as CredentialsFace | undefined
+          if (credentials === undefined) {
+            return rpcError(
+              'NOT_AVAILABLE',
+              '凭据服务不可用：当前部署没有可写密钥存储，请改用环境变量或 .env。',
+            )
           }
-          // 类型穷尽保底：所有分支均已 return，执行不会到达此处
-          throw new Error('unreachable')
-        },
-        { authority: 'trusted-host' },
-      ),
-    )
+          const value = typeof body.value === 'string' ? body.value.trim() : ''
+          if (value === '') {
+            return rpcError('INVALID_PARAMETER', '密钥不能为空；如需删除请用清除操作。')
+          }
+          try {
+            await credentials.set(credentialRef(activeProviderOf(ctx).credential), value)
+          } catch (error) {
+            // 不原样透传上游异常文本：provider message 未来若夹带密钥片段会经
+            // RPC 抵达浏览器，「永不回值」承诺同样适用于错误通道；原文留服务端日志。
+            ctx
+              .logger('ui-mockup')
+              .debug(`凭据写入失败: ${error instanceof Error ? error.message : String(error)}`)
+            return rpcError(
+              'CREDENTIAL_WRITE_FAILED',
+              '凭据写入失败：存储层拒绝了本次写入（可能被环境变量等只读来源遮蔽），详见宿主日志。',
+            )
+          }
+          // 写入成功后回安全视图（仅 configured/source/writable，永不回值）
+          return rpcOk({
+            credential: await credentialStatus(ctx, activeProviderOf(ctx).credential),
+          })
+        }
+        case 'credential/unset': {
+          const credentials = ctx.get('credentials') as CredentialsFace | undefined
+          if (credentials === undefined) {
+            return rpcError('NOT_AVAILABLE', '凭据服务不可用，无存储可清除。')
+          }
+          try {
+            await credentials.unset(credentialRef(activeProviderOf(ctx).credential))
+          } catch (error) {
+            // 同 credential/set：不透传上游原文，防错误通道夹带密钥
+            ctx
+              .logger('ui-mockup')
+              .debug(`凭据清除失败: ${error instanceof Error ? error.message : String(error)}`)
+            return rpcError(
+              'CREDENTIAL_WRITE_FAILED',
+              '凭据清除失败：存储层拒绝了本次操作，详见宿主日志。',
+            )
+          }
+          return rpcOk({
+            credential: await credentialStatus(ctx, activeProviderOf(ctx).credential),
+          })
+        }
+        case 'history/list': {
+          const rootOrError = trustedRoot(ctx, knownRoots, cwd)
+          if (!rootOrError.ok) return rootOrError.error
+          // 服务端分页：先按 query 过滤得到全量有序列表，再切片返回当前页，
+          // 附带 total 与锚点在过滤后列表中的索引（客户端据此提示锚点所在页）。
+          // draftOnly 是纯增量过滤位（面板「只看方向稿」），旧客户端不传不受影响。
+          const draftOnly = body.draftOnly === true
+          const all = filterHistory(
+            await readHistory(rootOrError.root),
+            typeof body.query === 'string' ? body.query : undefined,
+          ).filter((entry) => !draftOnly || entry.fastPreview === true)
+          const pageSize = clampPageSize(body.pageSize)
+          const totalPages = Math.max(1, Math.ceil(all.length / pageSize))
+          const page = clampPage(body.page, totalPages)
+          const anchorFile = await readAnchor(rootOrError.root, false)
+          const entries = all.slice((page - 1) * pageSize, page * pageSize)
+          const anchorIndex =
+            anchorFile === null
+              ? -1
+              : all.findIndex((entry) => entry.files.some((file) => basename(file) === anchorFile))
+          return rpcOk({
+            anchorFile,
+            anchorIndex,
+            total: all.length,
+            page,
+            pageSize,
+            entries: entries.map((entry) => ({
+              ...entry,
+              anchored:
+                anchorFile !== null && entry.files.some((file) => basename(file) === anchorFile),
+            })),
+          })
+        }
+        case 'history/clear': {
+          const rootOrError = trustedRoot(ctx, knownRoots, cwd)
+          if (!rootOrError.ok) return rootOrError.error
+          const store = storeOf(rootOrError.root)
+          // 目录可能尚不存在（从未生成过就点清空），先建目录再原子截断
+          await mkdir(store.root, { recursive: true })
+          await writeFileAtomic(store.historyFile, '')
+          // 清空历史后锚点记录指向的行不复存在，按规格一并解除
+          await clearAnchor(rootOrError.root)
+          return rpcOk({})
+        }
+        case 'anchor/set': {
+          const rootOrError = trustedRoot(ctx, knownRoots, cwd)
+          if (!rootOrError.ok) return rootOrError.error
+          const file = sanitizeAnchorFileName(body.file)
+          if (file === null)
+            return rpcError('INVALID_PARAMETER', `不是合法的生成图文件名: ${String(body.file)}`)
+          const store = storeOf(rootOrError.root)
+          try {
+            await access(resolve(store.imagesDir, file))
+          } catch {
+            return rpcError('NOT_FOUND', `工作区中没有这张生成图: ${file}`)
+          }
+          // 方向稿设为风格锚点会把它注入后续所有生成——真实的质量陷阱：
+          // 提示而不禁止（用户可能确实只要方向一致）
+          const fastPreviewHint = (await historyFileIsFastPreview(store.historyFile, file))
+            ? '提示: 这张是方向稿(快模型生成), 设为锚点会注入后续所有生成; 若要精修视觉基准, 建议精修确认后改用高保真图。'
+            : undefined
+          await writeAnchor(rootOrError.root, file)
+          return rpcOk({
+            anchorFile: file,
+            ...(fastPreviewHint !== undefined ? { hint: fastPreviewHint } : {}),
+          })
+        }
+        case 'anchor/unset': {
+          const rootOrError = trustedRoot(ctx, knownRoots, cwd)
+          if (!rootOrError.ok) return rootOrError.error
+          await clearAnchor(rootOrError.root)
+          return rpcOk({})
+        }
+        case 'provider/status': {
+          // 面板「当前生效提供方」的唯一事实源：读 image 槽位的 providerId，
+          // 不从偏好或组合文件推断，避免面板与实际挂载漂移。
+          // baseUrl 为生效提供方配置的网关地址（连接卡回显与测试连接置灰判定）；
+          // 空串 = 未配置或该提供方无地址概念。
+          const service = ctx.get('image') as ImageGenerationServiceFace | undefined
+          return rpcOk({
+            active: service?.providerId ?? 'unknown',
+            baseUrl: readProviderConfigString(service, 'baseUrl') ?? '',
+          })
+        }
+        case 'provider/switch': {
+          // 一键切换：改写 DSH home 用户层 patch（$DSH_HOME/cordis.patch.yml），
+          // launcher 的 HMR watcher 监听该文件并事务性重放组合，image 槽位
+          // 随之热替换（旧 Provider dispose、新 Provider 加载），无需重启。
+          // 只写各 Provider 行的 id + disabled 字段，不触碰用户层中任何其他内容。
+          const provider = body.provider
+          if (typeof provider !== 'string' || providerOf(provider) === undefined) {
+            return rpcError(
+              'INVALID_PARAMETER',
+              `provider 必须是 ${PROVIDER_REGISTRY.map((meta) => `"${meta.id}"`).join(' 或 ')}。`,
+            )
+          }
+          const service = ctx.get('image') as ImageGenerationServiceFace | undefined
+          if (service?.providerId === provider) {
+            return rpcOk({ active: provider })
+          }
+          const patchFile = join(dshHome(), HOME_PATCH_FILENAME)
+          const loaded = await readHomePatchRows(patchFile, {
+            code: 'PROVIDER_SWITCH_FAILED',
+            jsHint: '请手工翻转各 Provider 行的 disabled 后再试。',
+            malformedHint: '请先手工修复后再切换。',
+          })
+          if (!loaded.ok) return loaded.error
+          const merged = mergeProviderSwitchRows(loaded.rows, provider)
+          const writeError = await writeHomePatchRows(patchFile, merged, {
+            code: 'PROVIDER_SWITCH_FAILED',
+            origin: '提供方切换',
+          })
+          if (writeError !== undefined) return writeError
+          // 等热重载落位：轮询 image 槽位直到目标 providerId 或超时
+          const deadline = Date.now() + 8_000
+          while (Date.now() < deadline) {
+            await sleep(250)
+            const current = (ctx.get('image') as ImageGenerationServiceFace | undefined)?.providerId
+            if (current === provider) return rpcOk({ active: current })
+            // 热重载中槽位可能短暂为 undefined（旧实例已卸、新实例未就绪），继续等
+          }
+          const current = (ctx.get('image') as ImageGenerationServiceFace | undefined)?.providerId
+          return rpcOk({
+            active: current ?? 'unknown',
+            pending: true,
+          })
+        }
+        case 'provider/baseurl/set': {
+          // OpenAI 兼容提供方的网关地址：写用户层 patch 的 config 节
+          // （restates 生效配置全部键，避免整替 config 丢失部署层预置），
+          // HMR 重载落位；与切换共用补丁读写安全语义与落位轮询。
+          if (typeof body.baseUrl !== 'string') {
+            return rpcError('INVALID_PARAMETER', 'baseUrl 必须是字符串。')
+          }
+          const service = ctx.get('image') as ImageGenerationServiceFace | undefined
+          if (service !== undefined && service.providerId !== 'openai-compat') {
+            return rpcError(
+              'INVALID_PARAMETER',
+              '当前生效提供方的网关地址固定，不支持在面板配置 baseUrl。',
+            )
+          }
+          const normalized = normalizeBaseUrl(body.baseUrl)
+          if (!normalized.valid) {
+            return rpcError(
+              'INVALID_PARAMETER',
+              'baseUrl 必须以 http:// 或 https:// 开头（通常以 /v1 结尾）。',
+            )
+          }
+          const baseUrl = normalized.value
+          const compatMeta = providerOf('openai-compat')
+          if (compatMeta === undefined) {
+            return rpcError('NOT_AVAILABLE', 'openai-compat 未注册。')
+          }
+          const patchFile = join(dshHome(), HOME_PATCH_FILENAME)
+          const loaded = await readHomePatchRows(patchFile, {
+            code: 'PROVIDER_CONFIG_FAILED',
+            jsHint: '请手工修复后再试。',
+            malformedHint: '请先手工修复后再保存。',
+          })
+          if (!loaded.ok) return loaded.error
+          // 重述基线：热重载窗口内 image 槽位可能短暂为 undefined（旧实例已卸、
+          // 新实例未就绪），此时仅凭生效 config 重述会把部署层预置的其余标量键
+          // （分层模型、超时等）在整替 config 时静默丢失。故以「已有 patch 行 config
+          // ∪ 生效 config」为基线，缺一方时用另一方兜底。
+          const currentConfig = (service as { config?: unknown } | undefined)?.config
+          const existingRow = loaded.rows.find(
+            (entry): entry is Record<string, unknown> =>
+              entry !== null &&
+              typeof entry === 'object' &&
+              !Array.isArray(entry) &&
+              (entry as Record<string, unknown>)['id'] === compatMeta.patchId,
+          )
+          const baseline = {
+            ...restateProviderConfig(existingRow?.['config'], {}),
+            ...restateProviderConfig(currentConfig, {}),
+          }
+          const merged = mergeProviderConfigRow(loaded.rows, compatMeta.patchId, {
+            ...baseline,
+            baseUrl,
+          })
+          const writeError = await writeHomePatchRows(patchFile, merged, {
+            code: 'PROVIDER_CONFIG_FAILED',
+            origin: '连接配置保存',
+          })
+          if (writeError !== undefined) return writeError
+          // 等热重载落位：轮询生效 config.baseUrl 直到目标值或超时（语义同切换）。
+          // 目标为空串时，未挂载或已清空都视为落位成功。
+          const deadline = Date.now() + 8_000
+          while (Date.now() < deadline) {
+            await sleep(250)
+            const current = ctx.get('image') as ImageGenerationServiceFace | undefined
+            if ((readProviderConfigString(current, 'baseUrl') ?? '') === baseUrl) {
+              return rpcOk({ settled: true })
+            }
+          }
+          return rpcOk({ pending: true })
+        }
+        case 'provider/models': {
+          // 模型发现：仅 openai-compat 拉取网关 GET {baseUrl}/models 做下拉建议。
+          // 一切失败（非 openai-compat、未配置地址、网络错、HTML-200 陷阱、超时）
+          // 都按降级返回空列表——建议是锦上添花，绝不阻塞手填配置。
+          const service = ctx.get('image') as ImageGenerationServiceFace | undefined
+          if (service?.providerId !== 'openai-compat') {
+            return rpcOk({ models: [], degraded: true })
+          }
+          const baseUrl = (readProviderConfigString(service, 'baseUrl') ?? '')
+            .trim()
+            .replace(/\/+$/, '')
+          if (baseUrl === '') {
+            return rpcOk({ models: [], degraded: true })
+          }
+          const compatMeta = providerOf('openai-compat')!
+          const credentialName =
+            readProviderConfigString(service, 'apiKey') ?? compatMeta.credential
+          // 取值仅用于请求的 Authorization 头，永不进入任何响应
+          let apiKey: string | undefined
+          const credentials = ctx.get('credentials') as CredentialsFace | undefined
+          if (credentials !== undefined) {
+            apiKey = (
+              await credentials.resolve(credentialRef(credentialName)).catch(() => undefined)
+            )?.value
+          }
+          if (apiKey === undefined || apiKey === '') {
+            apiKey = launchEnvironmentOf(ctx).get(credentialRef(credentialName))?.value
+          }
+          try {
+            const res = await fetch(`${baseUrl}/models`, {
+              headers:
+                apiKey !== undefined && apiKey !== '' ? { Authorization: `Bearer ${apiKey}` } : {},
+              signal: AbortSignal.timeout(8_000),
+              redirect: 'error',
+            })
+            // HTML-200 陷阱：地址缺 /v1 前缀时网关回前端页（HTTP 200 非 JSON），
+            // 内容不是 JSON 一律降级，绝不把建议失败变成面板错误
+            const payload: unknown = await res.json().catch(() => null)
+            const data =
+              payload !== null &&
+              typeof payload === 'object' &&
+              Array.isArray((payload as { data?: unknown }).data)
+                ? (payload as { data: unknown[] }).data
+                : null
+            if (data === null || res.status < 200 || res.status >= 300) {
+              return rpcOk({ models: [], degraded: true })
+            }
+            const models = data
+              .map((item) =>
+                item !== null && typeof item === 'object'
+                  ? (item as { id?: unknown }).id
+                  : undefined,
+              )
+              .filter((id): id is string => typeof id === 'string' && id !== '')
+            return rpcOk({ models })
+          } catch {
+            return rpcOk({ models: [], degraded: true })
+          }
+        }
+        case 'test-connection': {
+          // 只回机器可判的 reason + 原始 detail；用户可见文案由客户端按语言渲染。
+          // 探测参数随生效提供方分流（网关、凭据引用、探测路径都不同）。
+          const service = ctx.get('image') as ImageGenerationServiceFace | undefined
+          // 探测参数经元数据表分流（网关、凭据引用、探测路径都不同）；
+          // 未注册 id（服务未挂载）回退默认提供方
+          const probeMeta =
+            providerOf(service?.providerId ?? '') ?? providerOf(DEFAULT_PROVIDER_ID)!
+          const credentialName = readProviderConfigString(service, 'apiKey') ?? probeMeta.credential
+          const ref = credentialRef(credentialName)
+          // 取值仅用于探测请求的 Authorization 头，永不进入任何响应
+          let apiKey: string | undefined
+          const credentials = ctx.get('credentials') as CredentialsFace | undefined
+          if (credentials !== undefined) {
+            const hit = await credentials.resolve(ref).catch(() => undefined)
+            apiKey = hit?.value
+          }
+          if (apiKey === undefined || apiKey === '') {
+            apiKey = launchEnvironmentOf(ctx).get(ref)?.value
+          }
+          if (apiKey === undefined || apiKey === '') {
+            return rpcOk({ ok: false, reason: 'missing-key' })
+          }
+          const baseUrl = (readProviderConfigString(service, 'baseUrl') ?? probeMeta.probeBaseUrl)
+            .trim()
+            .replace(/\/+$/, '')
+          if (baseUrl === '') {
+            // 无默认网关的提供方（如 openai-compat）未配置地址时给出可操作原因，
+            // 而不是让 fetch 因空 URL 抛难归因的解析错误
+            return rpcOk({
+              ok: false,
+              reason: 'gateway',
+              detail: '未配置网关地址(baseUrl), 请先在设置面板「连接配置」中填写',
+            })
+          }
+          try {
+            // 鉴权探测：向图像生成端点发空体 POST（不消耗生成配额）。
+            // 两家网关都是鉴权先于参数校验：无效 key → 401；
+            // 有效 key → 400 参数错误；429 限流也说明鉴权已通过。
+            const res = await fetch(baseUrl + probeMeta.probePath, {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+                'content-type': 'application/json',
+              },
+              body: '{}',
+              signal: AbortSignal.timeout(8_000),
+              redirect: 'error',
+            })
+            const respBody = (await res.json().catch(() => ({}))) as { code?: unknown }
+            const code = typeof respBody.code === 'string' ? respBody.code : ''
+            if (
+              res.status === 401 ||
+              code.includes('InvalidApiKey') ||
+              code.includes('Unauthorized') ||
+              code.includes('AuthenticationError')
+            ) {
+              return rpcOk({ ok: false, reason: 'invalid-key' })
+            }
+            // 正向判定鉴权已通过：网关鉴权先于参数与配额校验——
+            // 400 参数错误、429 限流都说明 key 已被网关接受。
+            // 其余未知响应（如未来新增的 403 或前置校验码）归入 unknown 灰态，
+            // 宁可不确定也不误报「连接正常」。
+            if (res.status === 400 || res.status === 429) {
+              return rpcOk({ ok: true, reason: 'ok' })
+            }
+            return rpcOk({
+              ok: false,
+              reason: 'unknown',
+              detail: `HTTP ${res.status}${code !== '' ? ` ${code}` : ''}`,
+            })
+          } catch (error) {
+            return rpcOk({
+              ok: false,
+              reason: 'gateway',
+              detail: error instanceof Error ? error.message : String(error),
+            })
+          }
+        }
+        default:
+          return rpcError('NOT_FOUND', `未知端点: ${endpoint}`)
+      }
+      // 类型穷尽保底：所有分支均已 return，执行不会到达此处
+      throw new Error('unreachable')
+    }
+
+    /** 面板端点清单：每端点一条 /api 精确路由。 */
+    const PANEL_ENDPOINTS = [
+      'overview',
+      'credential/set',
+      'credential/unset',
+      'history/list',
+      'history/clear',
+      'anchor/set',
+      'anchor/unset',
+      'provider/status',
+      'provider/switch',
+      'provider/baseurl/set',
+      'provider/models',
+      'test-connection',
+    ] as const
+    /** 把 client-request 信封解码、分发、再包成 server-response 信封。 */
+    const toFetch =
+      (endpoint: string) =>
+      async (request: Request): Promise<Response> => {
+        let message: { rpcId?: unknown; method?: unknown; payload?: unknown }
+        try {
+          message = (await request.json()) as typeof message
+        } catch {
+          return Response.json({
+            type: 'server-response',
+            rpcId: '',
+            result: rpcError('INVALID_PARAMETER', '请求体不是合法 JSON'),
+          })
+        }
+        const rpcId = typeof message.rpcId === 'string' ? message.rpcId : ''
+        try {
+          const result = await dispatch(endpoint, message.payload)
+          return Response.json({ type: 'server-response', rpcId, result })
+        } catch (error) {
+          return Response.json({
+            type: 'server-response',
+            rpcId,
+            result: rpcError(
+              'INTERNAL',
+              `端点处理失败: ${error instanceof Error ? error.message : String(error)}`,
+            ),
+          })
+        }
+      }
+    // 同图片路由：effect 挂 scope，随本轮回调的子 fiber 销毁，防止重载累积
+    scope.effect(() => {
+      const disposers = PANEL_ENDPOINTS.map((endpoint) =>
+        connection.fetch.register({
+          path: `/api/ui-mockup/${endpoint}`,
+          methods: ['POST'],
+          requestBody: 'buffered',
+          fetch: toFetch(endpoint),
+        }),
+      )
+      return () => {
+        for (const dispose of disposers) void dispose()
+      }
+    })
   })
 }
 
@@ -1547,66 +1723,92 @@ interface ImageGenerationServiceFace {
   ): Promise<{ model: string; images: readonly { url: string; mediaType?: string }[] }>
 }
 
-/**
- * 各提供方的鉴权探测参数：网关、凭据引用名与探测路径。
- * 默认值兜底 Provider config 缺失（服务未挂载）的场景；生效 Provider 的
- * config.apiKey / config.baseUrl 可被用户改写，优先于默认值。
- */
-const PROBES = {
-  dashscope: {
-    defaultCredential: 'DASHSCOPE_API_KEY',
-    defaultBaseUrl: 'https://dashscope.aliyuncs.com',
-    path: '/api/v1/services/aigc/image-generation/generation',
-  },
-  volcengine: {
-    defaultCredential: 'ARK_API_KEY',
-    defaultBaseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
-    path: '/images/generations',
-  },
-} as const
-
 /** 从生效 Provider 的 config 读字符串字段；服务缺失或字段非字符串时返回 undefined。 */
 function readProviderConfigString(
   service: ImageGenerationServiceFace | undefined,
-  key: 'apiKey' | 'baseUrl',
+  key: 'apiKey' | 'baseUrl' | 'wireframeModel',
 ): string | undefined {
   if (service === undefined) return undefined
   const value = (service as { config?: Record<string, unknown> }).config?.[key]
+  if (key === 'wireframeModel' && typeof value === 'string' && value.trim() === '') {
+    return undefined
+  }
   return typeof value === 'string' && value !== '' ? value : undefined
+}
+
+/** 读用户层 patch 行数组：文件不存在 = 空用户层；存在但不可解析（含 !!js 表达式、
+ *  非 YAML 数组）时返回错误——绝不吞掉用户的错误，更不能用空数组覆盖用户文件。
+ *  错误码与提示文案由调用方注入（切换/连接配置保存各用自己的语义）。 */
+async function readHomePatchRows(
+  patchFile: string,
+  hints: { code: string; jsHint: string; malformedHint: string },
+): Promise<{ ok: true; rows: unknown[] } | { ok: false; error: RpcResultLike<never> }> {
+  let content: string | undefined
+  try {
+    content = await readFile(patchFile, 'utf8')
+  } catch {
+    return { ok: true, rows: [] }
+  }
+  try {
+    const parsed: unknown = loadYaml(content)
+    // 合法 YAML 但非数组同样是坏 patch（宿主会 fail-loud）
+    if (!Array.isArray(parsed)) throw new Error('patch file is not a top-level array')
+    return { ok: true, rows: parsed }
+  } catch {
+    if (content.includes('!!js')) {
+      // 宿主 patch schema 允许 !!js 表达式，js-yaml 默认 schema 不认；
+      // 代写会把表达式物化成字面值，只能请用户手工处理
+      return {
+        ok: false,
+        error: rpcError(
+          hints.code,
+          `用户层 patch 文件 ${patchFile} 含 !!js 表达式（宿主专有语法，本插件无法安全代写）；${hints.jsHint}`,
+        ),
+      }
+    }
+    return {
+      ok: false,
+      error: rpcError(
+        hints.code,
+        `用户层 patch 文件 ${patchFile} 不是合法的 YAML 数组，${hints.malformedHint}`,
+      ),
+    }
+  }
+}
+
+/** 原子写用户层 patch：临时文件 + rename（watcher 读到半截文件会误判为坏 patch）。
+ *  js-yaml dump 无法保留原文件注释，头部注明代写来源（origin）与这一限制。
+ *  成功返回 undefined，失败返回错误结果。 */
+async function writeHomePatchRows(
+  patchFile: string,
+  rows: Record<string, unknown>[],
+  options: { code: string; origin: string },
+): Promise<RpcResultLike<never> | undefined> {
+  const tmpFile = `${patchFile}.${randomUUID().slice(0, 8)}.tmp`
+  try {
+    await writeFile(
+      tmpFile,
+      `# 本文件由 ui-mockup ${options.origin}代写（js-yaml 往返不保留原注释）\n` +
+        dumpYaml(rows, { lineWidth: -1 }),
+      'utf8',
+    )
+    await rename(tmpFile, patchFile)
+    return undefined
+  } catch (error) {
+    await rm(tmpFile, { force: true }).catch(() => {})
+    return rpcError(
+      options.code,
+      `写入 ${patchFile} 失败: ${error instanceof Error ? error.message : String(error)}`,
+    )
+  }
 }
 
 /** DSH home 用户层 patch 文件（launcher 实时 watch，编辑后组合热重载）。 */
 export const HOME_PATCH_FILENAME = 'cordis.patch.yml'
 
-/**
- * 生成切换提供方后的用户层 patch 行：对两行 Provider 做 id 定向 disabled 翻转。
- * 用户层 applied after bundle layers——bundle 插入的行由此覆盖 enabled 状态，
- * 且只携带 id/disabled 两个字段，不触碰用户可能写在同 id 行上的其他定制；
- * 已有行原位更新（保留其余字段），缺失行追加在列表尾部。
- * 纯函数：宿主端点与单测共用同一合并语义。
- */
-export function mergeProviderSwitchRows(
-  patches: readonly unknown[],
-  target: 'dashscope' | 'volcengine',
-): Record<string, unknown>[] {
-  const rows: Record<string, unknown>[] = [
-    { id: 'image-dashscope', disabled: target !== 'dashscope' },
-    { id: 'image-volcengine', disabled: target !== 'volcengine' },
-  ]
-  type Entry = Record<string, unknown>
-  const merged: Entry[] = patches.filter(
-    (entry): entry is Entry => entry !== null && typeof entry === 'object',
-  )
-  for (const row of rows) {
-    const index = merged.findIndex((entry) => entry['id'] === row.id)
-    if (index >= 0) merged[index] = { ...merged[index]!, disabled: row.disabled }
-    else merged.push(row)
-  }
-  return merged
-}
-
 /** 供单元测试引用的内部实现。 */
 export { buildPrompt, dshHome }
+export { mergeProviderSwitchRows } from './providers.js'
 export {
   sanitizeOutputDir,
   clampCount,

@@ -1,8 +1,11 @@
 # @mackwan84/dsh-ui-mockup-bundle
 
+[English](README.en.md)
+
 dsh-ui-mockup 的安装层：一个声明 `dsh.bundle.patch` 的 npm 包，把
 `@mackwan84/dsh-image-dashscope`（百炼图像 Provider，默认启用）、
-`@mackwan84/dsh-image-volcengine`（火山方舟图像 Provider，预置但 `disabled: true`）与
+`@mackwan84/dsh-image-volcengine`（火山方舟图像 Provider，预置但 `disabled: true`）、
+`@mackwan84/dsh-image-openai-compat`（OpenAI 兼容图像 Provider，预置但 `disabled: true`）与
 `@mackwan84/dsh-tool-ui-mockup`（ui_mockup 工具）挂载进 profile 组合。
 
 ## 主要能力
@@ -10,14 +13,14 @@ dsh-ui-mockup 的安装层：一个声明 `dsh.bundle.patch` 的 npm 包，把
 - 线框图、高保真方向稿与按方向精修；
 - 生成图卡片、风格锚点、生成历史与方向稿筛选；
 - 标注弹窗的矩形/画笔/箭头、选择/移动、显式删除与缩放；
-- DashScope / Volcengine 双 Provider、分层模型默认、凭据状态与连接测试。
+- DashScope / Volcengine / OpenAI 兼容网关、分层模型默认、凭据状态与连接测试。
 
 完整功能、截图和已知限制见[GitHub 项目 README](https://github.com/mackwan84/dsh-ui-mockup#readme)。
 
 ## 提供方切换
 
-`ctx.image` 是单槽位服务，同一时刻只允许一个 Provider 生效。bundle 预置两行 Provider，
-火山方舟行默认 `disabled: true`。切换走设置面板「提供方与模型」页**点卡片**：插件把
+`ctx.image` 是单槽位服务，同一时刻只允许一个 Provider 生效。bundle 预置三行 Provider，
+火山方舟与 OpenAI 兼容网关行默认 `disabled: true`。切换走设置面板「提供方与模型」页**点卡片**：插件把
 id 定向的 `disabled` 翻转写入 DSH home 用户层（`~/.dsh/cordis.patch.yml`，launcher
 实时 watch 并热重载组合），也可以手工编辑该文件：
 
@@ -26,6 +29,8 @@ id 定向的 `disabled` 翻转写入 DSH home 用户层（`~/.dsh/cordis.patch.y
   disabled: true
 - id: image-volcengine
   disabled: false
+- id: image-openai-compat
+  disabled: true
 ```
 
 设置窗口「UI 草图 · 提供方与模型」页经 `provider/status` 端点如实显示当前生效方
@@ -35,7 +40,7 @@ id 定向的 `disabled` 翻转写入 DSH home 用户层（`~/.dsh/cordis.patch.y
 ## 安装
 
 ```sh
-dsh plugin --profile web add @mackwan84/dsh-ui-mockup-bundle@0.2.0
+dsh plugin --profile web add @mackwan84/dsh-ui-mockup-bundle@0.3.0
 
 # 开发期（本仓库 checkout）
 dsh plugin --profile web add /path/to/dsh-ui-mockup/bundle/ui-mockup
@@ -46,5 +51,5 @@ dsh plugin --profile web add /path/to/dsh-ui-mockup/bundle/ui-mockup
 ## 发布注意
 
 运行根目录的 `pnpm run publish:all`：脚本先用 `pnpm pack` 将 `workspace:^` 转换为正式版本范围，
-再按依赖顺序发布 `@mackwan84/dsh-image`、两个 Provider、`@mackwan84/dsh-tool-ui-mockup`
+再按依赖顺序发布 `@mackwan84/dsh-image`、三个 Provider、`@mackwan84/dsh-tool-ui-mockup`
 与本 bundle。不要直接对源码目录运行 `npm publish`。

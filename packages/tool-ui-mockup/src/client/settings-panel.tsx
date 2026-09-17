@@ -1,7 +1,7 @@
 /**
  * 「UI 草图」设置区块：单个 settings.section 挂四张子页（概览 / 提供方与模型 /
  * 生成偏好 / 生成历史），子页内切换与已确认线框一致。
- * 视觉完全使用 DSH 主题令牌（--dsw-*）与原生控件，浅/深色自适应；
+ * 视觉完全使用 DSH 主题令牌（--dsw-*）与 UI primitives，浅/深色自适应；
  * 数据面：偏好经同名 settings 命名空间镜像读写，历史/锚点/测试连接走私有 RPC 频道。
  */
 import {
@@ -13,13 +13,16 @@ import {
   useState,
   type KeyboardEvent,
   type ReactNode,
+  type RefObject,
 } from 'react'
 import {
   Button,
   IconCheckOutline16,
+  IconChevronDownOutline14,
   IconEditOutline16,
   IconNewChatOutline16,
   Input,
+  Menu,
   StateDot,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
@@ -31,6 +34,13 @@ import {
   type ConnectionFace,
   type PrefScope,
 } from './shared.js'
+import {
+  DEFAULT_PROVIDER_ID,
+  PROVIDER_REGISTRY,
+  normalizeBaseUrl,
+  providerMetaOf,
+  providerOf,
+} from '../providers.js'
 import type { NS, UiMockupKey } from './locales.js'
 import panelCss from './settings-panel.css?inline'
 
@@ -205,19 +215,6 @@ const tabActiveStyle = {
   color: tokens.labelPrimary,
 } as const
 
-/** select 与原生 .input 同款（34px 高 / 8px 圆角 / layer-3 背景 / focus 品牌色边框）。 */
-const selectStyle = {
-  height: 34,
-  padding: '0 12px',
-  border: `1px solid ${tokens.border}`,
-  borderRadius: 8,
-  background: tokens.bgLayer,
-  font: 'inherit',
-  fontSize: 13,
-  lineHeight: '20px',
-  color: tokens.labelPrimary,
-} as const
-
 /** 状态点：直接复用原语 StateDot（done 绿 / warning 琥珀），观感与会话列表一致。 */
 function StatusDot({ ok, busy }: { ok: boolean; busy?: boolean }) {
   return <StateDot state={busy ? 'ongoing' : ok ? 'done' : 'warning'} className="ui-mockup-dot" />
@@ -245,6 +242,40 @@ function Card({ title, children }: { title?: string; children: ReactNode }) {
       )}
       {children}
     </div>
+  )
+}
+
+/**
+ * 提供方页的配置区块：标题、说明和状态/操作拥有固定层级，并通过原生 section
+ * 暴露可访问区域名称。视觉仍沿用宿主令牌，避免把每一行再包成嵌套卡片。
+ */
+function ConfigSection({
+  title,
+  description,
+  aside,
+  children,
+}: {
+  title: string
+  description?: string
+  aside?: ReactNode
+  children: ReactNode
+}) {
+  const titleId = useId()
+  return (
+    <section aria-labelledby={titleId} className="ui-mockup-config-section">
+      <header className="ui-mockup-config-header">
+        <div className="ui-mockup-config-heading">
+          <h3 id={titleId} className="ui-mockup-config-title">
+            {title}
+          </h3>
+          {description !== undefined && (
+            <p className="ui-mockup-config-description">{description}</p>
+          )}
+        </div>
+        {aside !== undefined && <div className="ui-mockup-config-aside">{aside}</div>}
+      </header>
+      {children}
+    </section>
   )
 }
 
@@ -360,6 +391,10 @@ function OverviewPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
   if (data === undefined)
     return <div style={{ color: tokens.labelTertiary }}>{t('panel.loading')}</div>
 
+  // 生效提供方元数据：unknown（未挂载 image 服务）无注册条目，凭据名走默认提供方回退
+  const overviewMeta = providerOf(data.provider)
+  const overviewCredential = overviewMeta?.credential ?? providerMetaOf('unknown').credential
+
   return (
     <div
       className="ui-mockup-overview"
@@ -409,17 +444,10 @@ function OverviewPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
         {t('panel.overview.statusLine', {
           // 生效提供方由宿主端点给出；unknown（未挂载 image 服务）单独措辞
           provider:
-            data.provider === 'volcengine' || data.provider === 'dashscope'
-              ? t(PROVIDER_NAME_KEYS[data.provider])
-              : t('panel.provider.unknown'),
+            overviewMeta !== undefined ? t(overviewMeta.nameKey) : t('panel.provider.unknown'),
           credential: data.credential.configured
             ? t('panel.credential.ready')
-            : t('panel.credential.missing', {
-                credential:
-                  data.provider === 'volcengine'
-                    ? PROVIDER_CREDENTIALS.volcengine
-                    : PROVIDER_CREDENTIALS.dashscope,
-              }),
+            : t('panel.credential.missing', { credential: overviewCredential }),
         })}
       </div>
     </div>
@@ -443,47 +471,17 @@ function sourceLabelText(t: PanelProps['t'], source: string | undefined): string
   return key === undefined ? source : t(key)
 }
 
-const WIREFRAME_MODEL_HINTS: Record<ProviderId, string[]> = {
-  dashscope: ['', 'qwen-image-3.0', 'qwen-image-2.0', 'wan2.7-image'],
-  volcengine: ['', 'doubao-seedream-4-5-251128', 'doubao-seedream-4-0-250828'],
-  unknown: ['', 'qwen-image-3.0'],
-}
-const HIGH_FIDELITY_MODEL_HINTS: Record<ProviderId, string[]> = {
-  dashscope: ['', 'qwen-image-3.0-pro', 'qwen-image-2.0-pro', 'wan2.7-image-pro'],
-  volcengine: ['', 'doubao-seedream-5-0-pro-260628', 'doubao-seedream-5-0-260128'],
-  unknown: ['', 'qwen-image-3.0-pro'],
-}
-/** 方向稿（fastPreview）候选：定位是快速档，只列各家快模型。 */
-const DRAFT_MODEL_HINTS: Record<ProviderId, string[]> = {
-  dashscope: ['', 'qwen-image-3.0', 'wan2.7-image'],
-  volcengine: ['', 'doubao-seedream-4-5-251128'],
-  unknown: ['', 'qwen-image-3.0'],
-}
-
-/** 生效提供方 id（宿主 provider/status 端点返回；unknown = 未挂载 image 服务）。 */
-type ProviderId = 'dashscope' | 'volcengine' | 'unknown'
-
-/** 各提供方的凭据引用名（与 Provider Config 默认值一致）。 */
-const PROVIDER_CREDENTIALS: Record<ProviderId, string> = {
-  dashscope: 'DASHSCOPE_API_KEY',
-  volcengine: 'ARK_API_KEY',
-  unknown: 'DASHSCOPE_API_KEY',
-}
-
-/** 生效提供方 id → 本地化名称键；unknown 无名可显，调用方特判。 */
-const PROVIDER_NAME_KEYS: Record<Exclude<ProviderId, 'unknown'>, UiMockupKey> = {
-  dashscope: 'panel.provider.dashscopeName',
-  volcengine: 'panel.provider.volcengineName',
-}
-
 function ProviderPage({ t, prefs, connection }: PanelProps) {
   const snap = prefs.getSnapshot()
   usePrefSync(prefs)
+  const baseUrlInputId = useId()
+  const credentialInputId = useId()
   const [testResult, setTestResult] = useState<string | null>(null)
   const [testing, setTesting] = useState(false)
   const [writeError, setWriteError] = useState('')
-  // 生效提供方：provider/status 端点的唯一事实源，决定卡片选中态/凭据名/模型 hints
-  const [providerId, setProviderId] = useState<ProviderId>('unknown')
+  // 生效提供方 id（宿主 provider/status 端点返回；unknown = 未挂载 image 服务），
+  // 决定卡片选中态/凭据名/模型 hints——全部经元数据表查得
+  const [providerId, setProviderId] = useState<string>('unknown')
   // 端点不可达（旧宿主/纯内存部署）时置位：面板按安装默认（DashScope）渲染并说明原因，
   // 而不是把"检测不到"误显示成"未启用"。
   const [statusUnknown, setStatusUnknown] = useState(true)
@@ -496,15 +494,30 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
   const [keyDraft, setKeyDraft] = useState('')
   const [keyBusy, setKeyBusy] = useState(false)
   const [keyNotice, setKeyNotice] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
+  // 连接配置（仅 openai-compat）：生效网关地址回显 + 本地草稿（null = 未编辑）
+  const [effectiveBaseUrl, setEffectiveBaseUrl] = useState('')
+  const [baseUrlDraft, setBaseUrlDraft] = useState<string | null>(null)
+  const [baseUrlBusy, setBaseUrlBusy] = useState(false)
+  const [openModelTier, setOpenModelTier] = useState<'wireframe' | 'highFidelity' | 'draft' | null>(
+    null,
+  )
+  const [baseUrlNotice, setBaseUrlNotice] = useState<{ kind: 'ok' | 'error'; text: string } | null>(
+    null,
+  )
 
-  const refreshProviderStatus = useCallback(async (): Promise<ProviderId> => {
+  const refreshProviderStatus = useCallback(async (): Promise<string> => {
     try {
-      const value = await callPanel<{ active: ProviderId }>(connection, 'provider/status')
+      const value = await callPanel<{ active: string; baseUrl?: string }>(
+        connection,
+        'provider/status',
+      )
       setProviderId(value.active)
+      setEffectiveBaseUrl(typeof value.baseUrl === 'string' ? value.baseUrl : '')
       setStatusUnknown(false)
       return value.active
     } catch {
       setProviderId('unknown')
+      setEffectiveBaseUrl('')
       setStatusUnknown(true)
       return 'unknown'
     }
@@ -514,15 +527,17 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
     void refreshProviderStatus()
   }, [refreshProviderStatus])
 
-  const credentialName = PROVIDER_CREDENTIALS[providerId]
+  // 生效提供方元数据（未注册 id 走渲染回退条目）：凭据名与三档模型候选的唯一来源
+  const activeMeta = providerMetaOf(providerId)
+  const credentialName = activeMeta.credential
 
   /** 一键切换生效提供方：宿主改写 home 用户层 patch（DSH 热重载），完成后刷新状态。 */
-  const switchProvider = async (target: Exclude<ProviderId, 'unknown'>) => {
+  const switchProvider = async (target: string) => {
     if (switching) return
     setSwitching(true)
     setProviderNotice(null)
     try {
-      const result = await callPanel<{ active: ProviderId; pending?: boolean }>(
+      const result = await callPanel<{ active: string; pending?: boolean }>(
         connection,
         'provider/switch',
         { provider: target },
@@ -640,15 +655,60 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
     }
   }
 
-  const sourceLabel = sourceLabelText(t, credential?.source)
+  /** 保存网关地址（仅 openai-compat）：宿主写用户层补丁 config 节并热重载落位，
+   *  与切换提供方同款「几秒落位」体验；pending 语义同切换。 */
+  const saveBaseUrl = async () => {
+    const normalized = normalizeBaseUrl(baseUrlDraft ?? effectiveBaseUrl)
+    if (!normalized.valid) {
+      setBaseUrlNotice({ kind: 'error', text: t('panel.connection.invalid') })
+      return
+    }
+    const raw = normalized.value
+    setBaseUrlBusy(true)
+    setBaseUrlNotice(null)
+    try {
+      const result = await callPanel<{ pending?: boolean }>(connection, 'provider/baseurl/set', {
+        baseUrl: raw,
+      })
+      setBaseUrlDraft(raw)
+      setBaseUrlNotice(
+        result.pending === true
+          ? { kind: 'ok', text: t('panel.connection.pending') }
+          : { kind: 'ok', text: t('panel.connection.saved') },
+      )
+    } catch (err) {
+      setBaseUrlNotice({ kind: 'error', text: err instanceof Error ? err.message : String(err) })
+    } finally {
+      setBaseUrlBusy(false)
+      await refreshProviderStatus()
+    }
+  }
 
-  /** 纯状态文本（不含来源），供提供方选中卡第一行使用；来源另起一行淡化展示。 */
-  const credentialStatus =
-    credential === undefined
-      ? t('panel.credential.checking')
-      : credential.configured
-        ? t('panel.credential.ready')
-        : t('panel.credential.missing', { credential: credentialName })
+  // 模型发现（仅 openai-compat 有意义）：拉取网关 /v1/models 建议合并静态候选；
+  // 未配置/网络错/HTML-200/非 openai-compat 一律由宿主降级为空列表——静默回退
+  // 静态 hints + 手填，绝不弹错（建议是锦上添花，不阻塞配置）。
+  // 依赖含 effectiveBaseUrl：首次在连接卡填地址并保存后 providerId 不变，但生效
+  // 地址已变，重新拉取才能拿到网关建议；地址为空/非 openai-compat 时宿主仍降级，多调无副作用。
+  const [fetchedModels, setFetchedModels] = useState<string[]>([])
+  useEffect(() => {
+    let alive = true
+    setOpenModelTier(null)
+    setFetchedModels([])
+    void callPanel<{ models?: string[] }>(connection, 'provider/models')
+      .then((value) => {
+        if (alive && Array.isArray(value.models)) setFetchedModels(value.models)
+      })
+      .catch(() => undefined)
+    return () => {
+      alive = false
+    }
+  }, [connection, providerId, effectiveBaseUrl])
+
+  /** 下拉建议 = 注册表静态候选 ∪ 网关拉取建议（去重排序；空串「跟随默认」不进建议）。 */
+  const suggestionsOf = (tier: 'wireframe' | 'highFidelity' | 'draft'): string[] =>
+    [...new Set([...activeMeta.hints[tier].filter(Boolean), ...fetchedModels])].sort()
+
+  const sourceLabel = sourceLabelText(t, credential?.source)
 
   const credentialLine =
     credential === undefined
@@ -659,288 +719,264 @@ function ProviderPage({ t, prefs, connection }: PanelProps) {
           : t('panel.credential.readyWithSource', { source: sourceLabel })
         : t('panel.credential.missing', { credential: credentialName })
 
-  // unknown 有两种语义，渲染分流：
-  // - statusUnknown（端点不可达，旧宿主等）：按安装默认把 DashScope 渲染为选中，
-  //   并说明原因——"检测不到"不等于"未启用"；
-  // - 端点可达但 active=unknown：image 服务确实未挂载，两卡都未选中。
-  const statusReadable = !statusUnknown
-  const dashscopeActive = providerId === 'dashscope' || (providerId === 'unknown' && statusUnknown)
-  const volcengineActive = providerId === 'volcengine'
-  /** 选中卡：中性蓝灰边框 + 浅灰填充（对齐 DSH 原生「外观」选项卡）；未选中：border-l2 实线。 */
-  const providerCardStyle = (active: boolean) => ({
-    flex: '1 1 200px',
-    boxSizing: 'border-box' as const,
-    border: active
-      ? '1px solid var(--dsw-static-neutral-bluish-400)'
-      : `1px solid ${tokens.border}`,
-    borderRadius: 16,
-    background: active ? 'var(--dsw-alias-bg-module-platform)' : 'transparent',
-    padding: '10px 14px',
-    cursor: 'default',
-  })
-  const providerMetaStyle = {
-    marginTop: 4,
-    display: 'flex',
-    flexDirection: 'column' as const,
-    gap: 2,
-  }
-  const providerStatusStyle = {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 6,
-    fontSize: 12,
-    lineHeight: '17px',
-    color: tokens.labelSecondary,
-  }
+  const needsBaseUrl = providerId === 'openai-compat'
+  const connectionReady =
+    credential?.configured === true && (!needsBaseUrl || effectiveBaseUrl !== '')
+  const connectionStatus =
+    credential === undefined
+      ? t('panel.connection.checkingStatus')
+      : connectionReady
+        ? t('panel.connection.readyStatus')
+        : t('panel.connection.incompleteStatus')
+  const modelTiers = [
+    {
+      key: 'wireframe' as const,
+      pref: 'wireframeModel',
+      label: t('panel.models.wireframe'),
+      menuLabel: t('panel.models.options', { label: t('panel.models.wireframe') }),
+      visibleLabel: t('panel.models.wireframe'),
+      value: snap.value?.wireframeModel ?? '',
+    },
+    {
+      key: 'highFidelity' as const,
+      pref: 'highFidelityModel',
+      label: t('panel.models.highFidelity'),
+      menuLabel: t('panel.models.options', { label: t('panel.models.highFidelity') }),
+      visibleLabel: t('panel.models.highFidelity'),
+      value: snap.value?.highFidelityModel ?? '',
+    },
+    {
+      key: 'draft' as const,
+      pref: 'draftModel',
+      label: t('panel.models.draft'),
+      menuLabel: t('panel.models.options', { label: t('panel.models.draft') }),
+      visibleLabel: t('panel.models.draftShort'),
+      value: snap.value?.draftModel ?? '',
+    },
+  ]
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+    <div className="ui-mockup-provider-page">
       {snap.mode === 'memory' || !snap.writable ? (
         <Notice>{t('panel.readonlyBanner')}</Notice>
       ) : null}
       {writeError !== '' && <Notice danger>{writeError}</Notice>}
 
-      <Card title={t('panel.provider.title')}>
+      <ConfigSection
+        title={t('panel.provider.title')}
+        description={t('panel.provider.description')}
+      >
         {/* 提供方卡可点击切换：宿主端点改写 home 用户层 patch（DSH 热重载即时生效），
             面板不直接写 bundle 层——组合行仍是唯一事实源，这里只是代写它。 */}
         {statusUnknown && <Notice>{t('panel.provider.unknownHint')}</Notice>}
         {providerNotice !== null && <Notice>{providerNotice}</Notice>}
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <label
-            className="ui-mockup-provider-card"
-            style={{
-              ...providerCardStyle(dashscopeActive),
-              cursor: dashscopeActive || switching ? 'default' : 'pointer',
-            }}
-            onClick={() => {
-              if (!dashscopeActive) void switchProvider('dashscope')
-            }}
-          >
-            <input
-              type="radio"
-              name="ui-mockup-provider"
-              checked={dashscopeActive}
-              disabled={switching}
-              readOnly
-              aria-label={t('panel.provider.dashscopeName')}
-            />{' '}
-            <strong style={{ fontSize: 13 }}>{t('panel.provider.dashscopeName')}</strong>
-            <div style={providerMetaStyle}>
-              {dashscopeActive ? (
-                <>
-                  <div style={providerStatusStyle}>
-                    <StatusDot ok={credential?.configured === true} busy={switching} />
-                    {statusUnknown && providerId === 'unknown'
-                      ? t('panel.provider.fallbackActive')
-                      : credentialStatus}
-                  </div>
-                  {credential?.configured && sourceLabel !== undefined && (
-                    <div
-                      style={{
-                        fontSize: 12,
-                        lineHeight: '17px',
-                        color: tokens.labelTertiary,
-                        paddingLeft: 14,
-                      }}
-                    >
-                      {sourceLabel}
-                    </div>
-                  )}
-                </>
-              ) : (
-                <div style={providerStatusStyle}>
-                  <StatusDot ok={false} busy={switching} />
-                  {t('panel.provider.inactive')}
-                </div>
-              )}
-            </div>
-          </label>
-          <label
-            className="ui-mockup-provider-card"
-            style={{
-              ...providerCardStyle(volcengineActive),
-              cursor: volcengineActive || switching ? 'default' : 'pointer',
-            }}
-            onClick={() => {
-              if (!volcengineActive) void switchProvider('volcengine')
-            }}
-          >
-            <input
-              type="radio"
-              name="ui-mockup-provider"
-              checked={volcengineActive}
-              disabled={switching}
-              readOnly
-              aria-label={t('panel.provider.volcengineName')}
-            />{' '}
-            <strong style={{ fontSize: 13 }}>{t('panel.provider.volcengineName')}</strong>
-            <div style={providerMetaStyle}>
-              {volcengineActive ? (
-                <div style={providerStatusStyle}>
-                  <StatusDot ok={credential?.configured === true} busy={switching} />
-                  {credentialStatus}
-                </div>
-              ) : (
-                <div
-                  style={{
-                    fontSize: 12,
-                    lineHeight: '17px',
-                    color: tokens.labelTertiary,
-                  }}
-                >
-                  {statusReadable
-                    ? t('panel.provider.volcengineDisabled')
-                    : t('panel.provider.inactive')}
-                </div>
-              )}
-            </div>
-          </label>
-        </div>
-      </Card>
-
-      <Card title={t('panel.credential.title', { credential: credentialName })}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <span
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              flex: 1,
-              fontSize: 13,
-              lineHeight: '20px',
-              color: tokens.labelSecondary,
-            }}
-          >
-            <StatusDot ok={credential?.configured === true} busy={testing} />
-            {credentialLine}
-          </span>
-          <Button variant="outline" size="sm" onClick={() => void runTest()} disabled={testing}>
-            {testing ? t('panel.testing') : t('panel.testConnection')}
-          </Button>
-        </div>
-        {testResult !== null && <Notice>{testResult}</Notice>}
-        {/* 写入即覆盖、永不回显：草稿只在本地 state，回显的永远只有三个状态事实 */}
-        {credential?.writable === true ? (
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-            <Input
-              type="password"
-              aria-label={t('panel.credential.keyInputLabel', { credential: credentialName })}
-              style={{ flex: '1 1 220px' }}
-              value={keyDraft}
-              autoComplete="off"
-              placeholder={t('panel.credential.writePlaceholder', { credential: credentialName })}
-              onChange={(event) => setKeyDraft(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' && keyDraft.trim() !== '') void applyKey('credential/set')
-              }}
-            />
-            <Button
-              variant="primary"
-              size="sm"
-              disabled={keyBusy || keyDraft.trim() === ''}
-              onClick={() => void applyKey('credential/set')}
-            >
-              {t('panel.credential.save')}
-            </Button>
-            {credential.configured && (
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={keyBusy}
-                onClick={() => void applyKey('credential/unset')}
+        <div
+          role="radiogroup"
+          aria-label={t('panel.provider.title')}
+          aria-busy={switching}
+          className="ui-mockup-provider-grid"
+        >
+          {PROVIDER_REGISTRY.map((meta) => {
+            // 端点不可达（unknown）时按安装默认渲染默认提供方为选中，并标明「默认生效」
+            const isFallbackActive =
+              statusUnknown && providerId === 'unknown' && meta.id === DEFAULT_PROVIDER_ID
+            const active = providerId === meta.id || isFallbackActive
+            return (
+              <label
+                key={meta.id}
+                className="ui-mockup-provider-card"
+                data-active={active}
+                data-disabled={switching}
+                onClick={() => {
+                  if (!active) void switchProvider(meta.id)
+                }}
               >
-                {t('panel.credential.clear')}
-              </Button>
+                <input
+                  type="radio"
+                  name="ui-mockup-provider"
+                  checked={active}
+                  disabled={switching}
+                  readOnly
+                  aria-label={t(meta.nameKey)}
+                />
+                <strong className="ui-mockup-provider-name">{t(meta.nameKey)}</strong>
+                {active && (
+                  <span className="ui-mockup-provider-badge">
+                    {isFallbackActive
+                      ? t('panel.provider.fallbackActive')
+                      : t('panel.provider.current')}
+                  </span>
+                )}
+              </label>
+            )
+          })}
+        </div>
+      </ConfigSection>
+
+      <ConfigSection
+        title={t('panel.connection.title')}
+        aside={
+          <>
+            <span className="ui-mockup-connection-status">
+              <StatusDot
+                ok={connectionReady}
+                busy={credential === undefined || testing || baseUrlBusy || keyBusy}
+              />
+              {connectionStatus}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void runTest()}
+              disabled={testing || (providerId === 'openai-compat' && effectiveBaseUrl === '')}
+            >
+              {testing ? t('panel.testing') : t('panel.testConnection')}
+            </Button>
+          </>
+        }
+      >
+        {/* OpenAI 兼容网关额外需要 baseUrl；其余提供方只显示凭据行。 */}
+        {providerId === 'openai-compat' && (
+          <div className="ui-mockup-connection-row">
+            <label htmlFor={baseUrlInputId} className="ui-mockup-connection-label">
+              {t('panel.connection.baseUrlShortLabel')}
+            </label>
+            <div className="ui-mockup-connection-field">
+              <div className="ui-mockup-connection-control">
+                <Input
+                  id={baseUrlInputId}
+                  type="text"
+                  aria-label={t('panel.connection.baseUrlLabel')}
+                  style={{ flex: '1 1 240px', minWidth: 0 }}
+                  value={baseUrlDraft ?? effectiveBaseUrl}
+                  placeholder={t('panel.connection.baseUrlPlaceholder')}
+                  autoComplete="off"
+                  onChange={(event) => setBaseUrlDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') void saveBaseUrl()
+                  }}
+                />
+                <Button
+                  variant="primary"
+                  size="sm"
+                  aria-label={t('panel.connection.save')}
+                  disabled={
+                    baseUrlBusy ||
+                    (baseUrlDraft ?? effectiveBaseUrl).trim() === effectiveBaseUrl.trim()
+                  }
+                  onClick={() => void saveBaseUrl()}
+                >
+                  {t('panel.action.save')}
+                </Button>
+              </div>
+              <Notice>{t('panel.connection.baseUrlHint')}</Notice>
+              {baseUrlNotice !== null && (
+                <Notice danger={baseUrlNotice.kind === 'error'}>{baseUrlNotice.text}</Notice>
+              )}
+            </div>
+          </div>
+        )}
+
+        <div className="ui-mockup-connection-row">
+          <label htmlFor={credentialInputId} className="ui-mockup-connection-label">
+            {t('panel.connection.apiKeyLabel')}
+          </label>
+          <div className="ui-mockup-connection-field">
+            {credential?.writable === true ? (
+              <div className="ui-mockup-connection-control">
+                <Input
+                  id={credentialInputId}
+                  type="password"
+                  aria-label={t('panel.credential.keyInputLabel', { credential: credentialName })}
+                  style={{ flex: '1 1 220px', minWidth: 0 }}
+                  value={keyDraft}
+                  autoComplete="off"
+                  placeholder={t('panel.credential.writePlaceholder', {
+                    credential: credentialName,
+                  })}
+                  onChange={(event) => setKeyDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && keyDraft.trim() !== '') {
+                      void applyKey('credential/set')
+                    }
+                  }}
+                />
+                <Button
+                  variant="primary"
+                  size="sm"
+                  aria-label={t('panel.credential.save')}
+                  disabled={keyBusy || keyDraft.trim() === ''}
+                  onClick={() => void applyKey('credential/set')}
+                >
+                  {t('panel.action.save')}
+                </Button>
+                {credential.configured && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={keyBusy}
+                    onClick={() => void applyKey('credential/unset')}
+                  >
+                    {t('panel.credential.clear')}
+                  </Button>
+                )}
+              </div>
+            ) : credential !== undefined && credential.configured ? (
+              <Notice>{t('panel.credential.notWritable', { source: sourceLabel ?? '' })}</Notice>
+            ) : null}
+            <span className="ui-mockup-credential-status">
+              <StatusDot ok={credential?.configured === true} />
+              {credentialLine}
+            </span>
+            {keyNotice !== null && (
+              <Notice danger={keyNotice.kind === 'error'}>{keyNotice.text}</Notice>
             )}
           </div>
-        ) : credential !== undefined && credential.configured ? (
-          <Notice>{t('panel.credential.notWritable', { source: sourceLabel ?? '' })}</Notice>
-        ) : null}
-        {keyNotice !== null && (
-          <Notice danger={keyNotice.kind === 'error'}>{keyNotice.text}</Notice>
-        )}
-        <div
-          style={{
-            fontSize: 12,
-            lineHeight: '17px',
-            color: tokens.labelTertiary,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 2,
-            marginTop: 2,
-          }}
-        >
-          <span style={{ fontWeight: 500, color: tokens.labelSecondary }}>
-            {t('panel.credential.howTitle')}
-          </span>
-          <ol style={{ margin: 0, paddingLeft: 18 }}>
-            <li>{t('panel.credential.way1', { credential: credentialName })}</li>
-            <li>{t('panel.credential.way2')}</li>
-            <li>{t('panel.credential.way3', { credential: credentialName })}</li>
-            <li>{t('panel.credential.way4', { credential: credentialName })}</li>
-          </ol>
         </div>
-      </Card>
 
-      <Card title={t('panel.models.title')}>
-        <FieldRow first label={t('panel.models.wireframe')}>
-          <select
-            aria-label={t('panel.models.wireframe')}
-            className="ui-mockup-model-select"
-            value={snap.value?.wireframeModel ?? ''}
-            onChange={(event) =>
-              void writePref(prefs, 'wireframeModel', event.target.value.trim(), setWriteError)
-            }
-            style={{ ...selectStyle, width: 'min(260px, 100%)' }}
-          >
-            <option value="">{t('panel.models.followDefault')}</option>
-            {WIREFRAME_MODEL_HINTS[providerId].filter(Boolean).map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
-            ))}
-          </select>
-        </FieldRow>
-        <FieldRow label={t('panel.models.highFidelity')}>
-          <select
-            aria-label={t('panel.models.highFidelity')}
-            className="ui-mockup-model-select"
-            value={snap.value?.highFidelityModel ?? ''}
-            onChange={(event) =>
-              void writePref(prefs, 'highFidelityModel', event.target.value.trim(), setWriteError)
-            }
-            style={{ ...selectStyle, width: 'min(260px, 100%)' }}
-          >
-            <option value="">{t('panel.models.followDefault')}</option>
-            {HIGH_FIDELITY_MODEL_HINTS[providerId].filter(Boolean).map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
-            ))}
-          </select>
-        </FieldRow>
-        <FieldRow label={t('panel.models.draft')}>
-          <select
-            aria-label={t('panel.models.draft')}
-            className="ui-mockup-model-select"
-            value={snap.value?.draftModel ?? ''}
-            onChange={(event) =>
-              void writePref(prefs, 'draftModel', event.target.value.trim(), setWriteError)
-            }
-            style={{ ...selectStyle, width: 'min(260px, 100%)' }}
-          >
-            <option value="">{t('panel.models.followDefault')}</option>
-            {DRAFT_MODEL_HINTS[providerId].filter(Boolean).map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
-            ))}
-          </select>
-        </FieldRow>
-        <Notice>
-          {`${t('panel.models.wireframe')}: ${WIREFRAME_MODEL_HINTS[providerId].filter(Boolean).join(', ')} · ${t('panel.models.highFidelity')}: ${HIGH_FIDELITY_MODEL_HINTS[providerId].filter(Boolean).join(', ')} · ${t('panel.models.draft')}: ${DRAFT_MODEL_HINTS[providerId].filter(Boolean).join(', ')}`}
-        </Notice>
-      </Card>
+        {testResult !== null && <Notice>{testResult}</Notice>}
+        <details className="ui-mockup-connection-details">
+          <summary>{t('panel.connection.moreMethods')}</summary>
+          <div className="ui-mockup-connection-methods">
+            <span>{t('panel.credential.howTitle')}</span>
+            <ol>
+              <li>{t('panel.credential.way1', { credential: credentialName })}</li>
+              <li>{t('panel.credential.way2')}</li>
+              <li>{t('panel.credential.way3', { credential: credentialName })}</li>
+              <li>{t('panel.credential.way4', { credential: credentialName })}</li>
+            </ol>
+          </div>
+        </details>
+      </ConfigSection>
+
+      <ConfigSection title={t('panel.models.title')} description={t('panel.models.description')}>
+        {/* 可编辑组合框：输入框保留任意模型名手填能力，候选弹层统一复用 DSH Menu。 */}
+        <div className="ui-mockup-model-grid">
+          {modelTiers.map((tier) => (
+            <div key={tier.key} className="ui-mockup-model-field">
+              <span className="ui-mockup-model-label">{tier.visibleLabel}</span>
+              <EditableMenuCombobox
+                label={tier.label}
+                menuLabel={tier.menuLabel}
+                value={tier.value}
+                placeholder={t('panel.models.followDefault')}
+                options={suggestionsOf(tier.key)}
+                open={openModelTier === tier.key}
+                onOpenChange={(open) => setOpenModelTier(open ? tier.key : null)}
+                onChange={(value) => void writePref(prefs, tier.pref, value.trim(), setWriteError)}
+                disabled={snap.mode === 'memory' || !snap.writable}
+              />
+              <span className="ui-mockup-model-hint">
+                {t('panel.models.recommended', {
+                  models:
+                    activeMeta.hints[tier.key].find((model) => model !== '') ??
+                    t('panel.models.followDefault'),
+                })}
+              </span>
+            </div>
+          ))}
+        </div>
+      </ConfigSection>
     </div>
   )
 }
@@ -1152,18 +1188,18 @@ function PreferencesPage({ t, prefs }: Omit<PanelProps, 'connection'>) {
           </span>
         </FieldRow>
         <FieldRow label={t('panel.prefs.size')}>
-          <select
-            aria-label={t('panel.prefs.size')}
+          <MenuSelect
+            label={t('panel.prefs.size')}
             value={draft.defaultSize}
-            onChange={(event) => patch({ defaultSize: event.target.value })}
+            options={[
+              { value: '', label: t('panel.models.followDefault') },
+              { value: '1024*1024', label: '1024*1024' },
+              { value: '1280*720', label: '1280*720' },
+              { value: '720*1280', label: '720*1280' },
+            ]}
+            onChange={(value) => patch({ defaultSize: value })}
             disabled={readonlyNote || mutating}
-            style={selectStyle}
-          >
-            <option value="">{t('panel.models.followDefault')}</option>
-            <option value="1024*1024">1024*1024</option>
-            <option value="1280*720">1280*720</option>
-            <option value="720*1280">720*1280</option>
-          </select>
+          />
         </FieldRow>
       </Card>
       <div
@@ -1531,20 +1567,20 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
         </div>
       )}
 
-      {totalPages > 1 && (
-        <div
-          className="ui-mockup-history-pagination"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 8,
-            flexWrap: 'wrap',
-          }}
-        >
-          <span style={{ fontSize: 12, color: tokens.labelTertiary }}>
-            {t('panel.history.totalCount', { n: total })}
-          </span>
+      <div
+        className="ui-mockup-history-pagination"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 8,
+          flexWrap: 'wrap',
+        }}
+      >
+        <span style={{ fontSize: 12, color: tokens.labelTertiary }}>
+          {t('panel.history.totalCount', { n: total })}
+        </span>
+        {totalPages > 1 && (
           <div
             className="ui-mockup-history-pages"
             style={{ display: 'flex', alignItems: 'center', gap: 4 }}
@@ -1577,8 +1613,8 @@ function HistoryPage({ t, connection }: Omit<PanelProps, 'prefs'>) {
               {t('panel.history.next')}
             </Button>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {anchorFile !== null && rows.some((r) => r.anchored) && (
         <Notice>{t('panel.history.anchorHint')}</Notice>
@@ -1595,6 +1631,206 @@ function formatTime(iso: string): string {
 }
 
 /* ---------------- 小部件与钩子 ---------------- */
+
+function MenuSelect({
+  label,
+  value,
+  options,
+  onChange,
+  disabled,
+}: {
+  label: string
+  value: string
+  options: ReadonlyArray<{ value: string; label: string }>
+  onChange: (value: string) => void
+  disabled?: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const idOf = (optionValue: string) => (optionValue === '' ? '__default__' : optionValue)
+  const selected = options.find((option) => option.value === value)
+  const closeMenu = useCallback(() => setOpen(false), [])
+  useMenuEscapeBoundary(open, closeMenu, triggerRef)
+
+  return (
+    <Menu
+      open={open}
+      onClose={closeMenu}
+      items={options.map((option) => ({ id: idOf(option.value), label: option.label }))}
+      selectedId={idOf(value)}
+      onSelect={(id) => {
+        const option = options.find((entry) => idOf(entry.value) === id)
+        if (option === undefined) return
+        triggerRef.current?.focus()
+        closeMenu()
+        onChange(option.value)
+      }}
+      align="end"
+      portal
+      anchor={
+        <button
+          ref={triggerRef}
+          type="button"
+          className="ui-mockup-select-trigger"
+          aria-label={label}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          disabled={disabled}
+          onClick={() => setOpen((current) => !current)}
+        >
+          <span>{selected?.label ?? value}</span>
+          <IconChevronDownOutline14 className="ui-mockup-select-chevron" />
+        </button>
+      }
+    />
+  )
+}
+
+function EditableMenuCombobox({
+  label,
+  menuLabel,
+  value,
+  placeholder,
+  options,
+  open,
+  onOpenChange,
+  onChange,
+  disabled,
+}: {
+  label: string
+  menuLabel: string
+  value: string
+  placeholder: string
+  options: readonly string[]
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onChange: (value: string) => void
+  disabled?: boolean
+}) {
+  const [activeOptionId, setActiveOptionId] = useState<string | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const activeOption =
+    activeOptionId !== null && options.includes(activeOptionId) ? activeOptionId : undefined
+
+  useEffect(() => {
+    if (!open || (activeOptionId !== null && !options.includes(activeOptionId))) {
+      setActiveOptionId(null)
+    }
+  }, [activeOptionId, open, options])
+
+  const closeMenu = useCallback(() => {
+    onOpenChange(false)
+    setActiveOptionId(null)
+  }, [onOpenChange])
+  useMenuEscapeBoundary(open, closeMenu, inputRef)
+
+  const selectOption = (option: string) => {
+    inputRef.current?.focus()
+    closeMenu()
+    onChange(option)
+  }
+
+  return (
+    <Menu
+      open={open && options.length > 0}
+      onClose={closeMenu}
+      items={options.map((option) => ({ id: option, label: option }))}
+      selectedId={activeOption ?? (options.includes(value) ? value : undefined)}
+      onSelect={selectOption}
+      align="start"
+      portal
+      className="ui-mockup-model-menu"
+      anchor={
+        <span className="ui-mockup-model-combobox" data-disabled={disabled === true}>
+          <input
+            ref={inputRef}
+            type="text"
+            role="combobox"
+            aria-label={label}
+            aria-haspopup="menu"
+            aria-expanded={open && options.length > 0}
+            aria-autocomplete="list"
+            value={value}
+            placeholder={placeholder}
+            autoComplete="off"
+            spellCheck={false}
+            disabled={disabled}
+            onFocus={() => onOpenChange(true)}
+            onClick={() => onOpenChange(true)}
+            onChange={(event) => {
+              onOpenChange(true)
+              setActiveOptionId(null)
+              onChange(event.target.value)
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                closeMenu()
+                return
+              }
+              if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                if (options.length === 0) return
+                event.preventDefault()
+                onOpenChange(true)
+                setActiveOptionId((current) => {
+                  const currentIndex = current === null ? -1 : options.indexOf(current)
+                  if (currentIndex < 0) {
+                    return event.key === 'ArrowDown'
+                      ? (options[0] ?? null)
+                      : (options.at(-1) ?? null)
+                  }
+                  const delta = event.key === 'ArrowDown' ? 1 : -1
+                  return options[(currentIndex + delta + options.length) % options.length] ?? null
+                })
+                return
+              }
+              if (event.key === 'Enter' && open && activeOption !== undefined) {
+                event.preventDefault()
+                selectOption(activeOption)
+              }
+            }}
+          />
+          <button
+            type="button"
+            className="ui-mockup-model-menu-trigger"
+            aria-label={menuLabel}
+            aria-haspopup="menu"
+            aria-expanded={open && options.length > 0}
+            disabled={disabled || options.length === 0}
+            onClick={() => {
+              setActiveOptionId(null)
+              onOpenChange(!open)
+            }}
+          >
+            <IconChevronDownOutline14 />
+          </button>
+        </span>
+      }
+    />
+  )
+}
+
+/**
+ * DSH Menu 与宿主 Modal 都在 document 监听 Esc。菜单打开时由更靠前的捕获阶段
+ * 消费该按键并归还焦点，避免一次 Esc 同时关闭菜单和整个设置弹窗。
+ */
+function useMenuEscapeBoundary(
+  open: boolean,
+  onClose: () => void,
+  returnFocus: RefObject<HTMLElement | null>,
+): void {
+  useEffect(() => {
+    if (!open) return
+    const consumeEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      returnFocus.current?.focus()
+      onClose()
+    }
+    document.addEventListener('keydown', consumeEscape, true)
+    return () => document.removeEventListener('keydown', consumeEscape, true)
+  }, [open, onClose, returnFocus])
+}
 
 function Radio(props: {
   label: string
