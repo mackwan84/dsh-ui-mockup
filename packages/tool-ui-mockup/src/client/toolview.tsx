@@ -16,6 +16,8 @@ import { zh, type NS } from './locales.js'
 
 type Props = ToolCallViewProps & PropsLocale<typeof NS> & { anchor?: ToolviewAnchorFace }
 
+const ANCHOR_CHANGED_EVENT = 'ui-mockup:anchor-changed'
+
 /** 卡片锚点注入面：由注册方闭包捕获 connection 提供，直连 RPC 不经 agent。 */
 export interface ToolviewAnchorFace {
   set(file: string, cwd?: string): Promise<{ anchorFile: string; hint?: string }>
@@ -73,6 +75,18 @@ export function UiMockupToolview({ block, inputActions, cwd, t, anchor }: Props)
   // 标注弹窗目标图名（资产库语义文件名）；null 表示弹窗关闭
   const [annotating, setAnnotating] = useState<string | null>(null)
 
+  // 多张工具卡片共用同一个工作区锚点。设锚 RPC 成功后通过页面事件同步所有
+  // 已挂载卡片，避免旧卡片继续显示已失效的本地即时状态。
+  useEffect(() => {
+    const onAnchorChanged = (event: Event) => {
+      const detail = (event as CustomEvent<{ cwd?: string; file: string }>).detail
+      if (detail?.cwd !== cwd) return
+      setAnchoredNames(new Set([detail.file]))
+    }
+    window.addEventListener(ANCHOR_CHANGED_EVENT, onAnchorChanged)
+    return () => window.removeEventListener(ANCHOR_CHANGED_EVENT, onAnchorChanged)
+  }, [cwd])
+
   // 生成耗时反馈：运行中工具块的事件时间会随会话持久化，刷新后仍能延续计时；
   // 旧数据缺少时间（或时间为 0 等损坏值）时才回退到卡片挂载时间。出图后块带 kind 即停表。
   // 这里只说明本地已等待时长，不能据此判断远端任务进度或存活状态。
@@ -97,7 +111,9 @@ export function UiMockupToolview({ block, inputActions, cwd, t, anchor }: Props)
     setAnchorHint('')
     try {
       const result = await anchor.set(name, cwd)
-      setAnchoredNames((prev) => new Set(prev).add(name))
+      window.dispatchEvent(
+        new CustomEvent(ANCHOR_CHANGED_EVENT, { detail: { cwd, file: result.anchorFile } }),
+      )
       if (typeof result?.hint === 'string' && result.hint !== '') setAnchorHint(result.hint)
     } catch (err) {
       setAnchorError(err instanceof Error ? err.message : String(err))
@@ -253,7 +269,7 @@ export function UiMockupToolview({ block, inputActions, cwd, t, anchor }: Props)
         </Button>
         {showRefine && (
           <Button
-            variant="primary"
+            variant="outline"
             size="sm"
             onClick={() =>
               send(
@@ -347,7 +363,7 @@ export function UiMockupToolview({ block, inputActions, cwd, t, anchor }: Props)
           ))}
         {/* 「打开原图」入口移入标注弹窗底部（第 4 轮提案）：图片本体在资产库，
             弹窗内走图片路由新开页 */}
-        <Button variant="ghost" size="sm" onClick={() => setShowFeedback((value) => !value)}>
+        <Button variant="outline" size="sm" onClick={() => setShowFeedback((value) => !value)}>
           {t('card.feedback')}
         </Button>
       </div>

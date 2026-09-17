@@ -82,4 +82,11 @@ describe('0.3.0 发布元数据', () => {
       expect((await readJson(path))['version'], path).toBe(version)
     }
   })
+
+  it('组合包为 OpenAI 兼容网关预置可生成的分层默认模型', async () => {
+    const patch = await readText('bundle/ui-mockup/cordis.patch.yml')
+    expect(patch).toMatch(
+      /id: image-openai-compat[\s\S]*?config:\s*\n\s*wireframeModel: gpt-image-2\s*\n\s*highFidelityModel: gpt-image-2\.5-flare/,
+    )
+  })
 })

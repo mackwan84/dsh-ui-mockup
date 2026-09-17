@@ -218,7 +218,7 @@ const USAGE_SECTION = {
     '使用时机:',
     '- 功能需求讨论基本明确、准备开始写前端实现代码之前, 主动提议生成草图确认, 不要直接开始写代码。',
     '- 用户提到界面、页面、UI、视觉风格时, 主动询问是否需要生成草图。',
-    "- 布局与信息架构待确认: fidelity='wireframe'(面板分层默认里的线框图模型, 速度快)。",
+    "- 布局与信息架构待确认: fidelity='wireframe'(面板分层默认里的线框图模型, 速度快)。当前提供方是 Volcengine 时不生成线框图：改用 DashScope 或 OpenAI 兼容提供方，或改用 high-fidelity。",
     "- 视觉风格待确认: fidelity='high-fidelity'(面板分层默认里的高保真模型, 质量优先), 建议 count=2~4 一次给多个方向供用户选择。",
     "- 高保真单张耗时 1~5 分钟, 方向本身还没定时先出方向稿: 传 fastPreview=true(面板分层默认里的方向稿模型, 快速档)让用户先确认方向; 用户确认方向或要求「按这版精修」后, 用同一 description 去掉 fastPreview 再跑一次精修档。fidelity='wireframe' 时不要传 fastPreview: 线框档本身已是快模型, 传了会被忽略。",
     '- 同一个站点的多个页面在高保真阶段应传 reference=已确认页面的图, 保持风格一致(图生图模式)。',
@@ -839,10 +839,22 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
               }
             }
           }
-          // 模型解析顺序：显式 model 参数 → 分层偏好（fastPreview 时先方向稿模型，
-          // 空串回落线框档模型）→ Provider 内置分层默认（空串一路回落）。
+          const service = ctx.get('image') as ImageGenerationServiceFace | undefined
+          // 火山方舟的产品承诺聚焦高保真与编辑。线框图质量不稳定时在工具边界
+          // 提前拒绝，避免把一次可预见的不合格请求送往外部服务并消耗用户配额。
+          if (!isEdit && fidelity === 'wireframe' && service?.providerId === 'volcengine') {
+            return {
+              ok: false,
+              message:
+                'Volcengine 当前仅承诺高保真设计稿与编辑，不提供线框图质量保证：请切换到 DashScope 或 OpenAI 兼容提供方生成 wireframe，或改用 fidelity="high-fidelity"。',
+            }
+          }
+          // 方向稿仍保留高保真提示词，因此需显式回落 Provider 线框默认，
+          // 避免 Provider 按 fidelity 误选精修模型；普通生成继续由 Provider 分层回落。
           const tierModel = fastPreview
-            ? prefs.draftModel || prefs.wireframeModel
+            ? prefs.draftModel ||
+              prefs.wireframeModel ||
+              readProviderConfigString(service, 'wireframeModel')
             : fidelity === 'high-fidelity'
               ? prefs.highFidelityModel
               : prefs.wireframeModel
@@ -913,7 +925,6 @@ export function apply(ctx: Context, config: MockupPluginConfig = {}) {
             cwd: referenceInStore ? storeOf(workspaceRoot).root : workspaceRoot,
           }
 
-          const service = ctx.get('image') as ImageGenerationServiceFace | undefined
           if (service === undefined) {
             return {
               ok: false,
@@ -1715,10 +1726,13 @@ interface ImageGenerationServiceFace {
 /** 从生效 Provider 的 config 读字符串字段；服务缺失或字段非字符串时返回 undefined。 */
 function readProviderConfigString(
   service: ImageGenerationServiceFace | undefined,
-  key: 'apiKey' | 'baseUrl',
+  key: 'apiKey' | 'baseUrl' | 'wireframeModel',
 ): string | undefined {
   if (service === undefined) return undefined
   const value = (service as { config?: Record<string, unknown> }).config?.[key]
+  if (key === 'wireframeModel' && typeof value === 'string' && value.trim() === '') {
+    return undefined
+  }
   return typeof value === 'string' && value !== '' ? value : undefined
 }
 

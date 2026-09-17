@@ -14,16 +14,16 @@
 
 ## 配置（cordis.yml `config` 块）
 
-| 键                   | 默认                                       | 说明                               |
-| -------------------- | ------------------------------------------ | ---------------------------------- |
-| `apiKey`             | `ARK_API_KEY`                              | 凭据引用（环境变量名）             |
-| `baseUrl`            | `https://ark.cn-beijing.volces.com/api/v3` | 网关（国内；国际站为 bytepluses）  |
-| `wireframeModel`     | `doubao-seedream-4-5-251128`               | 线框图模型                         |
-| `highFidelityModel`  | `doubao-seedream-5-0-pro-260628`           | 高保真模型                         |
-| `editModel`          | `doubao-seedream-5-0-pro-260628`           | 指令编辑模型                       |
-| `requestTimeoutMs`   | 300000                                     | 同步请求超时（官方未公布网关上限） |
-| `rateLimitRetries`   | 2                                          | 限流重试次数                       |
-| `rateLimitBackoffMs` | 25000                                      | 限流退避间隔                       |
+| 键                   | 默认                                       | 说明                                               |
+| -------------------- | ------------------------------------------ | -------------------------------------------------- |
+| `apiKey`             | `ARK_API_KEY`                              | 凭据引用（环境变量名）                             |
+| `baseUrl`            | `https://ark.cn-beijing.volces.com/api/v3` | 网关（国内；国际站为 bytepluses）                  |
+| `wireframeModel`     | `doubao-seedream-4-5-251128`               | 供上层方向稿回落使用；产品工具不向火山发起线框生成 |
+| `highFidelityModel`  | `doubao-seedream-5-0-pro-260628`           | 高保真模型                                         |
+| `editModel`          | `doubao-seedream-5-0-pro-260628`           | 指令编辑模型                                       |
+| `requestTimeoutMs`   | 300000                                     | 同步请求超时（官方未公布网关上限）                 |
+| `rateLimitRetries`   | 2                                          | 限流重试次数                                       |
+| `rateLimitBackoffMs` | 25000                                      | 限流退避间隔                                       |
 
 ## size 翻译
 
@@ -48,6 +48,8 @@
 
 ## Known Limitations
 
+- **产品范围**：本 Provider 可被其他消费者直接调用 `generate`，但 `ui_mockup` 产品仅承诺
+  火山的高保真设计稿与整图指令编辑；其线框请求会在工具层被拒绝并提示切换 Provider。
 - **掩码（mask）局部重绘不受支持**：方舟 API 无掩码编辑能力（老 inpainting 涂抹编辑
   属视觉技术服务且已公告下线），`ImageEditSpec.mask` 传参时返回 `NOT_IMPLEMENTED`，
   编辑以整图指令重绘进行；

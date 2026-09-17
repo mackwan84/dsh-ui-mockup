@@ -97,6 +97,11 @@ dsh plugin --profile web add github:mackwan84/dsh-ui-mockup#main   # 需 prepare
   `watermark: false`；size 翻译见 Provider README（档位 1K/2K/4K 或显式 WxH 合法域钳制）；
 - 编辑：Seedream 同端点（image + prompt）；**mask 不受支持**（方舟无掩码编辑）→ `NOT_IMPLEMENTED`；
 - 多图请求串行拆单图调用（组图参数未在本仓验证）；
+- **产品能力边界**：`ui_mockup` 在生效 Provider 为 Volcengine 且请求
+  `fidelity='wireframe'` 时于工具层提前拒绝并引导切换 DashScope / OpenAI 兼容网关，
+  不调用方舟接口、不消耗用户配额；方舟只作为高保真与整图指令编辑 Provider 承诺。
+  Provider 内部保留 `wireframeModel` 是为了 `fastPreview` 的既有模型回落，不能推导为
+  对外线框质量能力；
 - 限流：HTTP 429（`ModelAccountIpmRateLimitExceeded` 等）→ 25s × 2 退避；
 - 提供方切换：bundle 预置三行 Provider（volcengine 与 openai-compat 默认 `disabled: true`），
   用户 patch 翻转 disabled；`ctx.image` 单槽位互斥，对齐 DSH `llm-deepseek` 单行语义；
@@ -118,6 +123,7 @@ dsh plugin --profile web add github:mackwan84/dsh-ui-mockup#main   # 需 prepare
 - 能力边界：参考图（I2I）与指令编辑显式 `NOT_IMPLEMENTED`——风格锚点经消费方元数据表
   的 `supportsReference` 闸门一律跳过注入并在结果消息说明；
 - 凭据：`OPENAI_COMPAT_API_KEY`（credentials seam → 启动环境 → `MISSING_CREDENTIAL`）；
+- 组合包部署默认：线框 `gpt-image-2`、高保真 `gpt-image-2.5-flare`；Provider 单包仍允许部署层或面板覆盖，保存 baseUrl 时通过生效配置重述保留分层默认，避免整替 config 后无模型可用；
 - 无内置退避重试：429 直接 `RATE_LIMITED` 上报；已知网关方言（`n>1` 拒绝、模型不存在
   503、无 `/v1` 前缀返回 HTML-200）见 `docs/references/`。
 
@@ -125,7 +131,7 @@ dsh plugin --profile web add github:mackwan84/dsh-ui-mockup#main   # 需 prepare
 
 - 工具 `ui_mockup`（参数/模板/结果呈现沿用 MVP 验证实现）：
   - 参数：description、fidelity（必填），以及 platform、style、count、model、size、reference、fastPreview；编辑时成对传 baseImage + editNote；凭据不属于工具参数；
-  - `fastPreview`（0.2.0）：仅 high-fidelity 生效，用「方向稿模型」档快速产出方向稿；模型解析顺序为显式 `model` → `draftModel` 偏好（空串回落 `wireframeModel`）→ Provider 内置分层默认；与 `fidelity='wireframe'` 组合时忽略并在结果消息说明（工具 schema DSL 无法表达条件约束，执行层显式处理）；使用时机与「确认后去掉 fastPreview 跑精修档」写入 `ui-mockup-usage` 提示词规则，不仅依赖 schema 字段描述；
+  - `fastPreview`（0.2.0）：仅 high-fidelity 生效，用「方向稿模型」档快速产出方向稿；模型解析顺序为显式 `model` → `draftModel` 偏好 → `wireframeModel` 偏好 → 当前 Provider 配置的 `wireframeModel` → `undefined`，由工具层读取生效服务配置，保留高保真提示词且避免空偏好误选精修默认；普通生成不提前注入 Provider 默认；与 `fidelity='wireframe'` 组合时忽略并在结果消息说明（工具 schema DSL 无法表达条件约束，执行层显式处理）；使用时机与「确认后去掉 fastPreview 跑精修档」写入 `ui-mockup-usage` 提示词规则，不仅依赖 schema 字段描述；
   - 模板：wireframe 使用无品牌名的低保真手绘线框 + 中文短标签；high-fidelity 使用风格词、单状态组件与低文字密度约束；reference 时追加与基准图一致约束；
   - 结果：落盘资产库 `$DSH_HOME/mockups/<工作区>/images/` → `attachments.saveImage` → 工具结果图片块呈现；模型只看到 `design/images/<文件名>` 语义引用；
   - 历史：逐行 JSONL；损坏行读取时跳过，坏尾行缺换行时先补分隔符再追加；历史写入失败不丢生成图片，并在成功结果中给出不会进入历史页的非致命告警；0.2.0 起方向稿记 `fastPreview: true`（纯增量字段，旧行兼容）；
@@ -138,7 +144,7 @@ dsh plugin --profile web add github:mackwan84/dsh-ui-mockup#main   # 需 prepare
 
 ### 6.4 客户端 UI
 
-- **工具卡片**：`tool.call.toolview` keyed `ui_mockup`——图片内嵌（点击进入标注弹窗）、确认/选用/修改意见按钮（模型可见消息固定中文）；方向稿结果卡显示「按这版精修」按钮（解析 `block.call.argsRaw` 中 `fastPreview === true`，窗口截断 `call` 为 null 或解析失败时静默不显示），精修消息要求复用原 description 并省略 `fastPreview/reference/baseImage/editNote`，文件名只标识已确认方向；运行中按持久化的工具调用事件时间计时，刷新后续表；空意见禁止提交，部分下载、附件超限与历史写入失败告警保持可见；「打开原图」入口在标注弹窗底部；
+- **工具卡片**：`tool.call.toolview` keyed `ui_mockup`——图片内嵌（点击进入标注弹窗）、确认/选用/修改意见按钮（模型可见消息固定中文）；「确认采用这版」是唯一主按钮，方向稿的「按这版精修」和「提交修改意见」使用描边次按钮，设锚与多图选择保持中性状态操作；方向稿结果卡解析 `block.call.argsRaw` 中 `fastPreview === true` 显示精修入口（窗口截断 `call` 为 null 或解析失败时静默不显示），精修消息要求复用原 description 并省略 `fastPreview/reference/baseImage/editNote`，文件名只标识已确认方向；运行中按持久化的工具调用事件时间计时，刷新后续表；空意见禁止提交，部分下载、附件超限与历史写入失败告警保持可见；「打开原图」入口在标注弹窗底部；
 - **标注弹窗（0.2.0）**：叠层架构——底图 `<img>` 渲染（显示不需要像素），标注画在同尺寸透明 canvas 叠层（纯几何，几何计算全部在 `src/annotation.ts` 纯函数模块，可 node 环境单测）；默认“选择/移动”拖动滚动视口，单击已有标记按矩形内部/线段8px显示容差从上层到下层命中，选中项增加虚线包围框；说明/状态栏固定 44px 高度并使用单行双列布局，按工具状态动态切换内容但不改变弹窗高度，绘图模式使用 DSH 警示图标和语义令牌引导切回选择工具；选中态复用 DSH `Pill`/`Button`/垃圾桶图标与主题令牌，可点显式删除按钮，也可用Delete与macOS Backspace删除选中标记（仅画布自身聚焦时拦截，输入控件与工具条按钮持有焦点时不删标记）；标记快照栈使创建、删除、清空都可撤销（栈深上限 50），删除后剩余标记按顺序重新编号；矩形/画笔/箭头三种绘制工具、缩放下拉（默认“适合窗口”，完整显示且不超过100%；固定50%/100%/150%/200%切换时保持视口中心）、三色；提交时编号归一化坐标投影 + 意见经 `inputActions.setDraft + submit` 发出（底图固有尺寸未就绪前提交按钮保持禁用）；无标注提交退化为纯文字反馈；弹窗焦点陷阱 + Esc关闭，不承诺键盘绘制等价能力（canvas圈选本质不可键盘操作）；
 - **图片路由**：webServer prefix `/ui-mockup/images` 服务资产库图片（cwd 经信任源全集校验）；
 - **设置面板 4 页**（已确认线框）：概览 / 提供方与模型（三列提供方选择、统一连接设置与三档模型默认）/ 生成偏好 / 生成历史（方向稿标签 + 「只看方向稿」服务端过滤，工作区/连接变化时过滤位与请求参数一同复位；空态、单页和多页始终显示过滤后的总条数，仅多页显示翻页控件）；

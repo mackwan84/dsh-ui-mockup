@@ -540,6 +540,125 @@ describe('ui-mockup real dynamic composition', () => {
     }
   })
 
+  describe.each([
+    {
+      provider: 'dashscope' as const,
+      wireframeModel: 'qwen-image-2.0',
+      highFidelityModel: 'qwen-image-3.0-pro',
+      draftModel: 'qwen-image-3.0',
+      preferenceModel: 'qwen-image-2.0-pro',
+    },
+    {
+      provider: 'volcengine' as const,
+      wireframeModel: 'doubao-seedream-4-0-250828',
+      highFidelityModel: 'doubao-seedream-5-0-pro-260628',
+      draftModel: 'doubao-seedream-4-5-251128',
+      preferenceModel: 'doubao-seedream-5-0-260128',
+    },
+  ])('PRV-04 $provider 方向稿模型解析', (models) => {
+    afterEach(() => {
+      vi.restoreAllMocks()
+    })
+
+    it.each([
+      { scenario: '三档为空回落 Provider 自定义线框模型', tier: 'empty', fastPreview: true },
+      { scenario: 'Provider 空白默认不下传模型', tier: 'blank', fastPreview: true },
+      { scenario: '线框偏好优先于 Provider 默认', tier: 'wireframe', fastPreview: true },
+      { scenario: '方向稿偏好优先于线框偏好', tier: 'draft', fastPreview: true },
+      { scenario: '显式模型优先于三档偏好', tier: 'explicit', fastPreview: true },
+      { scenario: '普通高保真仍由 Provider 选择默认', tier: 'empty', fastPreview: false },
+    ])('$scenario', async ({ tier, fastPreview }) => {
+      const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+      try {
+        const booted = await bootComposition(dir, {
+          provider: models.provider,
+          providerConfig: {
+            wireframeModel: tier === 'blank' ? '   ' : models.wireframeModel,
+            highFidelityModel: models.highFidelityModel,
+          },
+        })
+        Object.assign(booted.settings.resolved, {
+          draftModel: tier === 'draft' || tier === 'explicit' ? models.draftModel : '',
+          wireframeModel: tier !== 'empty' && tier !== 'blank' ? models.preferenceModel : '',
+          highFidelityModel: tier !== 'empty' && tier !== 'blank' ? models.highFidelityModel : '',
+        })
+        // 保留真实 Provider，只替换外部网络；观察工具传入模型与 Provider 实际请求。
+        const service = booted.ctx.get('image') as ImageGenerationService
+        const generate = vi.spyOn(service, 'generate')
+        const requestedModels: unknown[] = []
+        const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00])
+        vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+          if (url.includes('image-generation/generation') || url.includes('/images/generations')) {
+            if (typeof init?.body !== 'string') throw new Error('expected JSON request body')
+            const body = JSON.parse(init.body) as { model: string }
+            requestedModels.push(body.model)
+            return new Response(
+              JSON.stringify(
+                models.provider === 'dashscope'
+                  ? { output: { task_id: 'task-prv04', task_status: 'PENDING' } }
+                  : { model: body.model, data: [{ url: 'https://oss.example/prv04.png' }] },
+              ),
+              { status: 200 },
+            )
+          }
+          if (url.includes('/api/v1/tasks/task-prv04')) {
+            return new Response(
+              JSON.stringify({
+                output: {
+                  task_id: 'task-prv04',
+                  task_status: 'SUCCEEDED',
+                  choices: [{ message: { content: [{ image: 'https://oss.example/prv04.png' }] } }],
+                },
+              }),
+              { status: 200 },
+            )
+          }
+          if (url === 'https://oss.example/prv04.png') {
+            return new Response(png, { status: 200, headers: { 'content-type': 'image/png' } })
+          }
+          throw new Error(`unexpected fetch: ${url}`)
+        })
+
+        const definition = booted.tools.registered.find((item) => item.name === 'ui_mockup')!
+        const execute = definition.execute as (
+          args: Record<string, unknown>,
+          exec: { signal: AbortSignal; agent: { session: { header: { cwd: string } } } },
+        ) => Promise<Record<string, unknown>>
+        const value = await execute(
+          {
+            description: '无锚点的客户管理工作台',
+            fidelity: 'high-fidelity',
+            platform: 'web',
+            count: 1,
+            fastPreview,
+            ...(tier === 'explicit' ? { model: models.highFidelityModel } : {}),
+          },
+          { signal: new AbortController().signal, agent: { session: { header: { cwd: dir } } } },
+        )
+        const expectedModel =
+          !fastPreview || tier === 'explicit' || tier === 'blank'
+            ? models.highFidelityModel
+            : tier === 'draft'
+              ? models.draftModel
+              : tier === 'wireframe'
+                ? models.preferenceModel
+                : models.wireframeModel
+        expect(generate.mock.calls[0]?.[0]).toMatchObject({
+          fidelity: 'high-fidelity',
+          model: fastPreview && tier !== 'blank' ? expectedModel : undefined,
+          reference: undefined,
+        })
+        expect(value.ok, String(value.message)).toBe(true)
+        expect(requestedModels).toEqual([expectedModel])
+        expect(String(value.message)).toContain(expectedModel)
+        const history = await readFile(join(storeDirFor(dir), 'history.jsonl'), 'utf8')
+        expect(JSON.parse(history.trim())).toMatchObject({ model: expectedModel })
+      } finally {
+        await rm(dir, { recursive: true, force: true })
+      }
+    })
+  })
+
   it('fastPreview 与线框档组合时忽略并说明，不改变线框档模型解析', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
     try {
@@ -1471,6 +1590,40 @@ describe('ui-mockup real dynamic composition', () => {
       >
       expect(service).toBeInstanceOf(VolcengineImageProvider)
       expect(service.providerId).toBe('volcengine')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('拒绝 Volcengine 的线框生成并给出可操作的替代路径', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+    try {
+      const booted = await bootComposition(dir, { provider: 'volcengine' })
+      const service = booted.ctx.get('image') as unknown as InstanceType<
+        typeof VolcengineImageProvider
+      >
+      const generate = vi.spyOn(service, 'generate')
+      const definition = booted.tools.registered.find((item) => item.name === 'ui_mockup')!
+      const execute = definition.execute as (
+        args: Record<string, unknown>,
+        exec: { signal: AbortSignal; agent?: { session: { header: { cwd?: string } } } },
+      ) => Promise<Record<string, unknown>>
+
+      const value = await execute(
+        {
+          description: 'CRM 销售工作台',
+          fidelity: 'wireframe',
+          platform: 'web',
+        },
+        { signal: new AbortController().signal, agent: { session: { header: { cwd: dir } } } },
+      )
+
+      expect(value).toEqual({
+        ok: false,
+        message:
+          'Volcengine 当前仅承诺高保真设计稿与编辑，不提供线框图质量保证：请切换到 DashScope 或 OpenAI 兼容提供方生成 wireframe，或改用 fidelity="high-fidelity"。',
+      })
+      expect(generate).not.toHaveBeenCalled()
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
