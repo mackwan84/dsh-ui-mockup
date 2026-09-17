@@ -2,7 +2,7 @@
 
 [中文](../../guides/product-guide.md)
 
-> Status: M1–M5 are implemented: image service, three providers, `ui_mockup`, editing, bundle integration, Settings, annotation feedback, and `fastPreview` direction images. M2 delivers in-conversation cards, image routing, and i18n; M3 delivers four Settings pages, history, and style anchors.  
+> Status: M1–M5 are implemented: image service, three providers, `ui_mockup`, editing, bundle integration, Settings, annotation feedback, and `fastPreview` direction images. M2 delivers in-conversation cards, image routing, and i18n; M3 delivers four Settings pages, history, and style anchors.
 > Audience: individual developers and small teams without a dedicated UI designer.
 
 ## 1. What it is

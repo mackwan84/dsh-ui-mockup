@@ -2,8 +2,8 @@
 
 [中文](../../architecture/bilingual-public-documentation.md)
 
-> Status: active  
-> Effective date: 2026-09-17  
+> Status: active
+> Effective date: 2026-09-17
 > Scope: Markdown documentation intended for GitHub readers, npm users, and external integration developers.
 
 ## Goal
