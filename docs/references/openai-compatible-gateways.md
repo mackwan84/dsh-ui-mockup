@@ -1,5 +1,7 @@
 # OpenAI 兼容生图网关事实清单
 
+[English](../en/references/openai-compatible-gateways.md)
+
 > 首次核对日期：2026-09-14。事实来自本仓 v0.3.0 迭代准备期的真实网关活体验证
 > （one_api / new_api 系私有网关，模型为 gpt-image 系）与 OpenAI Images API
 > 官方文档交叉核对；不确定处标注「未确认」。本页是 openai-compat Provider

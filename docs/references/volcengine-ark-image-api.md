@@ -1,5 +1,7 @@
 # 火山方舟(Volcengine Ark)图像 API 事实清单
 
+[English](../en/references/volcengine-ark-image-api.md)
+
 > 初始调研日期：2025 年；迁移复核日期：2026-08-28。主要事实来自官方文档，
 > 少数点通过真实浏览器调用交叉验证，不确定处均标注「未确认」。
 >

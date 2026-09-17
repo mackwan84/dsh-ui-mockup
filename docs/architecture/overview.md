@@ -1,5 +1,7 @@
 # dsh-ui-mockup · 架构与实现
 
+[English](../en/architecture/overview.md)
+
 > 当前实现版本：0.3.0。本文记录仓库结构、能力边界与经验证的关键实现事实。
 
 ## 1. 产品目标

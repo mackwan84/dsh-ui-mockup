@@ -1,5 +1,7 @@
 # 阿里云百炼（DashScope）图像编辑能力与思考模式开关事实清单
 
+[English](../en/references/dashscope-image-edit-and-thinking-mode.md)
+
 > 调研日期：2026-09-04（本次核对）。主要事实来自阿里云官方文档
 > （help.aliyun.com / alibabacloud.com 的 Model Studio 文档，页面自身标注的
 > 更新时间多为 2026-09-02），未做任何真实 API 调用；本仓已有的 2026 实测结论
