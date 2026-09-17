@@ -1595,6 +1595,40 @@ describe('ui-mockup real dynamic composition', () => {
     }
   })
 
+  it('拒绝 Volcengine 的线框生成并给出可操作的替代路径', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
+    try {
+      const booted = await bootComposition(dir, { provider: 'volcengine' })
+      const service = booted.ctx.get('image') as unknown as InstanceType<
+        typeof VolcengineImageProvider
+      >
+      const generate = vi.spyOn(service, 'generate')
+      const definition = booted.tools.registered.find((item) => item.name === 'ui_mockup')!
+      const execute = definition.execute as (
+        args: Record<string, unknown>,
+        exec: { signal: AbortSignal; agent?: { session: { header: { cwd?: string } } } },
+      ) => Promise<Record<string, unknown>>
+
+      const value = await execute(
+        {
+          description: 'CRM 销售工作台',
+          fidelity: 'wireframe',
+          platform: 'web',
+        },
+        { signal: new AbortController().signal, agent: { session: { header: { cwd: dir } } } },
+      )
+
+      expect(value).toEqual({
+        ok: false,
+        message:
+          'Volcengine 当前仅承诺高保真设计稿与编辑，不提供线框图质量保证：请切换到 DashScope 或 OpenAI 兼容提供方生成 wireframe，或改用 fidelity="high-fidelity"。',
+      })
+      expect(generate).not.toHaveBeenCalled()
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   it('boots the openai-compat provider when the bundle row flips disabled', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'dsh-uimock-composition-'))
     try {

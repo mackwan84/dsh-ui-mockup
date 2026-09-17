@@ -98,6 +98,10 @@ DASHSCOPE_API_KEY=sk-xxxx
 火山方舟用 `ARK_API_KEY` 凭据，OpenAI 兼容网关用 `OPENAI_COMPAT_API_KEY`
 （连接设置区的 API 密钥行随生效提供方自动切换读写目标）。
 编辑模式（`baseImage` + `editNote` 指令重绘）当前仅火山方舟支持。
+火山方舟在本产品中**只承诺高保真设计稿与整图指令编辑**：`fidelity=wireframe`
+会在调用前被明确拒绝，不消耗生成配额；请切换至 DashScope 或 OpenAI 兼容网关生成线框，
+或直接改用高保真。它保留的 `wireframeModel` 配置仅用于高保真方向稿的既有回落链，
+不是线框质量承诺。
 OpenAI 兼容网关面向 one-api / new-api 等私有聚合网关：网关地址在其
 **连接设置** 区的网关地址行中填写（仅该提供方显示；校验 http/https 并提示通常以
 `/v1` 结尾，保存写入 DSH 用户层配置并热重载，几秒内生效）；只承诺

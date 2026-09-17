@@ -97,6 +97,11 @@ dsh plugin --profile web add github:mackwan84/dsh-ui-mockup#main   # 需 prepare
   `watermark: false`；size 翻译见 Provider README（档位 1K/2K/4K 或显式 WxH 合法域钳制）；
 - 编辑：Seedream 同端点（image + prompt）；**mask 不受支持**（方舟无掩码编辑）→ `NOT_IMPLEMENTED`；
 - 多图请求串行拆单图调用（组图参数未在本仓验证）；
+- **产品能力边界**：`ui_mockup` 在生效 Provider 为 Volcengine 且请求
+  `fidelity='wireframe'` 时于工具层提前拒绝并引导切换 DashScope / OpenAI 兼容网关，
+  不调用方舟接口、不消耗用户配额；方舟只作为高保真与整图指令编辑 Provider 承诺。
+  Provider 内部保留 `wireframeModel` 是为了 `fastPreview` 的既有模型回落，不能推导为
+  对外线框质量能力；
 - 限流：HTTP 429（`ModelAccountIpmRateLimitExceeded` 等）→ 25s × 2 退避；
 - 提供方切换：bundle 预置三行 Provider（volcengine 与 openai-compat 默认 `disabled: true`），
   用户 patch 翻转 disabled；`ctx.image` 单槽位互斥，对齐 DSH `llm-deepseek` 单行语义；
